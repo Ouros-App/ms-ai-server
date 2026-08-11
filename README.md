@@ -1,104 +1,31 @@
-# FastAPI Microservice Template
+# AI Server
 
-Template minimo para iniciar um microservico com FastAPI.
+API principal para os fronts consumirem agentes de IA. A base ja possui FastAPI, LangGraph e memoria persistente no MongoDB; os agentes, prompts e tools ainda sao propositalmente genericos.
 
 ## Estrutura
 
-```text
-.
-├── app/
-│   ├── __init__.py
-│   ├── api/
-│   │   ├── __init__.py
-│   │   └── routes.py
-│   ├── core/
-│   │   ├── __init__.py
-│   │   └── config.py
-│   ├── models/
-│   │   └── __init__.py
-│   ├── repositories/
-│   │   └── __init__.py
-│   ├── schemas/
-│   │   ├── __init__.py
-│   │   └── common.py
-│   ├── services/
-│   │   └── __init__.py
-│   └── main.py
-├── tests/
-│   └── __init__.py
-├── .env.example
-├── .gitignore
-├── Dockerfile
-├── docker-compose.yml
-├── README.md
-└── requirements.txt
-```
+- `app/agents/graph.py`: fluxo `router -> agente` e registro de agentes.
+- `app/agents/prompts.py`: prompts para preencher.
+- `app/agents/tools.py`: tools permitidas para preencher.
+- `app/services/chat.py`: entrada unica do grafo.
+- MongoDB: checkpoints por `thread_id`, incluindo mensagens e estado do grafo.
 
-## Pastas principais
-
-- `app/main.py`: cria a aplicacao FastAPI e registra as rotas.
-- `app/api/`: rotas e agrupamento de endpoints.
-- `app/core/`: configuracoes centrais do servico.
-- `app/schemas/`: contratos de entrada e saida com Pydantic.
-- `app/services/`: regras de negocio.
-- `app/repositories/`: acesso a dados ou integracoes externas.
-- `app/models/`: modelos internos ou modelos de banco, quando existirem.
-- `tests/`: testes automatizados.
-
-## Rotas
-
-- `GET /` retorna uma mensagem simples da aplicacao.
-- `GET /health` retorna o status de saude do servico.
-
-## Rodando localmente
-
-Crie e ative um ambiente virtual:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-```
-
-Instale as dependencias:
-
-```bash
-pip install -r requirements.txt
-```
-
-Inicie a API:
-
-```bash
-uvicorn app.main:app --reload
-```
-
-Acesse:
-
-- API: `http://localhost:8000`
-- Health check: `http://localhost:8000/health`
-- Docs: `http://localhost:8000/docs`
-
-## Rodando com Docker Compose
-
-Crie o arquivo `.env` a partir do exemplo:
-
-```bash
-cp .env.example .env
-```
-
-Suba o servico:
+## Rodar
 
 ```bash
 docker compose up --build
 ```
 
-Para parar:
+Copie `.env.example` para `.env` apenas se precisar alterar os valores padrao.
 
-```bash
-docker compose down
+API: `http://localhost:8000/docs`
+
+```json
+POST /v1/chat
+{
+  "user_id": "usuario-1",
+  "message": "teste"
+}
 ```
 
-## Variaveis de ambiente
-
-| Nome | Padrao | Descricao |
-| --- | --- | --- |
-| `APP_PORT` | `8000` | Porta publicada no host pelo Docker Compose. |
+Enquanto nenhum agente for definido, a rota retorna uma resposta de placeholder. Para adicionar um agente, crie o no em `app/agents/graph.py`, inclua-o em `AGENTS` e altere `route_request`. O mesmo `thread_id` so pode ser reutilizado pelo `user_id` que o criou.

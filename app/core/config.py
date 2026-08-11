@@ -1,7 +1,22 @@
-class Settings:
-    PROJECT_NAME = "FastAPI Microservice Template"
-    DESCRIPTION = "Minimal FastAPI microservice template."
-    VERSION = "0.1.0"
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-settings = Settings()
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    project_name: str = "AI Server"
+    description: str = "API de orquestracao de IA."
+    version: str = "0.1.0"
+    app_port: int = 8000
+    mongodb_uri: str = "mongodb://localhost:27017"
+    mongodb_database: str = "ai_server"
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()
