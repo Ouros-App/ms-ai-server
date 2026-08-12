@@ -4,6 +4,7 @@ from app.core.config import Settings, settings
 
 
 def build_chat_model(config: Settings):
+    """Monta Groq com NVIDIA NIM como fallback quando as chaves existem."""
     if not config.groq_api_key or not config.nvidia_api_key:
         return None
 
@@ -30,4 +31,5 @@ def build_chat_model(config: Settings):
 
 @lru_cache
 def get_chat_model():
+    """Retorna o modelo compartilhado configurado para o processo."""
     return build_chat_model(settings)

@@ -5,6 +5,7 @@ from app.schemas.chat import ChatRequest, ChatResponse
 
 
 async def invoke_graph(graph, payload: ChatRequest) -> ChatResponse:
+    """Valida a posse da thread, executa o grafo e formata a resposta."""
     config = {"configurable": {"thread_id": payload.thread_id}}
     snapshot = await graph.aget_state(config)
     owner_id = snapshot.values.get("user_id")

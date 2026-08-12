@@ -10,6 +10,7 @@ from app.core.config import settings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Cria o checkpointer MongoDB e o grafo durante a vida da API."""
     with MongoDBSaver.from_conn_string(
         settings.mongodb_uri,
         db_name=settings.mongodb_database,
