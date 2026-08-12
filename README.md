@@ -13,18 +13,19 @@ API principal para os fronts consumirem agentes de IA. A base ja possui FastAPI,
 
 ## Rodar
 
+Sem chaves de IA, o Compose sobe a resposta de placeholder:
+
 ```bash
 docker compose up --build
 ```
 
-Copie `.env.example` para `.env` apenas se precisar alterar os valores padrao.
-
-Para ativar a IA, informe `GROQ_API_KEY` e `NVIDIA_API_KEY`. O Groq recebe cada chamada primeiro; se falhar, LangChain reexecuta a mesma chamada no endpoint NIM configurado por `NVIDIA_NIM_BASE_URL`. Sem as duas chaves, a API conserva a resposta de placeholder.
+Para ativar a IA, copie `.env.example` para `.env` e preencha `GROQ_API_KEY` e `NVIDIA_API_KEY` antes de executar o Compose. O Groq recebe cada chamada primeiro; se falhar, LangChain reexecuta a mesma chamada no endpoint NIM configurado por `NVIDIA_NIM_BASE_URL`. `MONGODB_URI` serve para execucao no host; o Compose usa `MONGODB_URI_DOCKER`.
 
 API: `http://localhost:8000/docs`
 
+`POST /v1/chat`
+
 ```json
-POST /v1/chat
 {
   "user_id": "usuario-1",
   "message": "teste"

@@ -17,6 +17,6 @@ async def health_check() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
-@router.post("/v1/chat", response_model=ChatResponse)
+@router.post("/v1/chat")
 async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
     return await invoke_graph(request.app.state.graph, payload)

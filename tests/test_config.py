@@ -1,4 +1,6 @@
+import os
 import unittest
+from unittest.mock import patch
 
 from app.agents.tools import TOOLS
 from app.core.config import Settings, get_settings, settings
@@ -6,7 +8,8 @@ from app.core.config import Settings, get_settings, settings
 
 class ConfigTest(unittest.TestCase):
     def test_defaults(self) -> None:
-        config = Settings()
+        with patch.dict(os.environ, {}, clear=True):
+            config = Settings(_env_file=None)
 
         self.assertEqual(config.app_port, 8000)
         self.assertEqual(config.mongodb_database, "ai_server")

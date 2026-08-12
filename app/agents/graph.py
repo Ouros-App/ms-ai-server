@@ -11,7 +11,7 @@ class AgentState(MessagesState):
     agents: list[str]
 
 
-async def route_request(state: AgentState) -> dict:
+def route_request(state: AgentState) -> dict:
     _ = state
     return {"route": "default", "agents": ["router"]}
 
@@ -23,7 +23,7 @@ async def default_agent(state: AgentState) -> dict:
             {"role": "system", "content": SYSTEM_PROMPT},
             *state["messages"],
         ])
-        message = AIMessage(content=response.content)
+        message = response
     else:
         message = AIMessage(content=DEFAULT_AGENT_RESPONSE)
 

@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from langgraph.checkpoint.mongodb.aio import AsyncMongoDBSaver
+from langgraph.checkpoint.mongodb import MongoDBSaver
 
 from app.agents.graph import build_graph
 from app.api.routes import router
@@ -10,7 +10,7 @@ from app.core.config import settings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with AsyncMongoDBSaver.from_conn_string(
+    with MongoDBSaver.from_conn_string(
         settings.mongodb_uri,
         db_name=settings.mongodb_database,
     ) as checkpointer:

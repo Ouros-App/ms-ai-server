@@ -23,6 +23,7 @@ def build_chat_model(config: Settings):
         base_url=config.nvidia_nim_base_url,
         temperature=config.llm_temperature,
         timeout=config.llm_timeout_seconds,
+        max_retries=0,
     )
     return primary.with_fallbacks([fallback])
 

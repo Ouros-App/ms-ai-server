@@ -10,8 +10,14 @@ from app.core.config import Settings
 
 
 class ModelTest(unittest.TestCase):
-    def test_model_is_disabled_without_both_keys(self) -> None:
+    def test_model_is_disabled_when_any_key_is_missing(self) -> None:
         self.assertIsNone(build_chat_model(Settings(_env_file=None)))
+        self.assertIsNone(
+            build_chat_model(Settings(_env_file=None, groq_api_key=SecretStr("groq-key")))
+        )
+        self.assertIsNone(
+            build_chat_model(Settings(_env_file=None, nvidia_api_key=SecretStr("nvidia-key")))
+        )
 
     def test_groq_uses_nim_as_fallback(self) -> None:
         groq = Mock()
@@ -47,5 +53,6 @@ class ModelTest(unittest.TestCase):
             base_url="https://integrate.api.nvidia.com/v1",
             temperature=0.2,
             timeout=30,
+            max_retries=0,
         )
         primary.with_fallbacks.assert_called_once_with([nvidia.return_value])
