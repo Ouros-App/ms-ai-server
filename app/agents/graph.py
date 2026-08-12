@@ -1,7 +1,8 @@
 from langchain_core.messages import AIMessage
 from langgraph.graph import END, START, MessagesState, StateGraph
 
-from app.agents.prompts import DEFAULT_AGENT_RESPONSE
+from app.agents.model import get_chat_model
+from app.agents.prompts import DEFAULT_AGENT_RESPONSE, SYSTEM_PROMPT
 
 
 class AgentState(MessagesState):
@@ -16,9 +17,19 @@ async def route_request(state: AgentState) -> dict:
 
 
 async def default_agent(state: AgentState) -> dict:
+    model = get_chat_model()
+    if model:
+        response = await model.ainvoke([
+            {"role": "system", "content": SYSTEM_PROMPT},
+            *state["messages"],
+        ])
+        message = AIMessage(content=response.content)
+    else:
+        message = AIMessage(content=DEFAULT_AGENT_RESPONSE)
+
     return {
         "agents": [*state["agents"], "default"],
-        "messages": [AIMessage(content=DEFAULT_AGENT_RESPONSE)],
+        "messages": [message],
     }
 
 

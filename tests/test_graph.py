@@ -1,6 +1,8 @@
 import unittest
+from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi import HTTPException
+from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app.agents.graph import build_graph
@@ -31,3 +33,16 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             await invoke_graph(graph, ChatRequest(user_id="user-2", thread_id="thread", message="teste"))
 
         self.assertEqual(error.exception.status_code, 403)
+
+    async def test_default_agent_uses_configured_model(self) -> None:
+        model = Mock()
+        model.ainvoke = AsyncMock(return_value=AIMessage(content="resposta do modelo"))
+
+        with patch("app.agents.graph.get_chat_model", return_value=model):
+            response = await invoke_graph(
+                build_graph(InMemorySaver()),
+                ChatRequest(user_id="user", thread_id="thread", message="teste"),
+            )
+
+        self.assertEqual(response.message, "resposta do modelo")
+        model.ainvoke.assert_awaited_once()

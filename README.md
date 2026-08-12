@@ -5,6 +5,7 @@ API principal para os fronts consumirem agentes de IA. A base ja possui FastAPI,
 ## Estrutura
 
 - `app/agents/graph.py`: fluxo `router -> agente` e registro de agentes.
+- `app/agents/model.py`: Groq como provider principal e NVIDIA NIM como fallback.
 - `app/agents/prompts.py`: prompts para preencher.
 - `app/agents/tools.py`: tools permitidas para preencher.
 - `app/services/chat.py`: entrada unica do grafo.
@@ -17,6 +18,8 @@ docker compose up --build
 ```
 
 Copie `.env.example` para `.env` apenas se precisar alterar os valores padrao.
+
+Para ativar a IA, informe `GROQ_API_KEY` e `NVIDIA_API_KEY`. O Groq recebe cada chamada primeiro; se falhar, LangChain reexecuta a mesma chamada no endpoint NIM configurado por `NVIDIA_NIM_BASE_URL`. Sem as duas chaves, a API conserva a resposta de placeholder.
 
 API: `http://localhost:8000/docs`
 

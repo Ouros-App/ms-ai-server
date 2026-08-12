@@ -10,5 +10,7 @@ class ConfigTest(unittest.TestCase):
 
         self.assertEqual(config.app_port, 8000)
         self.assertEqual(config.mongodb_database, "ai_server")
+        self.assertEqual(config.groq_model, "openai/gpt-oss-120b")
+        self.assertEqual(config.nvidia_nim_model, "meta/llama-3.3-70b-instruct")
         self.assertEqual(TOOLS, [])
         self.assertIs(get_settings(), settings)
