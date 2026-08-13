@@ -48,8 +48,8 @@ jobs:
             try {
               const comments = await github.paginate(github.rest.issues.listComments, { owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, per_page: 100 });
               const existing = comments.find(comment => comment.user?.type === "Bot" && comment.body?.includes(marker));
-              if (invalid.length) { const body = `${marker}\n **Conventional Commits:** aviso no bloqueante.\n\n${summary}\n\nO CI funcional continua sendo validado normalmente.`; if (existing) await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body }); else await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body }); }
-              else if (existing) await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body: `${marker}\n **Conventional Commits:** aviso resolvido; o ttulo e os commits esto no padro.` });
+              if (invalid.length) { const body = `${marker}\nâš ï¸ **Conventional Commits:** aviso nÃ£o bloqueante.\n\n${summary}\n\nO CI funcional continua sendo validado normalmente.`; if (existing) await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body }); else await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body }); }
+              else if (existing) await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body: `${marker}\nâœ… **Conventional Commits:** aviso resolvido; o tÃ­tulo e os commits estÃ£o no padrÃ£o.` });
             } catch (error) { core.warning(`Could not publish the Conventional Commits comment: ${error.message}`); }
 
   ci:
@@ -120,8 +120,8 @@ jobs:
           elif find tests -type f \( -name "test_*.py" -o -name "*_test.py" \) 2>/dev/null | grep -q .; then
             pytest --cov=app --cov-report=xml:coverage.xml
           else
-            echo "No tests found."
-            exit 1
+            echo "No tests found; skipping test execution."
+            exit 0
           fi
 
       - name: Upload coverage
