@@ -248,3 +248,4 @@ jobs:
 
       - name: Analyze with CodeQL
         uses: github/codeql-action/analyze@v3
+# PR workflow validation
