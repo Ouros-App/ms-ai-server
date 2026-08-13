@@ -121,6 +121,7 @@ jobs:
             pytest --cov=app --cov-report=xml:coverage.xml
           else
             echo "No tests found; skipping test execution."
+            printf '%s\n' '<?xml version="1.0" ?>' '<coverage version="7.0" />' > coverage.xml
             exit 0
           fi
 
