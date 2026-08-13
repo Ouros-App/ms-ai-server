@@ -4,10 +4,7 @@ on:
   pull_request:
     branches:
       - main
-  push:
-    branches:
-      - main
-
+  push:`n    branches: ["**"]
 permissions:
   actions: read
   contents: read
@@ -100,6 +97,7 @@ jobs:
   ci:
     name: ci
     runs-on: ubuntu-latest
+    if: (github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'rerun-ci') && (github.event_name != 'push' || github.ref == 'refs/heads/main')
     services:
       postgres:
         image: postgres:16
