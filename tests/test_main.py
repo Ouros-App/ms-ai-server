@@ -3,8 +3,9 @@ import sys
 import unittest
 from unittest.mock import MagicMock, Mock, patch
 
-import app
 from langgraph.checkpoint.memory import InMemorySaver
+
+import app
 
 
 class MainTest(unittest.IsolatedAsyncioTestCase):
