@@ -10,13 +10,28 @@ from app.schemas.chat import ChatRequest, ChatResponse
 logger = logging.getLogger(__name__)
 
 
-async def invoke_graph(graph, payload: ChatRequest, principal_id: str) -> ChatResponse:
+async def invoke_graph(
+    graph,
+    payload: ChatRequest,
+    principal_id: str,
+    thread_ownership=None,
+) -> ChatResponse:
     """Valida a posse da thread, executa o grafo e formata a resposta."""
     started_at = perf_counter()
     config = {"configurable": {"thread_id": payload.thread_id}}
+
+    if thread_ownership is not None and not await thread_ownership.claim(
+        payload.thread_id,
+        principal_id,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Esta conversa pertence a outro usuario.",
+        )
+
     snapshot = await graph.aget_state(config)
     owner_id = snapshot.values.get("user_id")
-    if owner_id and owner_id != principal_id:
+    if thread_ownership is None and owner_id and owner_id != principal_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Esta conversa pertence a outro usuario.",

@@ -1,12 +1,12 @@
 from functools import lru_cache
 
-from pydantic import SecretStr
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """Configuracao tipada carregada do ambiente."""
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", env_ignore_empty=True, extra="ignore")
 
     project_name: str = "AI Server"
     description: str = "API de orquestracao de IA."
@@ -22,6 +22,15 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.2
     llm_timeout_seconds: float = 30
     auth_bearer_token: SecretStr | None = None
+
+    @field_validator("groq_api_key", "nvidia_api_key", "auth_bearer_token", mode="before")
+    @classmethod
+    def empty_secret_to_none(cls, value):
+        if isinstance(value, SecretStr):
+            return value if value.get_secret_value().strip() else None
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
 
 @lru_cache

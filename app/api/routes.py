@@ -31,7 +31,12 @@ async def chat(
     _principal: Annotated[Principal, Depends(get_current_principal)],
 ) -> ChatResponse:
     """Processa uma mensagem dentro de uma thread persistente."""
-    return await invoke_graph(request.app.state.graph, payload, payload.user_id)
+    return await invoke_graph(
+        request.app.state.graph,
+        payload,
+        payload.user_id,
+        getattr(request.app.state, "thread_ownership", None),
+    )
 
 
 @router.get("/v1/chat/{thread_id}/history", response_model=HistoryResponse)

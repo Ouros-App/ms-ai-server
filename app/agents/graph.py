@@ -109,7 +109,7 @@ async def _invoke_model(model, messages: list, memory_store, user_id: str):
                 ),
             )
 
-    return response, used_tools
+    return await model.ainvoke(conversation), used_tools
 
 
 AGENTS = {"default": default_agent}
@@ -129,7 +129,7 @@ def build_graph(checkpointer, agents: dict | None = None, memory_store=None):
     graph = StateGraph(AgentState)
     graph.add_node("router", route_request)
     for name, node in agents.items():
-        if name == "default" and memory_store is not None:
+        if memory_store is not None:
             async def node_with_memory(state, node=node):
                 state = {**state, "memory_store": memory_store}
                 return await node(state)

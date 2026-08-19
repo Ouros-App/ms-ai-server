@@ -168,8 +168,6 @@ def input_block_reason(message: str, has_history: bool = False) -> str | None:
         return "security"
     if any(keyword in normalized for keyword in _INTERNAL_KEYWORDS):
         return "internal"
-    if any(pattern.search(normalized) for pattern in _OUT_OF_SCOPE_PATTERNS):
-        return "scope"
     if _GREETING_PATTERN.fullmatch(normalized):
         return None
     if _HISTORY_PATTERN.search(normalized):
@@ -178,6 +176,8 @@ def input_block_reason(message: str, has_history: bool = False) -> str | None:
         return None
     if any(term in normalized for term in _PROJECT_TERMS):
         return None
+    if any(pattern.search(normalized) for pattern in _OUT_OF_SCOPE_PATTERNS):
+        return "scope"
     return "scope"
 
 

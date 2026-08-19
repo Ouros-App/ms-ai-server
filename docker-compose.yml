@@ -5,7 +5,7 @@ services:
       APP_PORT: 8000
       MONGODB_URI: ${MONGODB_URI_DOCKER:-mongodb://mongo:27017}
       MONGODB_DATABASE: ${MONGODB_DATABASE:-ai_server}
-      AUTH_BEARER_TOKEN: ${AUTH_BEARER_TOKEN:-}
+      AUTH_BEARER_TOKEN: ${AUTH_BEARER_TOKEN:?Defina_AUTH_BEARER_TOKEN}
     ports:
       - "${APP_PORT:-8000}:8000"
     depends_on:

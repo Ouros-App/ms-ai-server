@@ -10,14 +10,33 @@ from app.core.config import Settings
 
 
 class ModelTest(unittest.TestCase):
-    def test_model_is_disabled_when_any_key_is_missing(self) -> None:
+    def test_model_is_disabled_when_all_keys_are_missing(self) -> None:
         self.assertIsNone(build_chat_model(Settings(_env_file=None)))
-        self.assertIsNone(
-            build_chat_model(Settings(_env_file=None, groq_api_key=SecretStr("groq-key")))
-        )
-        self.assertIsNone(
-            build_chat_model(Settings(_env_file=None, nvidia_api_key=SecretStr("nvidia-key")))
-        )
+
+    def test_groq_can_run_without_nim_fallback(self) -> None:
+        groq = Mock()
+        config = Settings(_env_file=None, groq_api_key=SecretStr("groq-key"))
+
+        with patch.dict(
+            sys.modules,
+            {"langchain_groq": SimpleNamespace(ChatGroq=groq)},
+        ):
+            model = build_chat_model(config)
+
+        self.assertEqual(model, groq.return_value)
+        groq.return_value.with_fallbacks.assert_not_called()
+
+    def test_nim_can_run_without_groq(self) -> None:
+        nvidia = Mock()
+        config = Settings(_env_file=None, nvidia_api_key=SecretStr("nvidia-key"))
+
+        with patch.dict(
+            sys.modules,
+            {"langchain_openai": SimpleNamespace(ChatOpenAI=nvidia)},
+        ):
+            model = build_chat_model(config)
+
+        self.assertEqual(model, nvidia.return_value)
 
     def test_groq_uses_nim_as_fallback(self) -> None:
         groq = Mock()
@@ -56,3 +75,9 @@ class ModelTest(unittest.TestCase):
             max_retries=0,
         )
         primary.with_fallbacks.assert_called_once_with([nvidia.return_value])
+
+    def test_blank_secret_values_are_disabled(self) -> None:
+        config = Settings(_env_file=None, groq_api_key="   ", nvidia_api_key="\t")
+
+        self.assertIsNone(config.groq_api_key)
+        self.assertIsNone(config.nvidia_api_key)

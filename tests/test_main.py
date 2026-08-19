@@ -1,38 +1,59 @@
-import importlib
-import sys
 import unittest
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from langgraph.checkpoint.memory import InMemorySaver
 
-import app
+from app import main
 
 
 class MainTest(unittest.IsolatedAsyncioTestCase):
-    async def test_lifespan_uses_mongodb_saver(self) -> None:
-        context = MagicMock()
-        context.__enter__.return_value = InMemorySaver()
-        saver = Mock(from_conn_string=Mock(return_value=context))
-        previous = sys.modules.pop("app.main", None)
-        had_main = hasattr(app, "main")
-        previous_main = getattr(app, "main", None)
+    async def test_lifespan_isolated_from_external_services(self) -> None:
+        client = MagicMock()
+        database = MagicMock()
+        collection = MagicMock()
+        collection.create_index = AsyncMock()
+        client.__getitem__.return_value = database
+        database.__getitem__.return_value = collection
+        client.close = AsyncMock()
 
-        try:
-            with patch.dict(sys.modules, {"langgraph.checkpoint.mongodb": Mock(MongoDBSaver=saver)}):
-                main = importlib.import_module("app.main")
-                async with main.lifespan(main.app):
-                    self.assertIsNotNone(main.app.state.graph)
-                    self.assertIsNotNone(main.app.state.checkpointer)
-        finally:
-            sys.modules.pop("app.main", None)
-            if previous:
-                sys.modules["app.main"] = previous
-            if had_main:
-                app.main = previous_main
-            else:
-                app.__dict__.pop("main", None)
+        checkpointer_context = MagicMock()
+        checkpointer_context.__enter__.return_value = InMemorySaver()
+        checkpointer_context.__exit__.return_value = False
 
-        saver.from_conn_string.assert_called_once_with(
-            main.settings.mongodb_uri,
-            db_name=main.settings.mongodb_database,
+        with (
+            patch.object(main, "AsyncMongoClient", return_value=client),
+            patch.object(main, "get_checkpointer", return_value=checkpointer_context),
+            patch.object(main, "build_graph") as build_graph,
+        ):
+            async with main.lifespan(main.app):
+                self.assertIsNotNone(main.app.state.graph)
+                self.assertIs(
+                    main.app.state.checkpointer,
+                    checkpointer_context.__enter__.return_value,
+                )
+
+        collection.create_index.assert_awaited()
+        build_graph.assert_called_once_with(
+            checkpointer_context.__enter__.return_value,
+            memory_store=ANY,
         )
+        self.assertIsNotNone(main.app.state.thread_ownership)
+        client.close.assert_awaited_once()
+
+    async def test_lifespan_closes_client_when_startup_fails(self) -> None:
+        client = MagicMock()
+        database = MagicMock()
+        collection = MagicMock()
+        collection.create_index = AsyncMock(side_effect=RuntimeError("db unavailable"))
+        client.__getitem__.return_value = database
+        database.__getitem__.return_value = collection
+        client.close = AsyncMock()
+
+        with (
+            patch.object(main, "AsyncMongoClient", return_value=client),
+            self.assertRaises(RuntimeError),
+        ):
+            async with main.lifespan(main.app):
+                pass
+
+        client.close.assert_awaited_once()

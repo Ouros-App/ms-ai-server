@@ -14,6 +14,14 @@ class FakeMemoryStore:
         self.memories.setdefault(user_id, []).append(memory)
 
 
+class FailingMemoryStore(FakeMemoryStore):
+    async def list(self, user_id: str, limit: int = 20) -> list[str]:
+        raise RuntimeError("mongo unavailable")
+
+    async def save(self, user_id: str, memory: str) -> None:
+        raise RuntimeError("mongo unavailable")
+
+
 class MemoryToolsTest(unittest.IsolatedAsyncioTestCase):
     async def test_tools_read_and_save_for_injected_user(self) -> None:
         store = FakeMemoryStore()
@@ -34,3 +42,12 @@ class MemoryToolsTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("Memoria recusada", result)
         self.assertEqual(store.memories, {})
+
+    async def test_tools_return_friendly_message_when_memory_store_fails(self) -> None:
+        tools = build_memory_tools(FailingMemoryStore(), "user-1")
+
+        recalled = await tools[0].ainvoke({})
+        saved = await tools[1].ainvoke({"memory": "Prefere respostas curtas."})
+
+        self.assertIn("Nao foi possivel consultar", recalled)
+        self.assertIn("Nao foi possivel salvar", saved)

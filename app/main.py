@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.core.logging_config import configure_logging
 from app.repositories.checkpointer import get_checkpointer
 from app.repositories.memory import UserMemoryStore
+from app.repositories.thread_ownership import ThreadOwnershipStore
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -20,18 +21,24 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Cria o checkpointer MongoDB e o grafo durante a vida da API."""
     logger.info("application_starting")
-    memory_client = AsyncMongoClient(settings.mongodb_uri)
-    memory_store = UserMemoryStore(memory_client[settings.mongodb_database])
-    await memory_store.ensure_indexes()
-    logger.info("memory_indexes_ready database=%s", settings.mongodb_database)
+    memory_client = None
     try:
+        memory_client = AsyncMongoClient(settings.mongodb_uri)
+        database = memory_client[settings.mongodb_database]
+        memory_store = UserMemoryStore(database)
+        thread_ownership = ThreadOwnershipStore(database)
+        await memory_store.ensure_indexes()
+        await thread_ownership.ensure_indexes()
+        logger.info("memory_indexes_ready database=%s", settings.mongodb_database)
         with get_checkpointer() as checkpointer:
             app.state.checkpointer = checkpointer
+            app.state.thread_ownership = thread_ownership
             app.state.graph = build_graph(checkpointer, memory_store=memory_store)
             logger.info("application_ready")
             yield
     finally:
-        await memory_client.close()
+        if memory_client is not None:
+            await memory_client.close()
         logger.info("application_stopped")
 
 
@@ -48,13 +55,14 @@ app.include_router(router)
 async def log_requests(request, call_next):
     """Registra ciclo, status e duracao sem registrar corpo ou headers sensiveis."""
     started_at = perf_counter()
+    safe_path = request.url.path.replace("\r", "\\r").replace("\n", "\\n")
     try:
         response = await call_next(request)
     except Exception:
         logger.exception(
             "request_failed method=%s path=%s duration_ms=%.1f",
             request.method,
-            request.url.path,
+            safe_path,
             (perf_counter() - started_at) * 1000,
         )
         raise
@@ -62,7 +70,7 @@ async def log_requests(request, call_next):
     logger.info(
         "request_completed method=%s path=%s status=%s duration_ms=%.1f",
         request.method,
-        request.url.path,
+        safe_path,
         response.status_code,
         (perf_counter() - started_at) * 1000,
     )

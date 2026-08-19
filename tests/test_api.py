@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -13,26 +14,24 @@ from app.core.config import settings
 
 class ApiTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.previous_token = settings.auth_bearer_token
-        self.previous_groq_key = settings.groq_api_key
-        self.previous_nvidia_key = settings.nvidia_api_key
-        settings.auth_bearer_token = SecretStr("test-token")
-        settings.groq_api_key = None
-        settings.nvidia_api_key = None
+        for attribute, value in (
+            ("auth_bearer_token", SecretStr("test-token")),
+            ("groq_api_key", None),
+            ("nvidia_api_key", None),
+        ):
+            patcher = patch.object(settings, attribute, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         get_chat_model.cache_clear()
+        self.addCleanup(get_chat_model.cache_clear)
         app = FastAPI()
         self.checkpointer = InMemorySaver()
         app.state.checkpointer = self.checkpointer
+        app.state.thread_ownership = None
         app.state.graph = build_graph(self.checkpointer)
         app.include_router(router)
         self.app = app
         self.client = TestClient(app)
-
-    def tearDown(self) -> None:
-        settings.auth_bearer_token = self.previous_token
-        settings.groq_api_key = self.previous_groq_key
-        settings.nvidia_api_key = self.previous_nvidia_key
-        get_chat_model.cache_clear()
 
     def token(self) -> str:
         return "test-token"
@@ -143,3 +142,14 @@ class ApiTest(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 401)
+
+    def test_chat_rejects_when_authentication_is_not_configured(self) -> None:
+        with patch.object(settings, "auth_bearer_token", None):
+            response = self.client.post(
+                "/v1/chat",
+                json={"user_id": "user-1", "thread_id": "thread", "message": "teste"},
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"], "Autenticacao nao configurada.")

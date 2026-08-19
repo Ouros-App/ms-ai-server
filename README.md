@@ -80,9 +80,12 @@ Quando houver mais mensagens, a resposta retorna `next_cursor`. Envie esse valor
 como `before` na proxima chamada para buscar a pagina anterior. O limite aceito e
 de 1 a 100 mensagens por requisicao.
 
-Antes de chamar o modelo, o sistema bloqueia tentativas simples de extrair instrucoes
-internas ou credenciais. Depois da resposta, limita o tamanho, rejeita saidas vazias
-e impede o retorno de tokens, chaves e senhas.
+Antes de chamar o modelo, o sistema bloqueia instrucoes internas, prompt injection,
+credenciais, tokens, chaves, senhas, PII, pedidos perigosos ou ilicitos e assuntos
+fora do escopo. Na saida, redige PII e segredos, limita o tamanho, rejeita respostas
+vazias e substitui claims nao confirmados. Essas protecoes ocorrem antes e depois
+do modelo; a deteccao de prompt injection, escopo e dados internos e principalmente
+de entrada.
 
 Os logs registram ciclo de inicializacao, requisições, bloqueios do guardrail,
 tools utilizadas, status e duracao. O corpo das requisições, tokens e conteúdo

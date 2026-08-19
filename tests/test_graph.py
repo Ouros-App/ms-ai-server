@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
-from app.agents.graph import build_graph, default_agent
+from app.agents.graph import _invoke_model, build_graph, default_agent
 from app.agents.model import get_chat_model
 from app.agents.prompts import DEFAULT_AGENT_RESPONSE
 from app.core.config import settings
@@ -117,6 +117,33 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(response.tools, ["recall_user_memories"])
+
+    async def test_model_gets_final_turn_after_tool_limit(self) -> None:
+        class MemoryStore:
+            async def list(self, user_id: str, limit: int = 20) -> list[str]:
+                return []
+
+            async def save(self, user_id: str, memory: str) -> None:
+                return None
+
+        tool_call = {"name": "recall_user_memories", "args": {}, "id": "call"}
+        tool_enabled_model = Mock()
+        tool_enabled_model.ainvoke = AsyncMock(
+            side_effect=[
+                AIMessage(content="", tool_calls=[tool_call]),
+                AIMessage(content="", tool_calls=[tool_call]),
+                AIMessage(content="", tool_calls=[tool_call]),
+            ]
+        )
+        model = Mock()
+        model.bind_tools.return_value = tool_enabled_model
+        model.ainvoke = AsyncMock(return_value=AIMessage(content="resposta final"))
+
+        response, tools = await _invoke_model(model, [], MemoryStore(), "user")
+
+        self.assertEqual(response.content, "resposta final")
+        self.assertEqual(tools, ["recall_user_memories"])
+        model.ainvoke.assert_awaited_once()
 
     async def test_graph_uses_injected_agent_registry(self) -> None:
         async def specialist(state):
