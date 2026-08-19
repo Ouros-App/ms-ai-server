@@ -6,10 +6,11 @@ API principal para os fronts consumirem agentes de IA. A base ja possui FastAPI,
 
 - `app/agents/graph.py`: fluxo `router -> agente` e registro de agentes.
 - `app/agents/model.py`: Groq como provider principal e NVIDIA NIM como fallback.
-- `app/agents/prompts.py`: prompts para preencher.
+- `app/agents/prompts.py`: regras comuns, roteamento e prompts dos agentes FAQ.
+- `app/agents/guardrails.py`: bloqueios de prompt injection e vazamento de credenciais.
 - `app/agents/tools.py`: tools permitidas para preencher.
 - `app/services/chat.py`: entrada unica do grafo.
-- MongoDB: checkpoints por `thread_id`, incluindo mensagens e estado do grafo.
+- MongoDB: checkpoints por `thread_id` e colecao `user_memories` para memorias persistentes por usuario.
 
 ## Rodar
 
@@ -23,13 +24,55 @@ Para ativar a IA, copie `.env.example` para `.env` e preencha `GROQ_API_KEY` e `
 
 API: `http://localhost:8000/docs`
 
-`POST /v1/chat`
+`POST /v1/chat` exige um token Bearer unico configurado em `AUTH_BEARER_TOKEN`.
+O mesmo token deve ser enviado em todas as chamadas autenticadas.
+
+Gere um token local com `python -c "import secrets; print(secrets.token_urlsafe(32))"`
+e preencha `AUTH_BEARER_TOKEN` no `.env`. O token fica apenas no backend e no
+cliente autorizado; nao o commite no repositorio.
 
 ```json
 {
   "user_id": "usuario-1",
-  "message": "teste"
+  "message": "Qual foi minha ultima pergunta?",
+  "thread_id": "conversa-1"
 }
 ```
 
-Enquanto nenhum agente for definido, a rota retorna uma resposta de placeholder. Para adicionar um agente, crie o no em `app/agents/graph.py`, inclua-o em `AGENTS` e altere `route_request`. O mesmo `thread_id` so pode ser reutilizado pelo `user_id` que o criou.
+Exemplo de chamada autenticada:
+
+```bash
+curl -X POST http://localhost:8000/v1/chat \
+  -H "Authorization: Bearer <token-configurado>" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"usuario-1","thread_id":"conversa-1","message":"Qual foi minha ultima pergunta?"}'
+```
+
+A resposta informa o `thread_id`, a mensagem gerada, os `agents` consultados e as
+`tools` executadas naquela mensagem. Se nenhuma tool for usada, `tools` retorna
+uma lista vazia:
+
+```json
+{
+  "thread_id": "conversa-1",
+  "message": "...",
+  "agents": ["router", "default"],
+  "tools": ["recall_user_memories"]
+}
+```
+
+O `user_id` e usado como dono da memoria persistida. O `thread_id` identifica uma conversa especifica, entao o mesmo usuario pode ter varias conversas. O mesmo `thread_id` so pode ser reutilizado pelo mesmo `user_id`; outro usuario recebe `403`. Como o token Bearer e compartilhado neste projeto escolar, o backend confia no `user_id` enviado pelo cliente.
+
+O agente pode usar as tools `recall_user_memories` e `save_user_memory` para
+recuperar ou salvar memorias curtas entre conversas. O `user_id` e injetado pelo
+backend nas tools e nao e escolhido pelo modelo.
+
+O agente `default` retorna a resposta de placeholder enquanto nenhum agente especializado estiver registrado. Para adicionar agentes, passe um novo registro para `build_graph`, implemente o no e faca o roteador retornar a rota correspondente.
+
+Antes de chamar o modelo, o sistema bloqueia tentativas simples de extrair instrucoes
+internas ou credenciais. Depois da resposta, limita o tamanho, rejeita saidas vazias
+e impede o retorno de tokens, chaves e senhas.
+
+Os logs registram ciclo de inicializacao, requisições, bloqueios do guardrail,
+tools utilizadas, status e duracao. O corpo das requisições, tokens e conteúdo
+das memorias nao sao registrados.

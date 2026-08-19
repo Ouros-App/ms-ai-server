@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     nvidia_nim_base_url: str = "https://integrate.api.nvidia.com/v1"
     llm_temperature: float = 0.2
     llm_timeout_seconds: float = 30
+    auth_bearer_token: SecretStr | None = None
 
 
 @lru_cache
