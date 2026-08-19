@@ -207,6 +207,8 @@ async def guard_input(
     if reason == "scope":
         logger.info("guardrail_blocked category=FORA_DO_ESCOPO")
         return InputGuardrailResult(False, "FORA_DO_ESCOPO", OUT_OF_SCOPE_REFUSAL, sanitized, pii_map)
+    if _GREETING_PATTERN.fullmatch(_normalize(sanitized.strip())):
+        return InputGuardrailResult(True, "APROVADO", "", sanitized, pii_map)
 
     classifier = model or get_chat_model()
     if classifier is None:

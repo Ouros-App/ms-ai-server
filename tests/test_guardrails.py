@@ -56,6 +56,18 @@ class GuardrailsTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("pii_map", result.as_state())
         self.assertNotIn("sanitized_text", result.as_state())
 
+    async def test_allows_greeting_without_semantic_classifier(self) -> None:
+        model = Mock()
+        model.ainvoke = AsyncMock(
+            return_value=AIMessage(content="CATEGORIA: FORA_DO_ESCOPO"),
+        )
+
+        result = await guard_input("bom dia", model=model)
+
+        self.assertTrue(result.allowed)
+        self.assertEqual(result.category, "APROVADO")
+        model.ainvoke.assert_not_awaited()
+
     async def test_output_reviewer_extracts_and_rechecks_response(self) -> None:
         model = Mock()
         model.ainvoke = AsyncMock(
