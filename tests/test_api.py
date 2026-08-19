@@ -21,7 +21,9 @@ class ApiTest(unittest.TestCase):
         settings.nvidia_api_key = None
         get_chat_model.cache_clear()
         app = FastAPI()
-        app.state.graph = build_graph(InMemorySaver())
+        self.checkpointer = InMemorySaver()
+        app.state.checkpointer = self.checkpointer
+        app.state.graph = build_graph(self.checkpointer)
         app.include_router(router)
         self.app = app
         self.client = TestClient(app)
@@ -58,6 +60,24 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(body["tools"], [])
         self.assertEqual(second.status_code, 200)
 
+        history = self.client.get(
+            "/v1/chat/thread/history",
+            params={"user_id": "user-1", "limit": 2},
+            headers={"Authorization": f"Bearer {self.token()}"},
+        )
+        self.assertEqual(history.status_code, 200)
+        history_body = history.json()
+        self.assertEqual([item["role"] for item in history_body["messages"]], ["user", "assistant"])
+        self.assertEqual(history_body["next_cursor"], "2")
+
+        previous_page = self.client.get(
+            "/v1/chat/thread/history",
+            params={"user_id": "user-1", "limit": 2, "before": history_body["next_cursor"]},
+            headers={"Authorization": f"Bearer {self.token()}"},
+        )
+        self.assertEqual(previous_page.status_code, 200)
+        self.assertIsNone(previous_page.json()["next_cursor"])
+
     def test_chat_requires_user_id(self) -> None:
         response = self.client.post(
             "/v1/chat",
@@ -81,6 +101,22 @@ class ApiTest(unittest.TestCase):
 
         self.assertEqual(first.status_code, 200)
         self.assertEqual(second.status_code, 403)
+
+        history = self.client.get(
+            "/v1/chat/thread/history",
+            params={"user_id": "user-2"},
+            headers={"Authorization": f"Bearer {self.token()}"},
+        )
+        self.assertEqual(history.status_code, 403)
+
+    def test_history_returns_not_found_for_unknown_thread(self) -> None:
+        response = self.client.get(
+            "/v1/chat/unknown/history",
+            params={"user_id": "user-1"},
+            headers={"Authorization": f"Bearer {self.token()}"},
+        )
+
+        self.assertEqual(response.status_code, 404)
 
     def test_chat_requires_bearer_token(self) -> None:
         response = self.client.post(

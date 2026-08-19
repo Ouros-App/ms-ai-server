@@ -22,6 +22,7 @@ class MainTest(unittest.IsolatedAsyncioTestCase):
                 main = importlib.import_module("app.main")
                 async with main.lifespan(main.app):
                     self.assertIsNotNone(main.app.state.graph)
+                    self.assertIsNotNone(main.app.state.checkpointer)
         finally:
             sys.modules.pop("app.main", None)
             if previous:

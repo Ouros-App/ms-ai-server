@@ -69,6 +69,17 @@ backend nas tools e nao e escolhido pelo modelo.
 
 O agente `default` retorna a resposta de placeholder enquanto nenhum agente especializado estiver registrado. Para adicionar agentes, passe um novo registro para `build_graph`, implemente o no e faca o roteador retornar a rota correspondente.
 
+Para carregar uma conversa existente, use o historico paginado:
+
+```bash
+curl "http://localhost:8000/v1/chat/conversa-1/history?user_id=usuario-1&limit=20" \
+  -H "Authorization: Bearer <token-configurado>"
+```
+
+Quando houver mais mensagens, a resposta retorna `next_cursor`. Envie esse valor
+como `before` na proxima chamada para buscar a pagina anterior. O limite aceito e
+de 1 a 100 mensagens por requisicao.
+
 Antes de chamar o modelo, o sistema bloqueia tentativas simples de extrair instrucoes
 internas ou credenciais. Depois da resposta, limita o tamanho, rejeita saidas vazias
 e impede o retorno de tokens, chaves e senhas.

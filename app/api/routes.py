@@ -1,11 +1,13 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from app.core.auth import Principal, get_current_principal
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.schemas.common import HealthResponse, MessageResponse
+from app.schemas.history import HistoryResponse
 from app.services.chat import invoke_graph
+from app.services.history import get_thread_history
 
 router = APIRouter()
 
@@ -30,3 +32,22 @@ async def chat(
 ) -> ChatResponse:
     """Processa uma mensagem dentro de uma thread persistente."""
     return await invoke_graph(request.app.state.graph, payload, payload.user_id)
+
+
+@router.get("/v1/chat/{thread_id}/history", response_model=HistoryResponse)
+async def chat_history(
+    thread_id: str,
+    request: Request,
+    user_id: Annotated[str, Query(min_length=1, max_length=128)],
+    _principal: Annotated[Principal, Depends(get_current_principal)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    before: Annotated[str | None, Query(min_length=1, max_length=32)] = None,
+) -> HistoryResponse:
+    """Retorna uma pagina do historico visivel de uma thread."""
+    return await get_thread_history(
+        request.app.state.checkpointer,
+        thread_id,
+        user_id,
+        limit,
+        before,
+    )

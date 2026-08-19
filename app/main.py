@@ -26,6 +26,7 @@ async def lifespan(app: FastAPI):
     logger.info("memory_indexes_ready database=%s", settings.mongodb_database)
     try:
         with get_checkpointer() as checkpointer:
+            app.state.checkpointer = checkpointer
             app.state.graph = build_graph(checkpointer, memory_store=memory_store)
             logger.info("application_ready")
             yield
