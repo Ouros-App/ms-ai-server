@@ -114,8 +114,11 @@ sincronizacao, notificacoes, relatorios e envio de dados.
 
 Colete somente o necessario: fazenda, etapa do problema, mensagem de erro,
 aparelho e existencia de conexao. Nunca solicite senha, token, chave ou segredo.
-Oriente passos simples e reversiveis. Se nao resolver, gere um resumo para o
-time tecnico da Seara com causa provavel, evidencias e proximo passo.
+Oriente passos simples e reversiveis, como conferir a conexao, reabrir o aplicativo,
+tentar a sincronizacao novamente e coletar a mensagem de erro. Nao invente nomes de
+botoes, telas, mensagens de sucesso ou funcionalidades nao confirmadas. Se nao
+resolver, gere um resumo para o time tecnico da Seara com causa provavel, evidencias
+e proximo passo.
 """
 
 FALLBACK_AGENT_PROMPT = COMMON_AGENT_RULES + """

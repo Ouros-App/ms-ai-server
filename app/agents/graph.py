@@ -9,6 +9,7 @@ from app.agents.guardrails import (
     guard_input,
     review_output,
 )
+from app.agents.llms import profile_for
 from app.agents.model import get_chat_model
 from app.agents.prompts import (
     AGENT_PROMPTS,
@@ -56,7 +57,7 @@ async def route_request(state: AgentState) -> dict:
         if requested_route:
             route = requested_route
         else:
-            model = get_chat_model()
+            model = get_chat_model(profile_for("router"))
             if model is None:
                 route = "default"
             else:
@@ -97,7 +98,7 @@ async def _run_agent(state: AgentState, prompt: str, agent_name: str) -> dict:
     elif not isinstance(user_text, str):
         content = OUT_OF_SCOPE_REFUSAL
     else:
-        model = get_chat_model()
+        model = get_chat_model(profile_for(agent_name))
         if model:
             response, used_tools = await _invoke_model(
                 model,
