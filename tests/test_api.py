@@ -125,6 +125,18 @@ class ApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 401)
 
+    def test_metrics_requires_bearer_and_returns_prometheus(self) -> None:
+        unauthenticated = self.client.get("/metrics")
+        self.assertEqual(unauthenticated.status_code, 401)
+
+        response = self.client.get(
+            "/metrics",
+            headers={"Authorization": f"Bearer {self.token()}"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("ai_server_http_requests_total", response.text)
+
     def test_chat_rejects_invalid_bearer_token(self) -> None:
         response = self.client.post(
             "/v1/chat",

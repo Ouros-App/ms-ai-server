@@ -5,6 +5,7 @@ from fastapi import HTTPException, status
 from langchain_core.messages import HumanMessage
 
 from app.agents.guardrails import guard_input
+from app.core.metrics import observe_chat_result
 from app.schemas.chat import ChatRequest, ChatResponse
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,7 @@ async def invoke_graph(
         has_history=bool(snapshot.values.get("messages")),
     )
     if not input_guardrail.allowed:
+        observe_chat_result("blocked", ["guardrail"], [])
         logger.warning(
             "chat_blocked thread_id=%s category=%s",
             payload.thread_id,
@@ -69,6 +71,7 @@ async def invoke_graph(
     )
     message = result["messages"][-1].content
     tools = result.get("tools", [])
+    observe_chat_result("success", result["agents"], tools)
     logger.info(
         "chat_completed thread_id=%s agents=%s tools=%s duration_ms=%.1f",
         payload.thread_id,

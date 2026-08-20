@@ -1,6 +1,7 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.core.auth import Principal, get_current_principal
 from app.schemas.chat import ChatRequest, ChatResponse
@@ -22,6 +23,14 @@ async def read_root() -> MessageResponse:
 async def health_check() -> HealthResponse:
     """Retorna o estado de saude da API."""
     return HealthResponse(status="ok")
+
+
+@router.get("/metrics", include_in_schema=False)
+async def metrics(
+    _principal: Annotated[Principal, Depends(get_current_principal)],
+) -> Response:
+    """Expoe metricas no formato Prometheus."""
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @router.post("/v1/chat", response_model=ChatResponse)
