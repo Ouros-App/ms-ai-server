@@ -29,10 +29,11 @@ Para ativar a IA, copie `.env.example` para `.env` e preencha `GROQ_API_KEY` e `
 o provider demora além desse limite, a API retorna `503` controlado para o
 consumidor tentar novamente, evitando um `504` do gateway.
 
-O sistema usa perfis de LLM: `GROQ_FAST_MODEL` para roteamento, guardrails, FAQ,
-suporte e fallback; `GROQ_MODEL` para ranking, sustentabilidade e respostas que
-exigem mais raciocinio. Se o Groq falhar, o NVIDIA NIM configurado continua como
-fallback.
+O sistema usa perfis de LLM: `GROQ_FAST_MODEL` e `NVIDIA_NIM_FAST_MODEL` para
+roteamento, guardrails, FAQ, suporte e fallback; `GROQ_MODEL` e
+`NVIDIA_NIM_MODEL` para ranking, sustentabilidade e respostas que exigem mais
+raciocinio. O NVIDIA NIM e usado como fallback do respectivo perfil quando o
+Groq falhar.
 
 API: `http://localhost:8000/docs`
 

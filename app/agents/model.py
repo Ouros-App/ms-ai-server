@@ -26,8 +26,13 @@ def build_chat_model(config: Settings, profile: str = POWERFUL_LLM):
     if config.nvidia_api_key:
         from langchain_openai import ChatOpenAI
 
+        fallback_model = (
+            config.nvidia_nim_fast_model
+            if profile == FAST_LLM
+            else config.nvidia_nim_model
+        )
         fallback = ChatOpenAI(
-            model=config.nvidia_nim_model,
+            model=fallback_model,
             api_key=config.nvidia_api_key.get_secret_value(),
             base_url=config.nvidia_nim_base_url,
             temperature=config.llm_temperature,

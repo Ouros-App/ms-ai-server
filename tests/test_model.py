@@ -50,6 +50,18 @@ class ModelTest(unittest.TestCase):
 
         self.assertEqual(model, nvidia.return_value)
 
+    def test_fast_profile_uses_fast_nim_model(self) -> None:
+        nvidia = Mock()
+        config = Settings(_env_file=None, nvidia_api_key=SecretStr("nvidia-key"))
+
+        with patch.dict(
+            sys.modules,
+            {"langchain_openai": SimpleNamespace(ChatOpenAI=nvidia)},
+        ):
+            build_chat_model(config, "fast")
+
+        self.assertEqual(nvidia.call_args.kwargs["model"], "meta/llama-3.1-8b-instruct")
+
     def test_groq_uses_nim_as_fallback(self) -> None:
         groq = Mock()
         nvidia = Mock()
