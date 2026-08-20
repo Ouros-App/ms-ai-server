@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     nvidia_nim_base_url: str = "https://integrate.api.nvidia.com/v1"
     llm_temperature: float = 0.2
     llm_timeout_seconds: float = 30
+    llm_total_timeout_seconds: float = 20
     auth_bearer_token: SecretStr | None = None
 
     @field_validator("groq_api_key", "nvidia_api_key", "auth_bearer_token", mode="before")

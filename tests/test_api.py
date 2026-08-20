@@ -1,5 +1,6 @@
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -153,3 +154,22 @@ class ApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["detail"], "Autenticacao nao configurada.")
+
+    def test_chat_returns_controlled_503_when_graph_times_out(self) -> None:
+        graph = Mock()
+        graph.aget_state = AsyncMock(return_value=SimpleNamespace(values={}))
+        graph.ainvoke = AsyncMock(side_effect=TimeoutError())
+        self.app.state.graph = graph
+
+        with patch.object(settings, "llm_total_timeout_seconds", 20):
+            response = self.client.post(
+                "/v1/chat",
+                json={"user_id": "user-1", "thread_id": "timeout", "message": "ranking"},
+                headers={"Authorization": f"Bearer {self.token()}"},
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.json()["detail"],
+            "O provedor de IA demorou para responder. Tente novamente.",
+        )

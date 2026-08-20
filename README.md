@@ -25,6 +25,10 @@ docker compose up --build
 
 Para ativar a IA, copie `.env.example` para `.env` e preencha `GROQ_API_KEY` e `NVIDIA_API_KEY` antes de executar o Compose. O Groq recebe cada chamada primeiro; se falhar, LangChain reexecuta a mesma chamada no endpoint NIM configurado por `NVIDIA_NIM_BASE_URL`. `MONGODB_URI` serve para execucao no host; o Compose usa `MONGODB_URI_DOCKER`.
 
+`LLM_TOTAL_TIMEOUT_SECONDS` limita o tempo total de roteamento e resposta. Quando
+o provider demora além desse limite, a API retorna `503` controlado para o
+consumidor tentar novamente, evitando um `504` do gateway.
+
 API: `http://localhost:8000/docs`
 
 `POST /v1/chat` exige um token Bearer unico configurado em `AUTH_BEARER_TOKEN`.

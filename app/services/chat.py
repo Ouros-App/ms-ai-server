@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from time import perf_counter
 
@@ -5,6 +6,7 @@ from fastapi import HTTPException, status
 from langchain_core.messages import HumanMessage
 
 from app.agents.guardrails import guard_input
+from app.core.config import settings
 from app.schemas.chat import ChatRequest, ChatResponse
 
 logger = logging.getLogger(__name__)
@@ -56,17 +58,29 @@ async def invoke_graph(
 
     safe_payload = payload.model_copy(update={"message": input_guardrail.sanitized_text})
 
-    result = await graph.ainvoke(
-        {
-            "messages": [HumanMessage(content=safe_payload.message)],
-            "user_id": principal_id,
-            "route": "",
-            "agents": [],
-            "tools": [],
-            "input_guardrail": input_guardrail.as_state(),
-        },
-        config=config,
-    )
+    try:
+        async with asyncio.timeout(settings.llm_total_timeout_seconds):
+            result = await graph.ainvoke(
+                {
+                    "messages": [HumanMessage(content=safe_payload.message)],
+                    "user_id": principal_id,
+                    "route": "",
+                    "agents": [],
+                    "tools": [],
+                    "input_guardrail": input_guardrail.as_state(),
+                },
+                config=config,
+            )
+    except TimeoutError as error:
+        logger.warning(
+            "chat_provider_timeout thread_id=%s timeout_seconds=%s",
+            payload.thread_id,
+            settings.llm_total_timeout_seconds,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="O provedor de IA demorou para responder. Tente novamente.",
+        ) from error
     message = result["messages"][-1].content
     tools = result.get("tools", [])
     logger.info(
