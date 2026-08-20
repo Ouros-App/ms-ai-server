@@ -1,111 +1,148 @@
 # AI Server
 
-API principal para os fronts consumirem agentes de IA. A base possui FastAPI,
-LangGraph, roteamento semantico, agentes especializados e memoria persistente
-no MongoDB. RAG e MCP ficam fora deste servico e serao integrados por outro
-microservico quando necessario.
+<!-- REPO-METADATA:START -->
+<div align="center">
 
-## Estrutura
+[![Repo Size](https://img.shields.io/github/repo-size/Ouros-App/ms-ai-server?style=flat-square&label=REPO%20SIZE)](https://github.com/Ouros-App/ms-ai-server)
+[![Languages](https://img.shields.io/github/languages/count/Ouros-App/ms-ai-server?style=flat-square&label=LANGUAGES)](https://github.com/Ouros-App/ms-ai-server/languages)
+[![Forks](https://img.shields.io/github/forks/Ouros-App/ms-ai-server?style=flat-square&label=FORKS)](https://github.com/Ouros-App/ms-ai-server/network/members)
+[![Issues](https://img.shields.io/github/issues/Ouros-App/ms-ai-server?style=flat-square&label=ISSUES)](https://github.com/Ouros-App/ms-ai-server/issues)
+[![Pull Requests](https://img.shields.io/github/issues-pr/Ouros-App/ms-ai-server?style=flat-square&label=PULL%20REQUESTS)](https://github.com/Ouros-App/ms-ai-server/pulls)
 
-- `app/agents/graph.py`: fluxo `router -> agente` e registro dos agentes.
-- `app/agents/model.py`: Groq como provider principal e NVIDIA NIM como fallback.
-- `app/agents/prompts.py`: regras comuns, roteamento e prompts dos agentes.
-- `app/agents/guardrails.py`: bloqueios de prompt injection e vazamento de credenciais.
-- `app/agents/tools.py`: tools permitidas para preencher.
-- `app/services/chat.py`: entrada unica do grafo.
-- MongoDB: checkpoints por `thread_id` e colecao `user_memories` para memorias persistentes por usuario.
+</div>
+<!-- REPO-METADATA:END -->
 
-## Rodar
+API FastAPI de orquestração de agentes de IA com LangGraph. O serviço usa MongoDB para persistir o estado das conversas e as memórias dos usuários, e pode chamar provedores Groq e NVIDIA NIM.
 
-Sem chaves de IA, o Compose sobe a resposta de placeholder:
+## Status e escopo
+
+O serviço está implementado com:
+
+- endpoints de saúde, chat e histórico de conversas;
+- roteamento entre os agentes `faq`, `sustainability`, `ranking`, `support` e `fallback`;
+- resposta padrão quando nenhum provedor de IA está configurado;
+- autenticação por um token Bearer compartilhado;
+- guardrails de entrada e revisão de saída.
+
+As chaves de IA são opcionais para iniciar a aplicação, mas o `AUTH_BEARER_TOKEN` é necessário para acessar os endpoints autenticados.
+
+## Principais componentes
+
+- `app/main.py`: cria a aplicação FastAPI, inicializa MongoDB, o checkpointer e o grafo.
+- `app/api/routes.py`: expõe as rotas HTTP.
+- `app/agents/graph.py`: define o fluxo de roteamento e execução dos agentes.
+- `app/agents/prompts.py`: regras comuns, rotas e prompts especializados.
+- `app/agents/model.py`: configura os perfis rápido e potente do Groq e NVIDIA NIM.
+- `app/agents/guardrails.py`: valida entradas e revisa respostas.
+- `app/repositories/`: checkpointer, memórias e posse das threads.
+- `app/services/`: execução do chat e leitura do histórico.
+- `tests/`: testes da API, configuração, grafo, guardrails, modelos, prompts, threads e tools.
+
+## Pré-requisitos
+
+- Docker e Docker Compose para a execução completa com MongoDB.
+- Python 3.12 para execução fora do container.
+- Um token para `AUTH_BEARER_TOKEN`.
+- Chaves `GROQ_API_KEY` e/ou `NVIDIA_API_KEY` quando a resposta por IA for necessária.
+
+## Instalação e configuração
+
+Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo de exemplo documenta:
+
+| Variável | Função |
+| --- | --- |
+| `APP_PORT` | Porta publicada pelo Compose, com padrão `8000`. |
+| `MONGODB_URI` | URI do MongoDB para execução fora do Compose. |
+| `MONGODB_URI_DOCKER` | URI usada pelo serviço no Compose. |
+| `MONGODB_DATABASE` | Banco usado pelo serviço, com padrão `ai_server`. |
+| `GROQ_API_KEY` / `GROQ_FAST_MODEL` / `GROQ_MODEL` | Provedor Groq e perfis rápido/potente. |
+| `NVIDIA_API_KEY` / `NVIDIA_NIM_FAST_MODEL` / `NVIDIA_NIM_MODEL` / `NVIDIA_NIM_BASE_URL` | Provedor NVIDIA NIM e perfis rápido/potente. |
+| `LLM_TEMPERATURE` / `LLM_TIMEOUT_SECONDS` | Parâmetros das chamadas ao modelo. |
+| `AUTH_BEARER_TOKEN` | Token exigido no header `Authorization: Bearer ...`. |
+
+Não versione o arquivo `.env` nem os tokens.
+
+O roteador, guardrails, FAQ, suporte e fallback usam os perfis rápidos
+`GROQ_FAST_MODEL` e `NVIDIA_NIM_FAST_MODEL`. Ranking, sustentabilidade e o
+agente default usam os perfis potentes `GROQ_MODEL` e `NVIDIA_NIM_MODEL`. Se o
+Groq falhar, o NVIDIA NIM é usado como fallback do mesmo perfil.
+
+## Execução
+
+Com Docker Compose:
 
 ```bash
 docker compose up --build
 ```
 
-Para ativar a IA, copie `.env.example` para `.env` e preencha `GROQ_API_KEY` e `NVIDIA_API_KEY` antes de executar o Compose. O Groq recebe cada chamada primeiro; se falhar, LangChain reexecuta a mesma chamada no endpoint NIM configurado por `NVIDIA_NIM_BASE_URL`. `MONGODB_URI` serve para execucao no host; o Compose usa `MONGODB_URI_DOCKER`.
+A documentação interativa fica em [http://localhost:8000/docs](http://localhost:8000/docs).
 
-`LLM_TOTAL_TIMEOUT_SECONDS` limita o tempo total de roteamento e resposta. Quando
-o provider demora além desse limite, a API retorna `503` controlado para o
-consumidor tentar novamente, evitando um `504` do gateway.
+Para execução direta, instale as dependências de `requirements.txt` e use o entrypoint `app.main:app` com Uvicorn:
 
-O sistema usa perfis de LLM: `GROQ_FAST_MODEL` e `NVIDIA_NIM_FAST_MODEL` para
-roteamento, guardrails, FAQ, suporte e fallback; `GROQ_MODEL` e
-`NVIDIA_NIM_MODEL` para ranking, sustentabilidade e respostas que exigem mais
-raciocinio. O NVIDIA NIM e usado como fallback do respectivo perfil quando o
-Groq falhar.
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
 
-API: `http://localhost:8000/docs`
+## Uso da API
 
-Todos os endpoints da API exigem o token Bearer unico configurado em
-`AUTH_BEARER_TOKEN`, incluindo `/`, `/health`, `/v1/chat` e o historico. Os
-endpoints de documentacao (`/docs`, `/redoc` e `/openapi.json`) permanecem
-publicos para o Swagger funcionar normalmente.
+Rotas públicas:
 
-Gere um token local com `python -c "import secrets; print(secrets.token_urlsafe(32))"`
-e preencha `AUTH_BEARER_TOKEN` no `.env`. O token fica apenas no backend e no
-cliente autorizado; nao o commite no repositorio.
+- `/docs`, `/redoc` e `/openapi.json`: documentação da API.
+
+Rotas autenticadas:
+
+- `GET /`: confirma que o serviço está em execução.
+- `GET /health`: retorna `{"status":"ok"}`.
+- `POST /v1/chat`: processa uma mensagem.
+- `GET /v1/chat/{thread_id}/history`: retorna o histórico paginado de uma conversa.
+
+Exemplo de requisição:
 
 ```json
 {
   "user_id": "usuario-1",
-  "message": "Qual foi minha ultima pergunta?",
+  "message": "Como funciona o ranking?",
   "thread_id": "conversa-1"
 }
 ```
-
-Exemplo de chamada autenticada:
 
 ```bash
 curl -X POST http://localhost:8000/v1/chat \
   -H "Authorization: Bearer <token-configurado>" \
   -H "Content-Type: application/json" \
-  -d '{"user_id":"usuario-1","thread_id":"conversa-1","message":"Qual foi minha ultima pergunta?"}'
+  -d '{"user_id":"usuario-1","thread_id":"conversa-1","message":"Como funciona o ranking?"}'
 ```
 
-A resposta informa o `thread_id`, a mensagem gerada, os `agents` consultados e as
-`tools` executadas naquela mensagem. Se nenhuma tool for usada, `tools` retorna
-uma lista vazia:
+A resposta contém `thread_id`, `message`, `agents` e `tools`. O mesmo `thread_id` não pode ser usado por outro `user_id`.
 
-```json
-{
-  "thread_id": "conversa-1",
-  "message": "...",
-  "agents": ["router", "default"],
-  "tools": ["recall_user_memories"]
-}
-```
-
-O `user_id` e usado como dono da memoria persistida. O `thread_id` identifica uma conversa especifica, entao o mesmo usuario pode ter varias conversas. O mesmo `thread_id` so pode ser reutilizado pelo mesmo `user_id`; outro usuario recebe `403`. Como o token Bearer e compartilhado neste projeto escolar, o backend confia no `user_id` enviado pelo cliente.
-
-O agente pode usar as tools `recall_user_memories` e `save_user_memory` para
-recuperar ou salvar memorias curtas entre conversas. O `user_id` e injetado pelo
-backend nas tools e nao e escolhido pelo modelo.
-
-Com um provider de IA configurado, o roteador escolhe uma rota entre `faq`,
-`sustainability`, `ranking`, `support` e `fallback`, e o agente correspondente
-responde com seu prompt especializado. Sem chaves de IA, a API continua
-retornando o placeholder seguro de configuracao. O agente `default` permanece
-como fallback tecnico e para registros customizados passados a `build_graph`.
-
-Para carregar uma conversa existente, use o historico paginado:
+O histórico aceita `limit` entre 1 e 100, com padrão 20, e o cursor `before` para buscar a página anterior:
 
 ```bash
 curl "http://localhost:8000/v1/chat/conversa-1/history?user_id=usuario-1&limit=20" \
   -H "Authorization: Bearer <token-configurado>"
 ```
 
-Quando houver mais mensagens, a resposta retorna `next_cursor`. Envie esse valor
-como `before` na proxima chamada para buscar a pagina anterior. O limite aceito e
-de 1 a 100 mensagens por requisicao.
+## Testes e qualidade
 
-Antes de chamar o modelo, o sistema bloqueia instrucoes internas, prompt injection,
-credenciais, tokens, chaves, senhas, PII, pedidos perigosos ou ilicitos e assuntos
-fora do escopo. Na saida, redige PII e segredos, limita o tamanho, rejeita respostas
-vazias e substitui claims nao confirmados. Essas protecoes ocorrem antes e depois
-do modelo; a deteccao de prompt injection, escopo e dados internos e principalmente
-de entrada.
+Os mesmos comandos usados no CI são:
 
-Os logs registram ciclo de inicializacao, requisições, bloqueios do guardrail,
-tools utilizadas, status e duracao. O corpo das requisições, tokens e conteúdo
-das memorias nao sao registrados.
+```bash
+ruff check .
+pytest --cov=app --cov-report=xml:coverage.xml
+python -m compileall .
+```
+
+O workflow também executa SonarCloud e CodeQL.
+
+## Licença
+
+Este projeto está sob a licença MIT, conforme o arquivo [LICENSE](LICENSE).
+
+
+## Principais contribuidores
+
+<!-- CONTRIBUTORS:START -->
+- [@Nicolas25vlad](https://github.com/Nicolas25vlad) — 4 contribuições
+<!-- CONTRIBUTORS:END -->
+
+> Atualizado automaticamente semanalmente pelo workflow de metadados do README.
