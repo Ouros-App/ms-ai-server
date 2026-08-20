@@ -1,0 +1,26 @@
+services:
+  api:
+    build: .
+    environment:
+      APP_PORT: 8000
+      MONGODB_URI: ${MONGODB_URI_DOCKER:-mongodb://mongo:27017}
+      MONGODB_DATABASE: ${MONGODB_DATABASE:-ai_server}
+      AUTH_BEARER_TOKEN: ${AUTH_BEARER_TOKEN:?Defina_AUTH_BEARER_TOKEN}
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  mongo:
+    image: mongo:8
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - mongo_data:/data/db
+
+volumes:
+  mongo_data:
