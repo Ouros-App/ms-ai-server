@@ -26,6 +26,18 @@ class ModelTest(unittest.TestCase):
         self.assertEqual(model, groq.return_value)
         groq.return_value.with_fallbacks.assert_not_called()
 
+    def test_fast_profile_uses_fast_groq_model(self) -> None:
+        groq = Mock()
+        config = Settings(_env_file=None, groq_api_key=SecretStr("groq-key"))
+
+        with patch.dict(
+            sys.modules,
+            {"langchain_groq": SimpleNamespace(ChatGroq=groq)},
+        ):
+            build_chat_model(config, "fast")
+
+        self.assertEqual(groq.call_args.kwargs["model_name"], "openai/gpt-oss-20b")
+
     def test_nim_can_run_without_groq(self) -> None:
         nvidia = Mock()
         config = Settings(_env_file=None, nvidia_api_key=SecretStr("nvidia-key"))
@@ -37,6 +49,18 @@ class ModelTest(unittest.TestCase):
             model = build_chat_model(config)
 
         self.assertEqual(model, nvidia.return_value)
+
+    def test_fast_profile_uses_fast_nim_model(self) -> None:
+        nvidia = Mock()
+        config = Settings(_env_file=None, nvidia_api_key=SecretStr("nvidia-key"))
+
+        with patch.dict(
+            sys.modules,
+            {"langchain_openai": SimpleNamespace(ChatOpenAI=nvidia)},
+        ):
+            build_chat_model(config, "fast")
+
+        self.assertEqual(nvidia.call_args.kwargs["model"], "meta/llama-3.1-8b-instruct")
 
     def test_groq_uses_nim_as_fallback(self) -> None:
         groq = Mock()

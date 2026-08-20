@@ -33,7 +33,7 @@ As chaves de IA são opcionais para iniciar a aplicação, mas o `AUTH_BEARER_TO
 - `app/api/routes.py`: expõe as rotas HTTP.
 - `app/agents/graph.py`: define o fluxo de roteamento e execução dos agentes.
 - `app/agents/prompts.py`: regras comuns, rotas e prompts especializados.
-- `app/agents/model.py`: configura Groq e NVIDIA NIM, com fallback quando ambos estão disponíveis.
+- `app/agents/model.py`: configura os perfis rápido e potente do Groq e NVIDIA NIM.
 - `app/agents/guardrails.py`: valida entradas e revisa respostas.
 - `app/repositories/`: checkpointer, memórias e posse das threads.
 - `app/services/`: execução do chat e leitura do histórico.
@@ -56,12 +56,17 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 | `MONGODB_URI` | URI do MongoDB para execução fora do Compose. |
 | `MONGODB_URI_DOCKER` | URI usada pelo serviço no Compose. |
 | `MONGODB_DATABASE` | Banco usado pelo serviço, com padrão `ai_server`. |
-| `GROQ_API_KEY` / `GROQ_MODEL` | Provedor e modelo Groq. |
-| `NVIDIA_API_KEY` / `NVIDIA_NIM_MODEL` / `NVIDIA_NIM_BASE_URL` | Provedor NVIDIA NIM. |
+| `GROQ_API_KEY` / `GROQ_FAST_MODEL` / `GROQ_MODEL` | Provedor Groq e perfis rápido/potente. |
+| `NVIDIA_API_KEY` / `NVIDIA_NIM_FAST_MODEL` / `NVIDIA_NIM_MODEL` / `NVIDIA_NIM_BASE_URL` | Provedor NVIDIA NIM e perfis rápido/potente. |
 | `LLM_TEMPERATURE` / `LLM_TIMEOUT_SECONDS` | Parâmetros das chamadas ao modelo. |
 | `AUTH_BEARER_TOKEN` | Token exigido no header `Authorization: Bearer ...`. |
 
 Não versione o arquivo `.env` nem os tokens.
+
+O roteador, guardrails, FAQ, suporte e fallback usam os perfis rápidos
+`GROQ_FAST_MODEL` e `NVIDIA_NIM_FAST_MODEL`. Ranking, sustentabilidade e o
+agente default usam os perfis potentes `GROQ_MODEL` e `NVIDIA_NIM_MODEL`. Se o
+Groq falhar, o NVIDIA NIM é usado como fallback do mesmo perfil.
 
 ## Execução
 
@@ -83,11 +88,12 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 Rotas públicas:
 
-- `GET /`: confirma que o serviço está em execução.
-- `GET /health`: retorna `{"status":"ok"}`.
+- `/docs`, `/redoc` e `/openapi.json`: documentação da API.
 
 Rotas autenticadas:
 
+- `GET /`: confirma que o serviço está em execução.
+- `GET /health`: retorna `{"status":"ok"}`.
 - `POST /v1/chat`: processa uma mensagem.
 - `GET /v1/chat/{thread_id}/history`: retorna o histórico paginado de uma conversa.
 

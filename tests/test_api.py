@@ -1,5 +1,6 @@
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -37,8 +38,9 @@ class ApiTest(unittest.TestCase):
         return "test-token"
 
     def test_chat_and_health(self) -> None:
-        self.assertEqual(self.client.get("/").json(), {"message": "AI Server is running"})
-        self.assertEqual(self.client.get("/health").json(), {"status": "ok"})
+        headers = {"Authorization": f"Bearer {self.token()}"}
+        self.assertEqual(self.client.get("/", headers=headers).json(), {"message": "AI Server is running"})
+        self.assertEqual(self.client.get("/health", headers=headers).json(), {"status": "ok"})
 
         first = self.client.post(
             "/v1/chat",
@@ -76,6 +78,14 @@ class ApiTest(unittest.TestCase):
         )
         self.assertEqual(previous_page.status_code, 200)
         self.assertIsNone(previous_page.json()["next_cursor"])
+
+    def test_root_and_health_require_bearer_token(self) -> None:
+        self.assertEqual(self.client.get("/").status_code, 401)
+        self.assertEqual(self.client.get("/health").status_code, 401)
+
+        headers = {"Authorization": f"Bearer {self.token()}"}
+        self.assertEqual(self.client.get("/", headers=headers).status_code, 200)
+        self.assertEqual(self.client.get("/health", headers=headers).status_code, 200)
 
     def test_chat_requires_user_id(self) -> None:
         response = self.client.post(
@@ -165,3 +175,22 @@ class ApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["detail"], "Autenticacao nao configurada.")
+
+    def test_chat_returns_controlled_503_when_graph_times_out(self) -> None:
+        graph = Mock()
+        graph.aget_state = AsyncMock(return_value=SimpleNamespace(values={}))
+        graph.ainvoke = AsyncMock(side_effect=TimeoutError())
+        self.app.state.graph = graph
+
+        with patch.object(settings, "llm_total_timeout_seconds", 20):
+            response = self.client.post(
+                "/v1/chat",
+                json={"user_id": "user-1", "thread_id": "timeout", "message": "ranking"},
+                headers={"Authorization": f"Bearer {self.token()}"},
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.json()["detail"],
+            "O provedor de IA demorou para responder. Tente novamente.",
+        )
