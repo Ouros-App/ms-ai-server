@@ -4,6 +4,7 @@ import unicodedata
 from dataclasses import dataclass
 from uuid import uuid4
 
+from app.agents.llms import FAST_LLM
 from app.agents.model import get_chat_model
 
 logger = logging.getLogger(__name__)
@@ -219,7 +220,7 @@ async def guard_input(
     if _GREETING_PATTERN.fullmatch(_normalize(sanitized.strip())):
         return InputGuardrailResult(True, "APROVADO", "", sanitized, pii_map)
 
-    classifier = model or get_chat_model()
+    classifier = model or get_chat_model(FAST_LLM)
     if classifier is None:
         if reason == "unknown":
             logger.info("guardrail_blocked category=FORA_DO_ESCOPO reason=no_classifier")
@@ -283,7 +284,7 @@ async def review_output(content: object, sensitive_token: str = "", model=None) 
     safe_text = guard_output(content, sensitive_token)
     if safe_text in (SAFE_REFUSAL, OUT_OF_SCOPE_REFUSAL):
         return safe_text
-    reviewer = model or get_chat_model()
+    reviewer = model or get_chat_model(FAST_LLM)
     if reviewer is None:
         return safe_text
     try:

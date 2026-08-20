@@ -1,10 +1,11 @@
 from functools import lru_cache
 
+from app.agents.llms import FAST_LLM, POWERFUL_LLM
 from app.core.config import Settings, settings
 
 
-def build_chat_model(config: Settings):
-    """Monta Groq com NVIDIA NIM como fallback quando as chaves existem."""
+def build_chat_model(config: Settings, profile: str = POWERFUL_LLM):
+    """Monta o perfil selecionado, usando NVIDIA NIM como fallback."""
     if not config.groq_api_key and not config.nvidia_api_key:
         return None
 
@@ -12,8 +13,9 @@ def build_chat_model(config: Settings):
     if config.groq_api_key:
         from langchain_groq import ChatGroq
 
+        model_name = config.groq_fast_model if profile == FAST_LLM else config.groq_model
         primary = ChatGroq(
-            model_name=config.groq_model,
+            model_name=model_name,
             api_key=config.groq_api_key.get_secret_value(),
             temperature=config.llm_temperature,
             timeout=config.llm_timeout_seconds,
@@ -41,6 +43,6 @@ def build_chat_model(config: Settings):
 
 
 @lru_cache
-def get_chat_model():
-    """Retorna o modelo compartilhado configurado para o processo."""
-    return build_chat_model(settings)
+def get_chat_model(profile: str = POWERFUL_LLM):
+    """Retorna o modelo compartilhado do perfil solicitado."""
+    return build_chat_model(settings, profile)

@@ -29,6 +29,11 @@ Para ativar a IA, copie `.env.example` para `.env` e preencha `GROQ_API_KEY` e `
 o provider demora além desse limite, a API retorna `503` controlado para o
 consumidor tentar novamente, evitando um `504` do gateway.
 
+O sistema usa perfis de LLM: `GROQ_FAST_MODEL` para roteamento, guardrails, FAQ,
+suporte e fallback; `GROQ_MODEL` para ranking, sustentabilidade e respostas que
+exigem mais raciocinio. Se o Groq falhar, o NVIDIA NIM configurado continua como
+fallback.
+
 API: `http://localhost:8000/docs`
 
 Todos os endpoints da API exigem o token Bearer unico configurado em

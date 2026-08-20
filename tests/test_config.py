@@ -14,6 +14,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.app_port, 8000)
         self.assertEqual(config.mongodb_database, "ai_server")
         self.assertEqual(config.groq_model, "openai/gpt-oss-120b")
+        self.assertEqual(config.groq_fast_model, "openai/gpt-oss-20b")
         self.assertEqual(config.nvidia_nim_model, "meta/llama-3.3-70b-instruct")
         self.assertEqual(config.llm_total_timeout_seconds, 20)
         self.assertIsNone(config.auth_bearer_token)
