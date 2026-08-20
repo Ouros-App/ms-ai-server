@@ -1,5 +1,17 @@
 # AI Server
 
+<!-- REPO-METADATA:START -->
+<div align="center">
+
+[![Repo Size](https://img.shields.io/github/repo-size/Ouros-App/ms-ai-server?style=flat-square&label=REPO%20SIZE)](https://github.com/Ouros-App/ms-ai-server)
+[![Languages](https://img.shields.io/github/languages/count/Ouros-App/ms-ai-server?style=flat-square&label=LANGUAGES)](https://github.com/Ouros-App/ms-ai-server/languages)
+[![Forks](https://img.shields.io/github/forks/Ouros-App/ms-ai-server?style=flat-square&label=FORKS)](https://github.com/Ouros-App/ms-ai-server/network/members)
+[![Issues](https://img.shields.io/github/issues/Ouros-App/ms-ai-server?style=flat-square&label=ISSUES)](https://github.com/Ouros-App/ms-ai-server/issues)
+[![Pull Requests](https://img.shields.io/github/issues-pr/Ouros-App/ms-ai-server?style=flat-square&label=PULL%20REQUESTS)](https://github.com/Ouros-App/ms-ai-server/pulls)
+
+</div>
+<!-- REPO-METADATA:END -->
+
 API FastAPI de orquestração de agentes de IA com LangGraph. O serviço usa MongoDB para persistir o estado das conversas e as memórias dos usuários, e pode chamar provedores Groq e NVIDIA NIM.
 
 ## Status e escopo
@@ -119,3 +131,12 @@ O workflow também executa SonarCloud e CodeQL.
 ## Licença
 
 Este projeto está sob a licença MIT, conforme o arquivo [LICENSE](LICENSE).
+
+
+## Principais contribuidores
+
+<!-- CONTRIBUTORS:START -->
+- [@Nicolas25vlad](https://github.com/Nicolas25vlad) — 4 contribuições
+<!-- CONTRIBUTORS:END -->
+
+> Atualizado automaticamente semanalmente pelo workflow de metadados do README.
