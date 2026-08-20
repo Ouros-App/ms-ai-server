@@ -38,8 +38,9 @@ class ApiTest(unittest.TestCase):
         return "test-token"
 
     def test_chat_and_health(self) -> None:
-        self.assertEqual(self.client.get("/").json(), {"message": "AI Server is running"})
-        self.assertEqual(self.client.get("/health").json(), {"status": "ok"})
+        headers = {"Authorization": f"Bearer {self.token()}"}
+        self.assertEqual(self.client.get("/", headers=headers).json(), {"message": "AI Server is running"})
+        self.assertEqual(self.client.get("/health", headers=headers).json(), {"status": "ok"})
 
         first = self.client.post(
             "/v1/chat",
@@ -77,6 +78,14 @@ class ApiTest(unittest.TestCase):
         )
         self.assertEqual(previous_page.status_code, 200)
         self.assertIsNone(previous_page.json()["next_cursor"])
+
+    def test_root_and_health_require_bearer_token(self) -> None:
+        self.assertEqual(self.client.get("/").status_code, 401)
+        self.assertEqual(self.client.get("/health").status_code, 401)
+
+        headers = {"Authorization": f"Bearer {self.token()}"}
+        self.assertEqual(self.client.get("/", headers=headers).status_code, 200)
+        self.assertEqual(self.client.get("/health", headers=headers).status_code, 200)
 
     def test_chat_requires_user_id(self) -> None:
         response = self.client.post(

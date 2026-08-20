@@ -31,8 +31,10 @@ consumidor tentar novamente, evitando um `504` do gateway.
 
 API: `http://localhost:8000/docs`
 
-`POST /v1/chat` exige um token Bearer unico configurado em `AUTH_BEARER_TOKEN`.
-O mesmo token deve ser enviado em todas as chamadas autenticadas.
+Todos os endpoints da API exigem o token Bearer unico configurado em
+`AUTH_BEARER_TOKEN`, incluindo `/`, `/health`, `/v1/chat` e o historico. Os
+endpoints de documentacao (`/docs`, `/redoc` e `/openapi.json`) permanecem
+publicos para o Swagger funcionar normalmente.
 
 Gere um token local com `python -c "import secrets; print(secrets.token_urlsafe(32))"`
 e preencha `AUTH_BEARER_TOKEN` no `.env`. O token fica apenas no backend e no
