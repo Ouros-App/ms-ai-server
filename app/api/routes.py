@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Request, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-from app.core.auth import get_current_principal
+from app.core.auth import Principal, get_current_principal
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.schemas.common import HealthResponse, MessageResponse
 from app.schemas.history import HistoryResponse
