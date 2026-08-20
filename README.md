@@ -1,12 +1,15 @@
 # AI Server
 
-API principal para os fronts consumirem agentes de IA. A base ja possui FastAPI, LangGraph e memoria persistente no MongoDB; os agentes, prompts e tools ainda sao propositalmente genericos.
+API principal para os fronts consumirem agentes de IA. A base possui FastAPI,
+LangGraph, roteamento semantico, agentes especializados e memoria persistente
+no MongoDB. RAG e MCP ficam fora deste servico e serao integrados por outro
+microservico quando necessario.
 
 ## Estrutura
 
-- `app/agents/graph.py`: fluxo `router -> agente` e registro de agentes.
+- `app/agents/graph.py`: fluxo `router -> agente` e registro dos agentes.
 - `app/agents/model.py`: Groq como provider principal e NVIDIA NIM como fallback.
-- `app/agents/prompts.py`: regras comuns, roteamento e prompts dos agentes FAQ.
+- `app/agents/prompts.py`: regras comuns, roteamento e prompts dos agentes.
 - `app/agents/guardrails.py`: bloqueios de prompt injection e vazamento de credenciais.
 - `app/agents/tools.py`: tools permitidas para preencher.
 - `app/services/chat.py`: entrada unica do grafo.
@@ -67,7 +70,11 @@ O agente pode usar as tools `recall_user_memories` e `save_user_memory` para
 recuperar ou salvar memorias curtas entre conversas. O `user_id` e injetado pelo
 backend nas tools e nao e escolhido pelo modelo.
 
-O agente `default` retorna a resposta de placeholder enquanto nenhum agente especializado estiver registrado. Para adicionar agentes, passe um novo registro para `build_graph`, implemente o no e faca o roteador retornar a rota correspondente.
+Com um provider de IA configurado, o roteador escolhe uma rota entre `faq`,
+`sustainability`, `ranking`, `support` e `fallback`, e o agente correspondente
+responde com seu prompt especializado. Sem chaves de IA, a API continua
+retornando o placeholder seguro de configuracao. O agente `default` permanece
+como fallback tecnico e para registros customizados passados a `build_graph`.
 
 Para carregar uma conversa existente, use o historico paginado:
 

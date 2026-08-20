@@ -1,3 +1,4 @@
+import json
 import logging
 
 from langchain_core.messages import AIMessage, ToolMessage
@@ -9,11 +10,17 @@ from app.agents.guardrails import (
     review_output,
 )
 from app.agents.model import get_chat_model
-from app.agents.prompts import DEFAULT_AGENT_RESPONSE, SYSTEM_PROMPT
+from app.agents.prompts import (
+    AGENT_PROMPTS,
+    DEFAULT_AGENT_RESPONSE,
+    ROUTER_PROMPT,
+    SYSTEM_PROMPT,
+)
 from app.agents.tools import build_memory_tools
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+ROUTES = frozenset(AGENT_PROMPTS)
 
 
 class AgentState(MessagesState):
@@ -24,17 +31,60 @@ class AgentState(MessagesState):
     input_guardrail: dict[str, object]
 
 
-def route_request(state: AgentState) -> dict:
-    """Preserva uma rota escolhida por um roteador futuro ou usa o padrao."""
+def _extract_route(response: object) -> str:
+    content = getattr(response, "content", response)
+    if not isinstance(content, str):
+        return "fallback"
+
+    try:
+        payload = json.loads(content.strip())
+    except json.JSONDecodeError:
+        return "fallback"
+
+    route = payload.get("route") if isinstance(payload, dict) else None
+    normalized_route = route.lower() if isinstance(route, str) else ""
+    return normalized_route if normalized_route in ROUTES else "fallback"
+
+
+async def route_request(state: AgentState) -> dict:
+    """Preserva uma rota explicita ou escolhe o agente com o modelo."""
+    input_guardrail = state.get("input_guardrail")
+    if input_guardrail and not input_guardrail.get("allowed", True):
+        route = "default"
+    else:
+        requested_route = state.get("route")
+        if requested_route:
+            route = requested_route
+        else:
+            model = get_chat_model()
+            if model is None:
+                route = "default"
+            else:
+                try:
+                    response = await model.ainvoke([
+                        {"role": "system", "content": ROUTER_PROMPT},
+                        *state.get("messages", [])[-6:],
+                    ])
+                    route = _extract_route(response)
+                except Exception:
+                    logger.exception("agent_router_failed")
+                    route = "fallback"
+                logger.info("agent_route_selected route=%s", route)
+
     return {
-        "route": state.get("route") or "default",
+        "route": route,
         "agents": ["router"],
         "tools": [],
     }
 
 
 async def default_agent(state: AgentState) -> dict:
-    """Gera uma resposta do modelo ou o placeholder configurado."""
+    """Gera uma resposta generica do modelo ou o placeholder configurado."""
+    return await _run_agent(state, SYSTEM_PROMPT, "default")
+
+
+async def _run_agent(state: AgentState, prompt: str, agent_name: str) -> dict:
+    """Executa um agente com guardrails, memoria e revisao de saida."""
     latest_message = state["messages"][-1] if state["messages"] else None
     user_text = getattr(latest_message, "content", "")
     used_tools: list[str] = []
@@ -52,7 +102,7 @@ async def default_agent(state: AgentState) -> dict:
             response, used_tools = await _invoke_model(
                 model,
                 [
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": prompt},
                     *state["messages"],
                 ],
                 state.get("memory_store"),
@@ -63,7 +113,7 @@ async def default_agent(state: AgentState) -> dict:
             content = DEFAULT_AGENT_RESPONSE
 
     if used_tools:
-        logger.info("agent_tools_used agent=default tools=%s", used_tools)
+        logger.info("agent_tools_used agent=%s tools=%s", agent_name, used_tools)
 
     sensitive_token = (
         settings.auth_bearer_token.get_secret_value() if settings.auth_bearer_token else ""
@@ -71,7 +121,7 @@ async def default_agent(state: AgentState) -> dict:
     message = AIMessage(content=await review_output(content, sensitive_token))
 
     return {
-        "agents": [*state["agents"], "default"],
+        "agents": [*state["agents"], agent_name],
         "tools": list(dict.fromkeys([*state.get("tools", []), *used_tools])),
         "messages": [message],
     }
@@ -112,7 +162,20 @@ async def _invoke_model(model, messages: list, memory_store, user_id: str):
     return await model.ainvoke(conversation), used_tools
 
 
-AGENTS = {"default": default_agent}
+def _build_prompt_agent(name: str, prompt: str):
+    async def agent(state: AgentState) -> dict:
+        return await _run_agent(state, prompt, name)
+
+    return agent
+
+
+AGENTS = {
+    "default": default_agent,
+    **{
+        name: _build_prompt_agent(name, prompt)
+        for name, prompt in AGENT_PROMPTS.items()
+    },
+}
 
 
 def choose_agent(state: AgentState, agents: dict) -> str:

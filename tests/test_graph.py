@@ -2,10 +2,16 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi import HTTPException
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
-from app.agents.graph import _invoke_model, build_graph, default_agent
+from app.agents.graph import (
+    _extract_route,
+    _invoke_model,
+    build_graph,
+    default_agent,
+    route_request,
+)
 from app.agents.model import get_chat_model
 from app.agents.prompts import DEFAULT_AGENT_RESPONSE
 from app.core.config import settings
@@ -76,7 +82,12 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_default_agent_uses_configured_model(self) -> None:
         model = Mock()
-        model.ainvoke = AsyncMock(return_value=AIMessage(content="resposta do modelo"))
+        model.ainvoke = AsyncMock(
+            side_effect=[
+                AIMessage(content='{"route":"ranking"}'),
+                AIMessage(content="resposta do modelo"),
+            ],
+        )
 
         with patch("app.agents.graph.get_chat_model", return_value=model):
             response = await invoke_graph(
@@ -91,7 +102,36 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.message, "resposta do modelo")
         self.assertEqual(response.tools, [])
-        model.ainvoke.assert_awaited_once()
+        self.assertEqual(response.agents, ["router", "ranking"])
+        self.assertEqual(model.ainvoke.await_count, 2)
+
+    async def test_router_selects_valid_route_from_model(self) -> None:
+        model = Mock()
+        model.ainvoke = AsyncMock(
+            return_value=AIMessage(content='{"route":"sustainability"}'),
+        )
+
+        with patch("app.agents.graph.get_chat_model", return_value=model):
+            result = await route_request(
+                {
+                    "route": "",
+                    "messages": [HumanMessage(content="Como economizar agua?")],
+                },
+            )
+
+        self.assertEqual(result["route"], "sustainability")
+        self.assertEqual(result["agents"], ["router"])
+
+    def test_router_falls_back_for_invalid_model_output(self) -> None:
+        self.assertEqual(_extract_route(AIMessage(content="nao e json")), "fallback")
+        self.assertEqual(
+            _extract_route(AIMessage(content='{"route":"unknown"}')),
+            "fallback",
+        )
+        self.assertEqual(
+            _extract_route(AIMessage(content='{"route":"RANKING"}')),
+            "ranking",
+        )
 
     async def test_response_reports_tools_used_by_agent(self) -> None:
         model = Mock()
