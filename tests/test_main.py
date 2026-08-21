@@ -1,12 +1,38 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
+from fastapi import Response
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app import main
 
 
 class MainTest(unittest.IsolatedAsyncioTestCase):
+    def request(self) -> SimpleNamespace:
+        return SimpleNamespace(
+            method="GET",
+            url=SimpleNamespace(path="/health"),
+            scope={"route": SimpleNamespace(path="/health")},
+        )
+
+    async def test_request_middleware_records_success(self) -> None:
+        response = Response(status_code=200)
+
+        async def call_next(request):
+            return response
+
+        result = await main.log_requests(self.request(), call_next)
+
+        self.assertIs(result, response)
+
+    async def test_request_middleware_records_failure_and_reraises(self) -> None:
+        async def call_next(request):
+            raise RuntimeError("request failed")
+
+        with self.assertRaises(RuntimeError):
+            await main.log_requests(self.request(), call_next)
+
     async def test_lifespan_isolated_from_external_services(self) -> None:
         client = MagicMock()
         database = MagicMock()

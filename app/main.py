@@ -9,6 +9,7 @@ from app.agents.graph import build_graph
 from app.api.routes import router
 from app.core.config import settings
 from app.core.logging_config import configure_logging
+from app.core.metrics import observe_http_request
 from app.repositories.checkpointer import get_checkpointer
 from app.repositories.memory import UserMemoryStore
 from app.repositories.thread_ownership import ThreadOwnershipStore
@@ -59,6 +60,13 @@ async def log_requests(request, call_next):
     try:
         response = await call_next(request)
     except Exception:
+        route = getattr(request.scope.get("route"), "path", "unmatched")
+        observe_http_request(
+            request.method,
+            route,
+            500,
+            perf_counter() - started_at,
+        )
         logger.exception(
             "request_failed method=%s path=%s duration_ms=%.1f",
             request.method,
@@ -67,6 +75,13 @@ async def log_requests(request, call_next):
         )
         raise
 
+    route = getattr(request.scope.get("route"), "path", "unmatched")
+    observe_http_request(
+        request.method,
+        route,
+        response.status_code,
+        perf_counter() - started_at,
+    )
     logger.info(
         "request_completed method=%s path=%s status=%s duration_ms=%.1f",
         request.method,

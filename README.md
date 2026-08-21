@@ -19,6 +19,7 @@ API FastAPI de orquestração de agentes de IA com LangGraph. O serviço usa Mon
 O serviço está implementado com:
 
 - endpoints de saúde, chat e histórico de conversas;
+- endpoint Prometheus autenticado em `/metrics`;
 - roteamento entre os agentes `faq`, `sustainability`, `ranking`, `support` e `fallback`;
 - resposta padrão quando nenhum provedor de IA está configurado;
 - autenticação por um token Bearer compartilhado;
@@ -120,6 +121,24 @@ O histórico aceita `limit` entre 1 e 100, com padrão 20, e o cursor `before` p
 ```bash
 curl "http://localhost:8000/v1/chat/conversa-1/history?user_id=usuario-1&limit=20" \
   -H "Authorization: Bearer <token-configurado>"
+```
+
+## Observabilidade
+
+O endpoint `GET /metrics` expõe métricas Prometheus de requisições HTTP, latência,
+status, resultados do chat, agentes e tools utilizadas. Ele exige o mesmo Bearer
+Token da API. Configure o Prometheus para enviar esse token no scrape e use o
+Prometheus como datasource no Grafana:
+
+```yaml
+scrape_configs:
+  - job_name: ms-ai-server
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials: <token-configurado>
+    static_configs:
+      - targets: ["ms-ai-server.discloud.app"]
 ```
 
 ## Testes e qualidade
