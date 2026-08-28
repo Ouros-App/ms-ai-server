@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from time import monotonic
@@ -25,7 +26,11 @@ class _NoArguments(BaseModel):
 
 
 class _FarmDataArguments(BaseModel):
-    farm_id: int = Field(gt=0, description="ID da fazenda autorizado pelo contexto do usuario")
+    farm_id: int | None = Field(
+        default=None,
+        gt=0,
+        description="Identificador interno retornado pelo contexto autorizado",
+    )
     limit: int = 20
 
 
@@ -175,7 +180,9 @@ class MCPToolProvider:
 
             args_schema = _NoArguments
         else:
-            async def invoke(farm_id: int, limit: int = 20) -> object:
+            async def invoke(farm_id: int | None = None, limit: int = 20) -> object:
+                if farm_id is None:
+                    return self._scope_denied(user_id)
                 result = await tool.ainvoke(
                     {
                         "user_type": self.user_type,
@@ -203,8 +210,9 @@ class MCPToolProvider:
     @staticmethod
     def _filter_farm_data(result: object, user_id: int, farm_id: int) -> dict:
         """Retorna somente registros da fazenda autorizada solicitada."""
-        if not isinstance(result, dict):
-            return {"user_id": user_id, "farm_id": farm_id, "authorized": False, "data": {}}
+        result = MCPToolProvider._decode_tool_result(result)
+        if result is None:
+            return MCPToolProvider._scope_denied(user_id)
 
         authorized_ids = result.get("farm_ids", [])
         if farm_id not in authorized_ids:
@@ -212,7 +220,6 @@ class MCPToolProvider:
             return {
                 "user_type": result.get("user_type"),
                 "user_id": user_id,
-                "farm_id": farm_id,
                 "authorized": False,
                 "data": {},
             }
@@ -231,7 +238,29 @@ class MCPToolProvider:
         return {
             "user_type": result.get("user_type"),
             "user_id": user_id,
-            "farm_id": farm_id,
             "authorized": True,
             "data": data,
         }
+
+    @staticmethod
+    def _decode_tool_result(result: object) -> dict | None:
+        if isinstance(result, dict):
+            return result
+        if isinstance(result, str):
+            try:
+                decoded = json.loads(result)
+            except json.JSONDecodeError:
+                return None
+            return decoded if isinstance(decoded, dict) else None
+        if isinstance(result, list):
+            text = "".join(
+                item.get("text", "")
+                for item in result
+                if isinstance(item, dict) and isinstance(item.get("text"), str)
+            )
+            return MCPToolProvider._decode_tool_result(text)
+        return None
+
+    @staticmethod
+    def _scope_denied(user_id: int) -> dict:
+        return {"user_id": user_id, "authorized": False, "data": {}}

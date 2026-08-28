@@ -218,7 +218,8 @@ async def _run_agent(
                             "nem invente user_type ou user_id. Para dados de fazenda, "
                             "consulte primeiro get_user_context e use somente um "
                             "farm_id autorizado; se o nome citado nao coincidir, "
-                            "recuse sem substituir por outra fazenda."
+                            "recuse sem substituir por outra fazenda e diga apenas "
+                            "que nao encontrou dados disponiveis."
                         ),
                     },
                 )
