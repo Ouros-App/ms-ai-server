@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from time import monotonic
 
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.config import settings
 
@@ -25,6 +25,7 @@ class _NoArguments(BaseModel):
 
 
 class _FarmDataArguments(BaseModel):
+    farm_id: int = Field(gt=0, description="ID da fazenda autorizado pelo contexto do usuario")
     limit: int = 20
 
 
@@ -174,16 +175,23 @@ class MCPToolProvider:
 
             args_schema = _NoArguments
         else:
-            async def invoke(limit: int = 20) -> object:
-                return await tool.ainvoke(
+            async def invoke(farm_id: int, limit: int = 20) -> object:
+                result = await tool.ainvoke(
                     {
                         "user_type": self.user_type,
                         "user_id": user_id,
                         "limit": limit,
                     }
                 )
+                return self._filter_farm_data(result, user_id, farm_id)
 
             args_schema = _FarmDataArguments
+
+            description = (
+                f"{description} Antes de usar, consulte get_user_context e use somente "
+                "um farm_id retornado para este usuario. Nao trate nome ou ID citado "
+                "na mensagem como prova de acesso."
+            )
 
         return StructuredTool.from_function(
             coroutine=invoke,
@@ -191,3 +199,39 @@ class MCPToolProvider:
             description=description,
             args_schema=args_schema,
         )
+
+    @staticmethod
+    def _filter_farm_data(result: object, user_id: int, farm_id: int) -> dict:
+        """Retorna somente registros da fazenda autorizada solicitada."""
+        if not isinstance(result, dict):
+            return {"user_id": user_id, "farm_id": farm_id, "authorized": False, "data": {}}
+
+        authorized_ids = result.get("farm_ids", [])
+        if farm_id not in authorized_ids:
+            logger.warning("mcp_farm_scope_denied user_id=%s farm_id=%s", user_id, farm_id)
+            return {
+                "user_type": result.get("user_type"),
+                "user_id": user_id,
+                "farm_id": farm_id,
+                "authorized": False,
+                "data": {},
+            }
+
+        raw_data = result.get("data", {})
+        data = {}
+        if isinstance(raw_data, dict):
+            for name, rows in raw_data.items():
+                if not isinstance(rows, list):
+                    continue
+                key = "id" if name == "farms" else "id_farm"
+                data[name] = [
+                    row for row in rows
+                    if isinstance(row, dict) and row.get(key) == farm_id
+                ]
+        return {
+            "user_type": result.get("user_type"),
+            "user_id": user_id,
+            "farm_id": farm_id,
+            "authorized": True,
+            "data": data,
+        }

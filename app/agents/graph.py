@@ -215,7 +215,10 @@ async def _run_agent(
                             "Para dados atuais ou pessoais, consulte-as antes de "
                             "pedir informacoes ao usuario. A identidade desta "
                             "requisicao ja esta vinculada pelo backend; nao peca "
-                            "nem invente user_type ou user_id."
+                            "nem invente user_type ou user_id. Para dados de fazenda, "
+                            "consulte primeiro get_user_context e use somente um "
+                            "farm_id autorizado; se o nome citado nao coincidir, "
+                            "recuse sem substituir por outra fazenda."
                         ),
                     },
                 )

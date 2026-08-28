@@ -91,6 +91,52 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             {"user_type": "farm_owner", "user_id": 42}
         )
 
+    async def test_farm_data_tool_filters_to_authorized_farm(self) -> None:
+        remote_tool = SimpleNamespace(
+            name="get_user_farm_data",
+            description="Dados da fazenda",
+            ainvoke=AsyncMock(
+                return_value={
+                    "user_type": "farm_owner",
+                    "user_id": 42,
+                    "farm_ids": [11],
+                    "data": {
+                        "farms": [{"id": 11, "name": "Fazenda autorizada"}],
+                        "water_registries": [
+                            {"id_farm": 11, "value": 5},
+                            {"id_farm": 99, "value": 999},
+                        ],
+                    },
+                }
+            ),
+        )
+
+        class FakeClient:
+            def __init__(self, connections, **kwargs):
+                pass
+
+            async def get_tools(self, server_name):
+                return [remote_tool]
+
+        provider = MCPToolProvider(
+            url="http://mcp.test/mcp",
+            access_token="token",
+        )
+
+        with patch(
+            "langchain_mcp_adapters.client.MultiServerMCPClient",
+            FakeClient,
+        ):
+            tools = await provider.tools_for("ranking", "42")
+            authorized = await tools[0].ainvoke({"farm_id": 11})
+            denied = await tools[0].ainvoke({"farm_id": 99})
+
+        self.assertTrue(authorized["authorized"])
+        self.assertEqual(authorized["data"]["farms"], [{"id": 11, "name": "Fazenda autorizada"}])
+        self.assertEqual(authorized["data"]["water_registries"], [{"id_farm": 11, "value": 5}])
+        self.assertFalse(denied["authorized"])
+        self.assertEqual(denied["data"], {})
+
     async def test_provider_skips_mcp_for_non_numeric_user(self) -> None:
         provider = MCPToolProvider(
             url="http://mcp.test/mcp",
