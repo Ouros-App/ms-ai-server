@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Request, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-from app.core.auth import Principal, get_current_principal
+from app.core.auth import Principal, get_current_principal, user_id_for_request
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.schemas.common import HealthResponse, MessageResponse
 from app.schemas.history import HistoryResponse
@@ -37,12 +37,14 @@ async def metrics(
 async def chat(
     payload: ChatRequest,
     request: Request,
+    principal: Annotated[Principal, Depends(get_current_principal)],
 ) -> ChatResponse:
     """Processa uma mensagem dentro de uma thread persistente."""
+    user_id = user_id_for_request(payload.user_id, principal)
     return await invoke_graph(
         request.app.state.graph,
-        payload,
-        payload.user_id,
+        payload.model_copy(update={"user_id": user_id}),
+        user_id,
         getattr(request.app.state, "thread_ownership", None),
     )
 
@@ -54,8 +56,10 @@ async def chat_history(
     user_id: Annotated[str, Query(min_length=1, max_length=128)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     before: Annotated[str | None, Query(min_length=1, max_length=32)] = None,
+    principal: Annotated[Principal, Depends(get_current_principal)] = None,
 ) -> HistoryResponse:
     """Retorna uma pagina do historico visivel de uma thread."""
+    user_id = user_id_for_request(user_id, principal)
     return await get_thread_history(
         request.app.state.checkpointer,
         thread_id,

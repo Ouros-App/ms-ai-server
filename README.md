@@ -23,7 +23,7 @@ O serviço está implementado com:
 - roteamento entre os agentes `faq`, `sustainability`, `ranking`, `support` e `fallback`;
 - especialistas com contrato JSON e um agente `default` dedicado à síntese da resposta;
 - resposta padrão quando nenhum provedor de IA está configurado;
-- autenticação por um token Bearer compartilhado;
+- autenticação operacional por Bearer e identidade de usuário por JWT;
 - guardrails de entrada e revisão de saída.
 
 As chaves de IA são opcionais para iniciar a aplicação, mas o `AUTH_BEARER_TOKEN` é necessário para acessar os endpoints autenticados.
@@ -62,6 +62,8 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 | `NVIDIA_API_KEY` / `NVIDIA_NIM_FAST_MODEL` / `NVIDIA_NIM_MODEL` / `NVIDIA_NIM_BASE_URL` | Provedor NVIDIA NIM e perfis rápido/potente. |
 | `LLM_TEMPERATURE` / `LLM_TIMEOUT_SECONDS` | Parâmetros das chamadas ao modelo. |
 | `AUTH_BEARER_TOKEN` | Token exigido no header `Authorization: Bearer ...`. |
+| `AUTH_JWT_SECRET` / `AUTH_JWT_ISSUER` / `AUTH_JWT_AUDIENCE` | Validação do JWT vinculado ao usuário; o `sub` deve ser o ID do usuário no MIDAS. |
+| `AUTH_REQUIRE_USER_JWT` | Exige identidade vinculada ao usuário para chat e histórico; mantenha `true` em produção. |
 | `MCP_URL` | Endpoint Streamable HTTP do servidor MCP externo. |
 | `MCP_ACCESS_TOKEN` | Token MCP fixo de fallback; prefira JWT por usuário em produção. |
 | `MCP_JWT_SECRET` / `MCP_JWT_ISSUER_URL` / `MCP_RESOURCE_URL` | Emissão de JWT curto por usuário para o MCP. |
@@ -117,7 +119,7 @@ Exemplo de requisição:
 
 ```json
 {
-  "user_id": "usuario-1",
+  "user_id": "6",
   "message": "Como funciona o ranking?",
   "thread_id": "conversa-1"
 }
@@ -125,17 +127,21 @@ Exemplo de requisição:
 
 ```bash
 curl -X POST http://localhost:8000/v1/chat \
-  -H "Authorization: Bearer <token-configurado>" \
+  -H "Authorization: Bearer <jwt-do-usuario>" \
   -H "Content-Type: application/json" \
-  -d '{"user_id":"usuario-1","thread_id":"conversa-1","message":"Como funciona o ranking?"}'
+  -d '{"user_id":"6","thread_id":"conversa-1","message":"Como funciona o ranking?"}'
 ```
 
-A resposta contém `thread_id`, `message`, `agents` e `tools`. O mesmo `thread_id` não pode ser usado por outro `user_id`.
+A resposta contém `thread_id`, `message`, `agents` e `tools`. O `user_id` enviado
+no corpo deve ser igual ao `sub` do JWT autenticado. O primeiro chat cria a
+sessão e vincula o `thread_id` a esse usuário; depois disso, tanto o `user_id`
+quanto o dono da thread são imutáveis. Um Bearer compartilhado não pode acessar
+chat ou histórico quando `AUTH_REQUIRE_USER_JWT=true`.
 
 O histórico aceita `limit` entre 1 e 100, com padrão 20, e o cursor `before` para buscar a página anterior:
 
 ```bash
-curl "http://localhost:8000/v1/chat/conversa-1/history?user_id=usuario-1&limit=20" \
+curl "http://localhost:8000/v1/chat/conversa-1/history?user_id=6&limit=20" \
   -H "Authorization: Bearer <token-configurado>"
 ```
 

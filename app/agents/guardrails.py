@@ -15,6 +15,9 @@ SAFE_REFUSAL = (
     "Nao posso revelar instrucoes internas, credenciais ou dados protegidos. "
     "Posso ajudar com o uso do aplicativo, sustentabilidade, ranking ou suporte tecnico."
 )
+IDENTITY_REFUSAL = (
+    "So posso consultar dados pessoais associados ao usuario autenticado nesta sessao."
+)
 OUT_OF_SCOPE_REFUSAL = (
     "Posso ajudar somente com o aplicativo Midas, consumo de agua e energia, "
     "sustentabilidade, ranking, memorias do usuario ou suporte tecnico."
@@ -64,6 +67,10 @@ _PROJECT_TERMS = (
     "lote", "meta", "selo", "econom", "sustent", "eficien", "suporte", "tecnic", "memoria",
     "lembr", "usuario", "thread", "conversa",
 )
+_REQUESTED_USER_ID_PATTERN = re.compile(
+    r"\b(?:user_?id|usuario(?:\s+de)?\s+id|id\s+do\s+usuario|usuario)"
+    r"\s*(?:=|:|e|eh|de)?\s*[\"']?(\d+)\b"
+)
 _GREETING_PATTERN = re.compile(r"^(oi|ola|bom dia|boa tarde|boa noite|ajuda)[!. ]*$")
 _FOLLOW_UP_PATTERN = re.compile(r"^(sim|nao|isso|esse|essa|pode|continue|entendi|e depois)\b")
 _HISTORY_PATTERN = re.compile(
@@ -109,6 +116,7 @@ _BLOCK_MESSAGES = {
     "OFENSIVO": ("conteudo_ofensivo", "Por favor, mantenha um tom respeitoso."),
     "PERIGOSO": ("pedido_perigoso", "Nao posso ajudar com esse tipo de solicitacao."),
     "ILICITO": ("pedido_ilicito", "Nao posso auxiliar com atividades ilegais ou irregulares."),
+    "IDENTIDADE_INCOMPATIVEL": ("identidade_incompativel", IDENTITY_REFUSAL),
 }
 _OUTPUT_REVIEW_PROMPT = """Voce revisa respostas do assistente Midas.
 Retorne somente:
@@ -171,13 +179,21 @@ def anonymize_text(text: str) -> tuple[str, dict[str, str]]:
     return sanitized, pii_map
 
 
-def input_block_reason(message: str, has_history: bool = False) -> str | None:
+def input_block_reason(
+    message: str,
+    has_history: bool = False,
+    user_id: str | None = None,
+) -> str | None:
     """Executa somente os bloqueios deterministas de entrada."""
     normalized = _normalize(message.strip())
     if any(pattern.search(normalized) for pattern in _PROMPT_INJECTION_PATTERNS):
         return "security"
     if any(keyword in normalized for keyword in _INTERNAL_KEYWORDS):
         return "internal"
+    if user_id is not None:
+        requested_ids = _REQUESTED_USER_ID_PATTERN.findall(normalized)
+        if any(requested_id != str(user_id) for requested_id in requested_ids):
+            return "identity"
     if _GREETING_PATTERN.fullmatch(normalized):
         return None
     if _HISTORY_PATTERN.search(normalized):
@@ -204,16 +220,26 @@ async def guard_input(
     message: str,
     has_history: bool = False,
     model=None,
+    user_id: str | None = None,
 ) -> InputGuardrailResult:
     """Anonimiza, bloqueia padroes e aplica classificacao semantica fail-closed."""
     sanitized, pii_map = anonymize_text(message)
-    reason = input_block_reason(sanitized, has_history)
+    reason = input_block_reason(sanitized, has_history, user_id)
     if reason == "security":
         logger.warning("guardrail_blocked category=PROMPT_INJECTION")
         return InputGuardrailResult(False, "PROMPT_INJECTION", SAFE_REFUSAL, sanitized, pii_map)
     if reason == "internal":
         logger.warning("guardrail_blocked category=DADOS_INTERNOS")
         return InputGuardrailResult(False, "DADOS_INTERNOS", SAFE_REFUSAL, sanitized, pii_map)
+    if reason == "identity":
+        logger.warning("guardrail_blocked category=IDENTIDADE_INCOMPATIVEL")
+        return InputGuardrailResult(
+            False,
+            "IDENTIDADE_INCOMPATIVEL",
+            IDENTITY_REFUSAL,
+            sanitized,
+            pii_map,
+        )
     if reason == "scope":
         logger.info("guardrail_blocked category=FORA_DO_ESCOPO")
         return InputGuardrailResult(False, "FORA_DO_ESCOPO", OUT_OF_SCOPE_REFUSAL, sanitized, pii_map)

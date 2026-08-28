@@ -2,6 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
+import jwt
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
@@ -17,6 +18,8 @@ class ApiTest(unittest.TestCase):
     def setUp(self) -> None:
         for attribute, value in (
             ("auth_bearer_token", SecretStr("test-token")),
+            ("auth_jwt_secret", None),
+            ("auth_require_user_jwt", False),
             ("groq_api_key", None),
             ("nvidia_api_key", None),
         ):
@@ -95,6 +98,55 @@ class ApiTest(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 422)
+
+    def test_chat_rejects_shared_token_when_user_jwt_is_required(self) -> None:
+        with patch.object(settings, "auth_require_user_jwt", True):
+            response = self.client.post(
+                "/v1/chat",
+                json={"user_id": "6", "thread_id": "thread", "message": "ranking"},
+                headers={"Authorization": f"Bearer {self.token()}"},
+            )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_history_rejects_shared_token_when_user_jwt_is_required(self) -> None:
+        with patch.object(settings, "auth_require_user_jwt", True):
+            response = self.client.get(
+                "/v1/chat/thread/history",
+                params={"user_id": "6"},
+                headers={"Authorization": f"Bearer {self.token()}"},
+            )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_chat_uses_user_id_from_jwt_and_rejects_mismatch(self) -> None:
+        secret = "j" * 32
+        token = jwt.encode(
+            {"sub": "6", "user_type": "farm_owner"},
+            secret,
+            algorithm="HS256",
+        )
+        with (
+            patch.object(settings, "auth_jwt_secret", SecretStr(secret)),
+            patch.object(settings, "auth_require_user_jwt", True),
+        ):
+            matching = self.client.post(
+                "/v1/chat",
+                json={"user_id": "6", "thread_id": "jwt-thread", "message": "ranking"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            mismatched = self.client.post(
+                "/v1/chat",
+                json={"user_id": "7", "thread_id": "other-thread", "message": "ranking"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+        self.assertEqual(matching.status_code, 200)
+        self.assertEqual(mismatched.status_code, 403)
+        self.assertEqual(
+            mismatched.json()["detail"],
+            "O user_id nao corresponde ao usuario autenticado.",
+        )
 
     def test_chat_rejects_thread_for_another_user(self) -> None:
         first = self.client.post(
