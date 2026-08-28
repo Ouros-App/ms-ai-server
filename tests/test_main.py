@@ -62,6 +62,7 @@ class MainTest(unittest.IsolatedAsyncioTestCase):
         build_graph.assert_called_once_with(
             checkpointer_context.__enter__.return_value,
             memory_store=ANY,
+            mcp_provider=ANY,
         )
         self.assertIsNotNone(main.app.state.thread_ownership)
         client.close.assert_awaited_once()

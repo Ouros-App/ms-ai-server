@@ -25,8 +25,22 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 30
     llm_total_timeout_seconds: float = 20
     auth_bearer_token: SecretStr | None = None
+    mcp_url: str | None = None
+    mcp_access_token: SecretStr | None = None
+    mcp_jwt_secret: SecretStr | None = None
+    mcp_jwt_issuer_url: str = "https://auth.ouros.local"
+    mcp_resource_url: str | None = None
+    mcp_user_type: str = "farm_owner"
+    mcp_jwt_ttl_seconds: int = 300
 
-    @field_validator("groq_api_key", "nvidia_api_key", "auth_bearer_token", mode="before")
+    @field_validator(
+        "groq_api_key",
+        "nvidia_api_key",
+        "auth_bearer_token",
+        "mcp_access_token",
+        "mcp_jwt_secret",
+        mode="before",
+    )
     @classmethod
     def empty_secret_to_none(cls, value):
         if isinstance(value, SecretStr):
