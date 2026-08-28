@@ -10,6 +10,7 @@ from app.agents.mcp import MCPToolProvider
 class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
     async def test_provider_filters_tools_and_issues_user_jwt(self) -> None:
         captured = {}
+        captured["calls"] = 0
 
         class FakeClient:
             def __init__(self, connections, **kwargs):
@@ -17,6 +18,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
                 captured["kwargs"] = kwargs
 
             async def get_tools(self, server_name):
+                captured["calls"] += 1
                 self.server_name = server_name
                 return [
                     SimpleNamespace(
@@ -40,8 +42,11 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             FakeClient,
         ):
             tools = await provider.tools_for("ranking", "42")
+            cached_tools = await provider.tools_for("faq", "42")
 
         self.assertEqual([tool.name for tool in tools], ["get_user_farm_data"])
+        self.assertEqual([tool.name for tool in cached_tools], ["search_knowledge"])
+        self.assertEqual(captured["calls"], 1)
         connection = captured["connections"]["midas"]
         token = connection["headers"]["Authorization"].removeprefix("Bearer ")
         claims = jwt.decode(

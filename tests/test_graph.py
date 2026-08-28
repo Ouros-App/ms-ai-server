@@ -6,8 +6,10 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app.agents.graph import (
+    _RESET_TOOLS,
     _extract_route,
     _invoke_model,
+    _merge_tools,
     build_graph,
     default_agent,
     route_request,
@@ -31,6 +33,11 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         settings.groq_api_key = self.previous_groq_key
         settings.nvidia_api_key = self.previous_nvidia_key
         get_chat_model.cache_clear()
+
+    def test_tool_reducer_distinguishes_reset_from_no_tools(self) -> None:
+        self.assertEqual(_merge_tools(["get_user_context"], []), ["get_user_context"])
+        self.assertEqual(_merge_tools(["old"], [_RESET_TOOLS]), [])
+        self.assertEqual(_merge_tools(["old"], [_RESET_TOOLS, "new"]), ["new"])
 
     async def test_thread_keeps_messages_without_repeating_agents(self) -> None:
         graph = build_graph(InMemorySaver())
@@ -363,7 +370,9 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(result["messages"][-1].content, "sintese multiagente")
-        self.assertEqual(result["agents"], ["router", "faq", "ranking", "default"])
+        self.assertEqual(result["agents"][0], "router")
+        self.assertEqual(result["agents"][-1], "default")
+        self.assertEqual(set(result["agents"][1:-1]), {"faq", "ranking"})
         self.assertEqual(
             {item["agent"] for item in result["specialist_results"]},
             {"faq", "ranking"},

@@ -22,6 +22,7 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 ROUTES = frozenset(AGENT_PROMPTS)
+_RESET_TOOLS = "__reset_tools__"
 
 
 def _merge_agents(current: list[str] | None, update: list[str] | None) -> list[str]:
@@ -31,8 +32,8 @@ def _merge_agents(current: list[str] | None, update: list[str] | None) -> list[s
 
 
 def _merge_tools(current: list[str] | None, update: list[str] | None) -> list[str]:
-    if update == []:
-        return []
+    if update and update[0] == _RESET_TOOLS:
+        return list(dict.fromkeys(update[1:]))
     return list(dict.fromkeys([*(current or []), *(update or [])]))
 
 
@@ -124,7 +125,7 @@ async def route_request(state: AgentState) -> dict:
         "route": routes[0],
         "routes": routes,
         "agents": ["router"],
-        "tools": [],
+        "tools": [_RESET_TOOLS],
         "specialist_results": [],
     }
 

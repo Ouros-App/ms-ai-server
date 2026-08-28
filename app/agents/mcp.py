@@ -1,5 +1,7 @@
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
+from time import monotonic
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel
@@ -48,6 +50,9 @@ class MCPToolProvider:
         self.resource_url = resource_url or url
         self.user_type = user_type
         self.jwt_ttl_seconds = jwt_ttl_seconds
+        self._token_cache: dict[str, tuple[str, float]] = {}
+        self._tools_cache: dict[str, tuple[list, float]] = {}
+        self._tools_cache_lock = asyncio.Lock()
 
     @classmethod
     def from_settings(cls) -> "MCPToolProvider":
@@ -74,6 +79,10 @@ class MCPToolProvider:
             return self.access_token
         if not self.jwt_secret:
             return None
+        now_monotonic = monotonic()
+        cached_token = self._token_cache.get(user_id)
+        if cached_token and now_monotonic - cached_token[1] < self.jwt_ttl_seconds:
+            return cached_token[0]
         try:
             numeric_user_id = int(user_id)
         except (TypeError, ValueError):
@@ -93,16 +102,22 @@ class MCPToolProvider:
             "iat": now,
             "exp": now + timedelta(seconds=self.jwt_ttl_seconds),
         }
-        return jwt.encode(claims, self.jwt_secret, algorithm="HS256")
+        token = jwt.encode(claims, self.jwt_secret, algorithm="HS256")
+        self._token_cache[user_id] = (token, now_monotonic)
+        return token
 
-    async def tools_for(self, agent_name: str, user_id: str) -> list:
-        """Retorna apenas as tools permitidas para o agente solicitado."""
-        allowed = MCP_TOOL_ALLOWLIST.get(agent_name, frozenset())
-        token = self._token_for(user_id)
-        if not self.url or not allowed or not token:
-            return []
+    async def _load_tools(self, token: str) -> list:
+        now = monotonic()
+        cached = self._tools_cache.get(token)
+        if cached and now - cached[1] < self.jwt_ttl_seconds:
+            return cached[0]
 
-        try:
+        async with self._tools_cache_lock:
+            now = monotonic()
+            cached = self._tools_cache.get(token)
+            if cached and now - cached[1] < self.jwt_ttl_seconds:
+                return cached[0]
+
             from langchain_mcp_adapters.client import MultiServerMCPClient
 
             client = MultiServerMCPClient(
@@ -116,6 +131,18 @@ class MCPToolProvider:
                 handle_tool_errors=True,
             )
             tools = await client.get_tools(server_name=self.server_name)
+            self._tools_cache[token] = (tools, now)
+            return tools
+
+    async def tools_for(self, agent_name: str, user_id: str) -> list:
+        """Retorna apenas as tools permitidas para o agente solicitado."""
+        allowed = MCP_TOOL_ALLOWLIST.get(agent_name, frozenset())
+        token = self._token_for(user_id)
+        if not self.url or not allowed or not token:
+            return []
+
+        try:
+            tools = await self._load_tools(token)
         except Exception:
             logger.exception("mcp_tools_load_failed agent=%s", agent_name)
             return []

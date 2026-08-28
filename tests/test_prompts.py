@@ -1,6 +1,11 @@
 import unittest
 
-from app.agents.prompts import SPECIALIST_JSON_RULES, SYSTEM_PROMPT
+from app.agents.prompts import (
+    MEMORY_AGENT_RULES,
+    RANKING_AGENT_PROMPT,
+    SPECIALIST_JSON_RULES,
+    SYSTEM_PROMPT,
+)
 
 
 class PromptTest(unittest.TestCase):
@@ -11,3 +16,8 @@ class PromptTest(unittest.TestCase):
     def test_specialists_have_a_json_contract(self) -> None:
         self.assertIn('"status": "ok|needs_input|unsupported|error"', SPECIALIST_JSON_RULES)
         self.assertIn('"missing_data"', SPECIALIST_JSON_RULES)
+
+    def test_memory_rules_are_only_in_specialist_prompts(self) -> None:
+        self.assertIn("recall_user_memories", MEMORY_AGENT_RULES)
+        self.assertIn("recall_user_memories", RANKING_AGENT_PROMPT)
+        self.assertNotIn("recall_user_memories", SYSTEM_PROMPT)
