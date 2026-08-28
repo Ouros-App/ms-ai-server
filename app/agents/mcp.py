@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from time import monotonic
 
@@ -29,7 +30,10 @@ class _FarmDataArguments(BaseModel):
     farm_id: int | None = Field(
         default=None,
         gt=0,
-        description="Identificador interno retornado pelo contexto autorizado",
+        description=(
+            "Identificador interno retornado pelo contexto autorizado; omita para "
+            "consultar a fazenda do usuario autenticado"
+        ),
     )
     limit: int = 20
 
@@ -140,7 +144,12 @@ class MCPToolProvider:
             self._tools_cache[token] = (tools, now)
             return tools
 
-    async def tools_for(self, agent_name: str, user_id: str) -> list:
+    async def tools_for(
+        self,
+        agent_name: str,
+        user_id: str,
+        request_text: str | None = None,
+    ) -> list:
         """Retorna apenas as tools permitidas para o agente solicitado."""
         allowed = MCP_TOOL_ALLOWLIST.get(agent_name, frozenset())
         token = self._token_for(user_id)
@@ -165,11 +174,18 @@ class MCPToolProvider:
             except (TypeError, ValueError):
                 logger.warning("mcp_tools_skipped reason=non_numeric_user_id")
                 continue
-            selected.append(self._bind_user_tool(tool, numeric_user_id))
+            selected.append(
+                self._bind_user_tool(tool, numeric_user_id, request_text=request_text)
+            )
         logger.info("mcp_tools_loaded agent=%s count=%d", agent_name, len(selected))
         return selected
 
-    def _bind_user_tool(self, tool, user_id: int) -> StructuredTool:
+    def _bind_user_tool(
+        self,
+        tool,
+        user_id: int,
+        request_text: str | None = None,
+    ) -> StructuredTool:
         """Vincula a identidade autenticada sem expor IDs ao modelo."""
         description = getattr(tool, "description", None) or tool.name
         if tool.name == "get_user_context":
@@ -181,7 +197,7 @@ class MCPToolProvider:
             args_schema = _NoArguments
         else:
             async def invoke(farm_id: int | None = None, limit: int = 20) -> object:
-                if farm_id is None:
+                if farm_id is None and _has_explicit_farm_id(request_text):
                     return self._scope_denied(user_id)
                 result = await tool.ainvoke(
                     {
@@ -196,7 +212,8 @@ class MCPToolProvider:
 
             description = (
                 f"{description} Antes de usar, consulte get_user_context e use somente "
-                "um farm_id retornado para este usuario. Nao trate nome ou ID citado "
+                "um farm_id retornado para este usuario. Para consultar a propria "
+                "fazenda, o farm_id pode ser omitido. Nao trate nome ou ID citado "
                 "na mensagem como prova de acesso."
             )
 
@@ -214,8 +231,11 @@ class MCPToolProvider:
         if result is None:
             return MCPToolProvider._scope_denied(user_id)
 
-        authorized_ids = result.get("farm_ids", [])
-        if farm_id not in authorized_ids:
+        authorized_ids = [
+            item for item in result.get("farm_ids", []) if isinstance(item, int)
+        ]
+        requested_ids = authorized_ids if farm_id is None else [farm_id]
+        if not requested_ids or not all(item in authorized_ids for item in requested_ids):
             logger.warning("mcp_farm_scope_denied user_id=%s farm_id=%s", user_id, farm_id)
             return {
                 "user_type": result.get("user_type"),
@@ -233,7 +253,7 @@ class MCPToolProvider:
                 key = "id" if name == "farms" else "id_farm"
                 data[name] = [
                     row for row in rows
-                    if isinstance(row, dict) and row.get(key) == farm_id
+                    if isinstance(row, dict) and row.get(key) in requested_ids
                 ]
         return {
             "user_type": result.get("user_type"),
@@ -264,3 +284,14 @@ class MCPToolProvider:
     @staticmethod
     def _scope_denied(user_id: int) -> dict:
         return {"user_id": user_id, "authorized": False, "data": {}}
+
+
+_EXPLICIT_FARM_ID_PATTERN = re.compile(
+    r"\b(?:farm[_ ]?id|fazenda|granja)\s*(?:\(\s*)?(?:(?:de|com)\s+)?"
+    r"(?:id\s*)?(?:=|:)?\s*#?(\d+)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_explicit_farm_id(request_text: str | None) -> bool:
+    return bool(request_text and _EXPLICIT_FARM_ID_PATTERN.search(request_text))

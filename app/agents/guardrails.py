@@ -22,6 +22,7 @@ OUT_OF_SCOPE_REFUSAL = (
     "Posso ajudar somente com o aplicativo Midas, consumo de agua e energia, "
     "sustentabilidade, ranking, memorias do usuario ou suporte tecnico."
 )
+NO_DATA_REFUSAL = "Nao encontrei dados disponiveis."
 
 _PII_PATTERNS = (
     ("CPF", re.compile(r"\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b")),
@@ -73,6 +74,16 @@ _REQUESTED_USER_ID_PATTERN = re.compile(
 )
 _GREETING_PATTERN = re.compile(r"^(oi|ola|bom dia|boa tarde|boa noite|ajuda)[!. ]*$")
 _FOLLOW_UP_PATTERN = re.compile(r"^(sim|nao|isso|esse|essa|pode|continue|entendi|e depois)\b")
+_PERSONAL_PROJECT_PATTERN = re.compile(
+    r"\b(?:minha|minhas|meu|meus)\b.{0,50}\b(?:fazenda|granja|consumo|gasto|dados|meta|historico)\b"
+    r"|\b(?:fazenda|granja|consumo|gasto|dados|meta|historico)\b.{0,50}\b(?:minha|minhas|meu|meus)\b"
+)
+_CLEAR_PROJECT_REQUEST_PATTERN = re.compile(
+    r"\b(?:como|qual|quais|onde|posso|acompanho|funciona|uso|usar)\b.{0,100}"
+    r"\b(?:midas|aplicativo|app)\b"
+    r"|\b(?:acompanho|acompanhar|funciona|uso|usar)\b.{0,100}"
+    r"\b(?:sustentabilidade|consumo|metas?)\b"
+)
 _HISTORY_PATTERN = re.compile(
     r"\b(?:ultima|primeira|anterior)\s+(?:pergunta|mensagem|conversa|interacao)\b"
     r"|\b(?:o que|qual).{0,60}\b(?:perguntei|falamos|disse)\b"
@@ -81,6 +92,21 @@ _HISTORY_PATTERN = re.compile(
 _UNSUPPORTED_CLAIM_PATTERNS = (
     re.compile(r"\b(?:entra|login|cadastro).{0,100}\b(?:e-?mail|senha)\b", re.IGNORECASE),
     re.compile(r"\b(?:co2|emissoes?|area plantada|safra|auditorias?|certificacoes?)\b", re.IGNORECASE),
+)
+_INTERNAL_ID_PATTERNS = (
+    re.compile(
+        r"\b(?:farm[_ ]?id|fazenda|granja)\s*(?:\(\s*)?(?:(?:de|com)\s+)?"
+        r"(?:id\s*)?(?:=|:)?\s*#?\d+\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:fazenda|granja)\b[^\n.]{0,20}\b(?:id|identificador)\s*[=:]?\s*#?\d+\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:user[_ ]?id|id\s+do\s+usuario|usuario)\s*(?:=|:|de\s+id|id)?\s*\d+\b",
+        re.IGNORECASE,
+    ),
 )
 
 _CLASSIFIER_PROMPT = """Voce e o classificador de seguranca do Midas, um FAQ para produtores integrados.
@@ -196,6 +222,8 @@ def input_block_reason(
             return "identity"
     if _GREETING_PATTERN.fullmatch(normalized):
         return None
+    if _PERSONAL_PROJECT_PATTERN.search(normalized):
+        return None
     if _HISTORY_PATTERN.search(normalized):
         return None
     if has_history and _FOLLOW_UP_PATTERN.match(normalized):
@@ -244,6 +272,13 @@ async def guard_input(
         logger.info("guardrail_blocked category=FORA_DO_ESCOPO")
         return InputGuardrailResult(False, "FORA_DO_ESCOPO", OUT_OF_SCOPE_REFUSAL, sanitized, pii_map)
     if _GREETING_PATTERN.fullmatch(_normalize(sanitized.strip())):
+        return InputGuardrailResult(True, "APROVADO", "", sanitized, pii_map)
+    normalized_sanitized = _normalize(sanitized.strip())
+    if (
+        (_PERSONAL_PROJECT_PATTERN.search(normalized_sanitized)
+         or _CLEAR_PROJECT_REQUEST_PATTERN.search(normalized_sanitized))
+        and not any(pattern.search(normalized_sanitized) for pattern in _OUT_OF_SCOPE_PATTERNS)
+    ):
         return InputGuardrailResult(True, "APROVADO", "", sanitized, pii_map)
 
     classifier = model or get_chat_model(FAST_LLM)
@@ -298,6 +333,8 @@ def guard_output(content: object, sensitive_token: str = "") -> str:
         return SAFE_REFUSAL
     if any(pattern.search(text) for pattern in _SECRET_PATTERNS):
         return SAFE_REFUSAL
+    if any(pattern.search(text) for pattern in _INTERNAL_ID_PATTERNS):
+        return NO_DATA_REFUSAL
     if any(pattern.search(text) for pattern in _UNSUPPORTED_CLAIM_PATTERNS):
         return OUT_OF_SCOPE_REFUSAL
     if len(text) > MAX_RESPONSE_LENGTH:

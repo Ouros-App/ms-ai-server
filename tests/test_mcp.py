@@ -131,13 +131,25 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             authorized = await tools[0].ainvoke({"farm_id": 11})
             denied = await tools[0].ainvoke({"farm_id": 99})
             missing = await tools[0].ainvoke({})
+            foreign_request = await provider.tools_for(
+                "ranking",
+                "42",
+                request_text="consumo da fazenda de id 99",
+            )
+            foreign_missing = await foreign_request[0].ainvoke({})
 
         self.assertTrue(authorized["authorized"])
         self.assertEqual(authorized["data"]["farms"], [{"id": 11, "name": "Fazenda autorizada"}])
         self.assertEqual(authorized["data"]["water_registries"], [{"id_farm": 11, "value": 5}])
         self.assertFalse(denied["authorized"])
         self.assertEqual(denied["data"], {})
-        self.assertEqual(missing, {"user_id": 42, "authorized": False, "data": {}})
+        self.assertTrue(missing["authorized"])
+        self.assertEqual(
+            missing["data"]["farms"],
+            [{"id": 11, "name": "Fazenda autorizada"}],
+        )
+        self.assertFalse(foreign_missing["authorized"])
+        self.assertEqual(foreign_missing["data"], {})
 
     async def test_provider_skips_mcp_for_non_numeric_user(self) -> None:
         provider = MCPToolProvider(

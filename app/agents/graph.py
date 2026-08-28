@@ -197,7 +197,11 @@ async def _run_agent(
         model = get_chat_model(profile_for(agent_name))
         if model:
             mcp_tools = (
-                await mcp_provider.tools_for(agent_name, state["user_id"])
+                await mcp_provider.tools_for(
+                    agent_name,
+                    state["user_id"],
+                    request_text=user_text,
+                )
                 if mcp_provider is not None
                 else []
             )

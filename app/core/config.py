@@ -18,12 +18,12 @@ class Settings(BaseSettings):
     groq_fast_model: str = "openai/gpt-oss-20b"
     groq_model: str = "openai/gpt-oss-120b"
     nvidia_api_key: SecretStr | None = None
-    nvidia_nim_fast_model: str = "meta/llama-3.1-8b-instruct"
-    nvidia_nim_model: str = "meta/llama-3.3-70b-instruct"
+    nvidia_nim_fast_model: str = "nvidia/nemotron-3-nano-30b-a3b"
+    nvidia_nim_model: str = "nvidia/nemotron-3-super-120b-a12b"
     nvidia_nim_base_url: str = "https://integrate.api.nvidia.com/v1"
     llm_temperature: float = 0.2
     llm_timeout_seconds: float = 30
-    llm_total_timeout_seconds: float = 20
+    llm_total_timeout_seconds: float = 60
     auth_bearer_token: SecretStr | None = None
     auth_jwt_secret: SecretStr | None = None
     auth_jwt_issuer: str | None = None
