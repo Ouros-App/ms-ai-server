@@ -1,5 +1,7 @@
 import json
 import logging
+import re
+import unicodedata
 from typing import Annotated
 
 from langchain_core.messages import AIMessage, ToolMessage
@@ -13,6 +15,7 @@ from app.agents.model import get_chat_model
 from app.agents.prompts import (
     AGENT_PROMPTS,
     DEFAULT_AGENT_RESPONSE,
+    FALLBACK_RESPONSE,
     ROUTER_PROMPT,
     SPECIALIST_JSON_RULES,
     SYSTEM_PROMPT,
@@ -96,6 +99,54 @@ def _extract_route(response: object) -> str:
     return _extract_routes(response)[0]
 
 
+def _normalize_route_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFD", value.lower())
+    return "".join(
+        character
+        for character in normalized
+        if unicodedata.category(character) != "Mn"
+    )
+
+
+_DETERMINISTIC_ROUTE_PATTERNS = (
+    (
+        "support",
+        re.compile(r"\b(?:erro|falha|sincron\w*|offline|login|notifica\w*)\b"),
+    ),
+    (
+        "ranking",
+        re.compile(
+            r"\b(?:ranking|pontua\w*|nivel\w*|ferro|bronze|prata|ouro|posi\w*|"
+            r"selo\w*|historico)\b"
+        ),
+    ),
+    (
+        "sustainability",
+        re.compile(
+            r"\b(?:sustent\w*|agua|energia|consumo|desperd\w*|eficien\w*)\b"
+        ),
+    ),
+    (
+        "faq",
+        re.compile(
+            r"\b(?:aplicativo|app|dashboard|painel|calendario|vacina\w*|lote\w*|"
+            r"relatorio\w*)\b"
+        ),
+    ),
+)
+
+
+def _deterministic_routes(message: object) -> list[str] | None:
+    content = getattr(message, "content", message)
+    if not isinstance(content, str):
+        return None
+    text = _normalize_route_text(content)
+    for route, pattern in _DETERMINISTIC_ROUTE_PATTERNS:
+        if pattern.search(text):
+            return [route]
+    return None
+
+
 async def route_request(state: AgentState) -> dict:
     """Preserva uma rota explicita ou escolhe o agente com o modelo."""
     input_guardrail = state.get("input_guardrail")
@@ -110,16 +161,21 @@ async def route_request(state: AgentState) -> dict:
             if model is None:
                 routes = ["default"]
             else:
-                try:
-                    response = await model.ainvoke([
-                        {"role": "system", "content": ROUTER_PROMPT},
-                        *state.get("messages", [])[-6:],
-                    ])
-                    routes = _extract_routes(response)
-                except Exception:
-                    logger.exception("agent_router_failed")
-                    routes = ["fallback"]
-                logger.info("agent_routes_selected routes=%s", routes)
+                latest_message = state.get("messages", [])[-1:]
+                routes = _deterministic_routes(latest_message[0]) if latest_message else None
+                if routes is None:
+                    try:
+                        response = await model.ainvoke([
+                            {"role": "system", "content": ROUTER_PROMPT},
+                            *state.get("messages", [])[-6:],
+                        ])
+                        routes = _extract_routes(response)
+                    except Exception:
+                        logger.exception("agent_router_failed")
+                        routes = ["fallback"]
+                else:
+                    logger.info("agent_routes_selected source=deterministic routes=%s", routes)
+            logger.info("agent_routes_selected routes=%s", routes)
 
     return {
         "route": routes[0],
@@ -135,6 +191,8 @@ async def default_agent(state: AgentState) -> dict:
     input_guardrail = state.get("input_guardrail")
     if input_guardrail and not input_guardrail["allowed"]:
         content = input_guardrail["message"]
+    elif state.get("routes") == ["fallback"]:
+        content = FALLBACK_RESPONSE
     elif not state.get("specialist_results"):
         content = DEFAULT_AGENT_RESPONSE
     else:

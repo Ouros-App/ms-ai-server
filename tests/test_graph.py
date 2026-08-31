@@ -7,6 +7,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from app.agents.graph import (
     _RESET_TOOLS,
+    _deterministic_routes,
     _extract_route,
     _invoke_model,
     _merge_tools,
@@ -15,7 +16,7 @@ from app.agents.graph import (
     route_request,
 )
 from app.agents.model import get_chat_model
-from app.agents.prompts import DEFAULT_AGENT_RESPONSE
+from app.agents.prompts import DEFAULT_AGENT_RESPONSE, FALLBACK_RESPONSE
 from app.core.config import settings
 from app.schemas.chat import ChatRequest
 from app.services.chat import invoke_graph
@@ -109,7 +110,6 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         model = Mock()
         model.ainvoke = AsyncMock(
             side_effect=[
-                AIMessage(content='{"route":"ranking"}'),
                 AIMessage(
                     content='{"status":"ok","facts":["nivel prata"],"recommendations":[],"missing_data":[],"sources":["ranking_mcp"]}',
                 ),
@@ -131,7 +131,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.message, "resposta sintetizada")
         self.assertEqual(response.tools, [])
         self.assertEqual(response.agents, ["router", "ranking", "default"])
-        self.assertEqual(model.ainvoke.await_count, 3)
+        self.assertEqual(model.ainvoke.await_count, 2)
         model.bind_tools.assert_not_called()
 
     async def test_router_selects_valid_route_from_model(self) -> None:
@@ -144,12 +144,41 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             result = await route_request(
                 {
                     "route": "",
-                    "messages": [HumanMessage(content="Como economizar agua?")],
+                    "messages": [
+                        HumanMessage(content="Qual abordagem devo priorizar neste caso?")
+                    ],
                 },
             )
 
         self.assertEqual(result["route"], "sustainability")
         self.assertEqual(result["agents"], ["router"])
+
+    def test_deterministic_router_matches_clear_project_intents(self) -> None:
+        self.assertEqual(
+            _deterministic_routes(
+                HumanMessage(
+                    content="Quais indicadores de sustentabilidade devo acompanhar?"
+                )
+            ),
+            ["sustainability"],
+        )
+        self.assertEqual(
+            _deterministic_routes(HumanMessage(content="Falhou a sincronizacao offline")),
+            ["support"],
+        )
+
+    async def test_fallback_route_returns_safe_clarifying_response(self) -> None:
+        result = await default_agent(
+            {
+                "routes": ["fallback"],
+                "agents": ["router"],
+                "tools": [],
+                "specialist_results": [{"agent": "fallback", "status": "ok"}],
+                "input_guardrail": {"allowed": True},
+            }
+        )
+
+        self.assertEqual(result["messages"][0].content, FALLBACK_RESPONSE)
 
     def test_router_falls_back_for_invalid_model_output(self) -> None:
         self.assertEqual(_extract_route(AIMessage(content="nao e json")), "fallback")
@@ -400,7 +429,6 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         model = Mock()
         model.ainvoke = AsyncMock(
             side_effect=[
-                AIMessage(content='{"route":"ranking"}'),
                 AIMessage(content="sintese final"),
             ],
         )
