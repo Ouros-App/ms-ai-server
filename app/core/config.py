@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     version: str = "0.1.0"
     app_port: int = 8000
     mongodb_uri: str = "mongodb://localhost:27017"
-    mongodb_database: str = "ai_server"
+    mongodb_database: str = "mongodb-ai-prod"
     groq_api_key: SecretStr | None = None
     groq_fast_model: str = "openai/gpt-oss-20b"
     groq_model: str = "openai/gpt-oss-120b"
