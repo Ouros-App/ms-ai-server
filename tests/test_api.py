@@ -60,7 +60,7 @@ class ApiTest(unittest.TestCase):
         body = first.json()
         self.assertEqual(body["thread_id"], "thread")
         self.assertIsInstance(body["message"], str)
-        self.assertEqual(body["agents"], ["router", "default"])
+        self.assertEqual(body["agents"], ["router", "ranking", "default"])
         self.assertEqual(body["tools"], [])
         self.assertEqual(second.status_code, 200)
 

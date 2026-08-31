@@ -7,6 +7,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from app.agents.graph import (
     _RESET_TOOLS,
+    _deterministic_routes,
     _extract_route,
     _invoke_model,
     _merge_tools,
@@ -15,7 +16,7 @@ from app.agents.graph import (
     route_request,
 )
 from app.agents.model import get_chat_model
-from app.agents.prompts import DEFAULT_AGENT_RESPONSE
+from app.agents.prompts import DEFAULT_AGENT_RESPONSE, FALLBACK_RESPONSE
 from app.core.config import settings
 from app.schemas.chat import ChatRequest
 from app.services.chat import invoke_graph
@@ -70,7 +71,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             "user",
         )
 
-        self.assertEqual(first.agents, ["router", "default"])
+        self.assertEqual(first.agents, ["router", "ranking", "default"])
         self.assertEqual(second.agents, ["router", "default"])
         self.assertEqual(first.message, DEFAULT_AGENT_RESPONSE)
         self.assertEqual(second.message, DEFAULT_AGENT_RESPONSE)
@@ -106,10 +107,10 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
 
 
     async def test_default_agent_uses_configured_model(self) -> None:
+        """Usa o modelo configurado na síntese final do agente default."""
         model = Mock()
         model.ainvoke = AsyncMock(
             side_effect=[
-                AIMessage(content='{"route":"ranking"}'),
                 AIMessage(
                     content='{"status":"ok","facts":["nivel prata"],"recommendations":[],"missing_data":[],"sources":["ranking_mcp"]}',
                 ),
@@ -131,10 +132,11 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.message, "resposta sintetizada")
         self.assertEqual(response.tools, [])
         self.assertEqual(response.agents, ["router", "ranking", "default"])
-        self.assertEqual(model.ainvoke.await_count, 3)
+        self.assertEqual(model.ainvoke.await_count, 2)
         model.bind_tools.assert_not_called()
 
     async def test_router_selects_valid_route_from_model(self) -> None:
+        """Mantém o roteamento por modelo quando não há intenção explícita."""
         model = Mock()
         model.ainvoke = AsyncMock(
             return_value=AIMessage(content='{"route":"sustainability"}'),
@@ -144,12 +146,83 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             result = await route_request(
                 {
                     "route": "",
-                    "messages": [HumanMessage(content="Como economizar agua?")],
+                    "messages": [
+                        HumanMessage(content="Qual abordagem devo priorizar neste caso?")
+                    ],
                 },
             )
 
         self.assertEqual(result["route"], "sustainability")
         self.assertEqual(result["agents"], ["router"])
+
+    def test_deterministic_router_matches_clear_project_intents(self) -> None:
+        """Identifica intenções claras sem depender de uma chamada ao roteador."""
+        self.assertEqual(
+            _deterministic_routes(
+                HumanMessage(
+                    content="Quais indicadores de sustentabilidade devo acompanhar?"
+                )
+            ),
+            ["sustainability"],
+        )
+        self.assertEqual(
+            _deterministic_routes(HumanMessage(content="Falhou a sincronizacao offline")),
+            ["support"],
+        )
+        self.assertEqual(
+            _deterministic_routes(
+                HumanMessage(content="Quero ver meu ranking e reduzir o consumo de agua")
+            ),
+            ["ranking", "sustainability"],
+        )
+
+    async def test_deterministic_route_works_without_router_model(self) -> None:
+        """Mantém a rota clara mesmo sem modelo disponível para o roteador."""
+        with patch("app.agents.graph.get_chat_model", return_value=None):
+            result = await route_request(
+                {
+                    "route": "",
+                    "messages": [HumanMessage(content="Como funciona o ranking?")],
+                }
+            )
+
+        self.assertEqual(result["routes"], ["ranking"])
+
+    async def test_fallback_route_returns_safe_clarifying_response(self) -> None:
+        """Retorna apenas uma pergunta segura para mensagens ambíguas."""
+        result = await default_agent(
+            {
+                "routes": ["fallback"],
+                "agents": ["router"],
+                "tools": [],
+                "specialist_results": [{"agent": "fallback", "status": "ok"}],
+                "input_guardrail": {"allowed": True},
+            }
+        )
+
+        self.assertEqual(result["messages"][0].content, FALLBACK_RESPONSE)
+
+    async def test_fallback_route_skips_specialist_in_graph(self) -> None:
+        """Encaminha fallback diretamente ao default sem chamada extra."""
+        model = Mock()
+        model.ainvoke = AsyncMock(
+            return_value=AIMessage(content='{"route":"fallback"}')
+        )
+
+        with patch("app.agents.graph.get_chat_model", return_value=model):
+            response = await invoke_graph(
+                build_graph(InMemorySaver()),
+                ChatRequest(
+                    user_id="user",
+                    thread_id="fallback-thread",
+                    message="ajuda",
+                ),
+                "user",
+            )
+
+        self.assertEqual(response.message, FALLBACK_RESPONSE)
+        self.assertEqual(response.agents, ["router", "default"])
+        self.assertEqual(model.ainvoke.await_count, 1)
 
     def test_router_falls_back_for_invalid_model_output(self) -> None:
         self.assertEqual(_extract_route(AIMessage(content="nao e json")), "fallback")
@@ -397,10 +470,10 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_mcp_tools_are_injected_only_into_specialists(self) -> None:
+        """Mantém tools MCP restritas ao especialista escolhido."""
         model = Mock()
         model.ainvoke = AsyncMock(
             side_effect=[
-                AIMessage(content='{"route":"ranking"}'),
                 AIMessage(content="sintese final"),
             ],
         )

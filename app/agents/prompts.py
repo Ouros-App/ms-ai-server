@@ -147,6 +147,11 @@ Nao responda por aproximacao. Explique que precisa de mais contexto e pergunte
 se a pessoa precisa de ajuda com o aplicativo, sustentabilidade, ranking ou suporte.
 """
 
+FALLBACK_RESPONSE = (
+    "Posso ajudar com o aplicativo, sustentabilidade, ranking ou suporte tecnico. "
+    "Qual desses assuntos voce precisa?"
+)
+
 DEFAULT_AGENT_RESPONSE = "A IA ainda nao foi configurada. Defina os agentes, prompts e tools do projeto."
 
 AGENT_PROMPTS: dict[str, str] = {

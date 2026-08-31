@@ -1,5 +1,7 @@
 import json
 import logging
+import re
+import unicodedata
 from typing import Annotated
 
 from langchain_core.messages import AIMessage, ToolMessage
@@ -13,6 +15,7 @@ from app.agents.model import get_chat_model
 from app.agents.prompts import (
     AGENT_PROMPTS,
     DEFAULT_AGENT_RESPONSE,
+    FALLBACK_RESPONSE,
     ROUTER_PROMPT,
     SPECIALIST_JSON_RULES,
     SYSTEM_PROMPT,
@@ -96,8 +99,59 @@ def _extract_route(response: object) -> str:
     return _extract_routes(response)[0]
 
 
+def _normalize_route_text(value: str) -> str:
+    """Normaliza caixa e acentos para comparar intencoes em portugues."""
+    normalized = unicodedata.normalize("NFD", value.lower())
+    return "".join(
+        character
+        for character in normalized
+        if unicodedata.category(character) != "Mn"
+    )
+
+
+_DETERMINISTIC_ROUTE_PATTERNS = (
+    (
+        "support",
+        re.compile(r"\b(?:erro|falha|sincron\w*|offline|login|notifica\w*)\b"),
+    ),
+    (
+        "ranking",
+        re.compile(
+            r"\b(?:ranking|pontua\w*|nivel\w*|ferro|bronze|prata|ouro|posi\w*|"
+            r"selo\w*|historico)\b"
+        ),
+    ),
+    (
+        "sustainability",
+        re.compile(
+            r"\b(?:sustent\w*|agua|energia|consumo|desperd\w*|eficien\w*)\b"
+        ),
+    ),
+    (
+        "faq",
+        re.compile(
+            r"\b(?:aplicativo|app|dashboard|painel|calendario|vacina\w*|lote\w*|"
+            r"relatorio\w*)\b"
+        ),
+    ),
+)
+
+
+def _deterministic_routes(message: object) -> list[str] | None:
+    """Retorna todas as intencoes claras encontradas na mensagem mais recente."""
+    content = getattr(message, "content", message)
+    if not isinstance(content, str):
+        return None
+    text = _normalize_route_text(content)
+    routes = []
+    for route, pattern in _DETERMINISTIC_ROUTE_PATTERNS:
+        if pattern.search(text):
+            routes.append(route)
+    return routes or None
+
+
 async def route_request(state: AgentState) -> dict:
-    """Preserva uma rota explicita ou escolhe o agente com o modelo."""
+    """Preserva rota explicita ou seleciona intencoes por regras e modelo."""
     input_guardrail = state.get("input_guardrail")
     if input_guardrail and not input_guardrail.get("allowed", True):
         routes = ["default"]
@@ -106,20 +160,25 @@ async def route_request(state: AgentState) -> dict:
         if requested_route:
             routes = [requested_route]
         else:
-            model = get_chat_model(profile_for("router"))
-            if model is None:
-                routes = ["default"]
+            latest_message = state.get("messages", [])[-1:]
+            routes = _deterministic_routes(latest_message[0]) if latest_message else None
+            if routes is None:
+                model = get_chat_model(profile_for("router"))
+                if model is None:
+                    routes = ["default"]
+                else:
+                    try:
+                        response = await model.ainvoke([
+                            {"role": "system", "content": ROUTER_PROMPT},
+                            *state.get("messages", [])[-6:],
+                        ])
+                        routes = _extract_routes(response)
+                    except Exception:
+                        logger.exception("agent_router_failed")
+                        routes = ["fallback"]
             else:
-                try:
-                    response = await model.ainvoke([
-                        {"role": "system", "content": ROUTER_PROMPT},
-                        *state.get("messages", [])[-6:],
-                    ])
-                    routes = _extract_routes(response)
-                except Exception:
-                    logger.exception("agent_router_failed")
-                    routes = ["fallback"]
-                logger.info("agent_routes_selected routes=%s", routes)
+                logger.info("agent_routes_selected source=deterministic routes=%s", routes)
+            logger.info("agent_routes_selected routes=%s", routes)
 
     return {
         "route": routes[0],
@@ -135,6 +194,8 @@ async def default_agent(state: AgentState) -> dict:
     input_guardrail = state.get("input_guardrail")
     if input_guardrail and not input_guardrail["allowed"]:
         content = input_guardrail["message"]
+    elif state.get("routes") == ["fallback"]:
+        content = FALLBACK_RESPONSE
     elif not state.get("specialist_results"):
         content = DEFAULT_AGENT_RESPONSE
     else:
@@ -369,14 +430,18 @@ AGENTS = _build_agents()
 def choose_agents(state: AgentState, agents: dict) -> list[str]:
     """Filtra as rotas planejadas para agentes registrados."""
     routes = state.get("routes") or [state.get("route", "default")]
-    selected = [route for route in routes if route in agents and route != "default"]
+    selected = [
+        route
+        for route in routes
+        if route in agents and route not in {"default", "fallback"}
+    ]
     return selected or (["default"] if "default" in agents else [])
 
 
 def dispatch_agents(state: AgentState, agents: dict):
     """Cria o fan-out do plano; o default sem especialistas e direto."""
     selected = choose_agents(state, agents)
-    if selected == ["default"]:
+    if not selected or selected == ["default"]:
         return [Send("default", state)]
     return [Send(route, state) for route in selected]
 
