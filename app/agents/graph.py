@@ -289,6 +289,7 @@ async def _invoke_model(
     tools = list(specialist_tools or [])
     if memory_store is not None:
         tools.extend(build_memory_tools(memory_store, user_id))
+    tools = [tool for tool in tools if getattr(tool, "name", None) != _RESET_TOOLS]
     if not tools:
         return await model.ainvoke(messages), []
 

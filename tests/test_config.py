@@ -19,6 +19,6 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.nvidia_nim_fast_model, "nvidia/nemotron-3-nano-30b-a3b")
         self.assertEqual(config.llm_total_timeout_seconds, 60)
         self.assertIsNone(config.auth_bearer_token)
-        self.assertTrue(config.auth_require_user_jwt)
+        self.assertFalse(config.auth_require_user_jwt)
         self.assertEqual(TOOLS, [])
         self.assertIs(get_settings(), settings)

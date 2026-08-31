@@ -63,7 +63,7 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 | `LLM_TEMPERATURE` / `LLM_TIMEOUT_SECONDS` | Parâmetros das chamadas ao modelo. |
 | `AUTH_BEARER_TOKEN` | Token exigido no header `Authorization: Bearer ...`. |
 | `AUTH_JWT_SECRET` / `AUTH_JWT_ISSUER` / `AUTH_JWT_AUDIENCE` | Validação do JWT vinculado ao usuário; o `sub` deve ser o ID do usuário no MIDAS. |
-| `AUTH_REQUIRE_USER_JWT` | Exige identidade vinculada ao usuário para chat e histórico; mantenha `true` em produção. |
+| `AUTH_REQUIRE_USER_JWT` | Exige identidade vinculada ao usuário para chat e histórico; quando `true`, `AUTH_JWT_SECRET` é obrigatório; mantenha `true` em produção. |
 | `MCP_URL` | Endpoint Streamable HTTP do servidor MCP externo. |
 | `MCP_ACCESS_TOKEN` | Token MCP fixo de fallback; prefira JWT por usuário em produção. |
 | `MCP_JWT_SECRET` / `MCP_JWT_ISSUER_URL` / `MCP_RESOURCE_URL` | Emissão de JWT curto por usuário para o MCP. |

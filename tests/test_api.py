@@ -148,6 +148,25 @@ class ApiTest(unittest.TestCase):
             "O user_id nao corresponde ao usuario autenticado.",
         )
 
+    def test_chat_preserves_distinct_jwt_subject_and_user_id(self) -> None:
+        secret = "j" * 32
+        token = jwt.encode(
+            {"sub": "subject-6", "user_id": "6", "user_type": "farm_owner"},
+            secret,
+            algorithm="HS256",
+        )
+        with (
+            patch.object(settings, "auth_jwt_secret", SecretStr(secret)),
+            patch.object(settings, "auth_require_user_jwt", True),
+        ):
+            response = self.client.post(
+                "/v1/chat",
+                json={"user_id": "6", "thread_id": "jwt-user-id", "message": "ranking"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+
     def test_chat_rejects_thread_for_another_user(self) -> None:
         first = self.client.post(
             "/v1/chat",

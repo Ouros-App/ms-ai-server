@@ -39,6 +39,24 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(_merge_tools(["old"], [_RESET_TOOLS]), [])
         self.assertEqual(_merge_tools(["old"], [_RESET_TOOLS, "new"]), ["new"])
 
+    async def test_invoke_model_rejects_reset_sentinel_as_tool_name(self) -> None:
+        model = Mock()
+        model.ainvoke = AsyncMock(return_value=AIMessage(content="ok"))
+        reset_tool = Mock()
+        reset_tool.name = _RESET_TOOLS
+
+        response, used_tools = await _invoke_model(
+            model,
+            [],
+            None,
+            "user",
+            [reset_tool],
+        )
+
+        self.assertEqual(response.content, "ok")
+        self.assertEqual(used_tools, [])
+        model.bind_tools.assert_not_called()
+
     async def test_thread_keeps_messages_without_repeating_agents(self) -> None:
         graph = build_graph(InMemorySaver())
         first = await invoke_graph(

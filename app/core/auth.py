@@ -68,11 +68,17 @@ async def get_current_principal(
             claims = None
         if isinstance(claims, dict):
             subject = claims.get("sub") or claims.get("user_id")
-            if isinstance(subject, (str, int)) and str(subject).strip():
+            user_id = claims.get("user_id") or subject
+            if (
+                isinstance(subject, (str, int))
+                and str(subject).strip()
+                and isinstance(user_id, (str, int))
+                and str(user_id).strip()
+            ):
                 user_type = claims.get("user_type")
                 return Principal(
                     subject=str(subject),
-                    user_id=str(subject),
+                    user_id=str(user_id),
                     user_type=user_type if isinstance(user_type, str) else None,
                 )
 

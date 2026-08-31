@@ -251,8 +251,8 @@ async def guard_input(
     user_id: str | None = None,
 ) -> InputGuardrailResult:
     """Anonimiza, bloqueia padroes e aplica classificacao semantica fail-closed."""
+    reason = input_block_reason(message, has_history, user_id)
     sanitized, pii_map = anonymize_text(message)
-    reason = input_block_reason(sanitized, has_history, user_id)
     if reason == "security":
         logger.warning("guardrail_blocked category=PROMPT_INJECTION")
         return InputGuardrailResult(False, "PROMPT_INJECTION", SAFE_REFUSAL, sanitized, pii_map)
