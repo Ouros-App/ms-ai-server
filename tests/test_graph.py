@@ -107,6 +107,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
 
 
     async def test_default_agent_uses_configured_model(self) -> None:
+        """Usa o modelo configurado na síntese final do agente default."""
         model = Mock()
         model.ainvoke = AsyncMock(
             side_effect=[
@@ -135,6 +136,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         model.bind_tools.assert_not_called()
 
     async def test_router_selects_valid_route_from_model(self) -> None:
+        """Mantém o roteamento por modelo quando não há intenção explícita."""
         model = Mock()
         model.ainvoke = AsyncMock(
             return_value=AIMessage(content='{"route":"sustainability"}'),
@@ -154,6 +156,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["agents"], ["router"])
 
     def test_deterministic_router_matches_clear_project_intents(self) -> None:
+        """Identifica intenções claras sem depender de uma chamada ao roteador."""
         self.assertEqual(
             _deterministic_routes(
                 HumanMessage(
@@ -166,8 +169,15 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             _deterministic_routes(HumanMessage(content="Falhou a sincronizacao offline")),
             ["support"],
         )
+        self.assertEqual(
+            _deterministic_routes(
+                HumanMessage(content="Quero ver meu ranking e reduzir o consumo de agua")
+            ),
+            ["ranking", "sustainability"],
+        )
 
     async def test_fallback_route_returns_safe_clarifying_response(self) -> None:
+        """Retorna apenas uma pergunta segura para mensagens ambíguas."""
         result = await default_agent(
             {
                 "routes": ["fallback"],
@@ -426,6 +436,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_mcp_tools_are_injected_only_into_specialists(self) -> None:
+        """Mantém tools MCP restritas ao especialista escolhido."""
         model = Mock()
         model.ainvoke = AsyncMock(
             side_effect=[

@@ -100,6 +100,7 @@ def _extract_route(response: object) -> str:
 
 
 def _normalize_route_text(value: str) -> str:
+    """Normaliza caixa e acentos para comparar intencoes em portugues."""
     normalized = unicodedata.normalize("NFD", value.lower())
     return "".join(
         character
@@ -137,18 +138,20 @@ _DETERMINISTIC_ROUTE_PATTERNS = (
 
 
 def _deterministic_routes(message: object) -> list[str] | None:
+    """Retorna todas as intencoes claras encontradas na mensagem mais recente."""
     content = getattr(message, "content", message)
     if not isinstance(content, str):
         return None
     text = _normalize_route_text(content)
+    routes = []
     for route, pattern in _DETERMINISTIC_ROUTE_PATTERNS:
         if pattern.search(text):
-            return [route]
-    return None
+            routes.append(route)
+    return routes or None
 
 
 async def route_request(state: AgentState) -> dict:
-    """Preserva uma rota explicita ou escolhe o agente com o modelo."""
+    """Preserva rota explicita ou seleciona intencoes por regras e modelo."""
     input_guardrail = state.get("input_guardrail")
     if input_guardrail and not input_guardrail.get("allowed", True):
         routes = ["default"]
@@ -434,7 +437,7 @@ def choose_agents(state: AgentState, agents: dict) -> list[str]:
 def dispatch_agents(state: AgentState, agents: dict):
     """Cria o fan-out do plano; o default sem especialistas e direto."""
     selected = choose_agents(state, agents)
-    if selected == ["default"]:
+    if not selected or selected == ["default"]:
         return [Send("default", state)]
     return [Send(route, state) for route in selected]
 
