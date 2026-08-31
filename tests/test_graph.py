@@ -176,6 +176,18 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             ["ranking", "sustainability"],
         )
 
+    async def test_deterministic_route_works_without_router_model(self) -> None:
+        """Mantém a rota clara mesmo sem modelo disponível para o roteador."""
+        with patch("app.agents.graph.get_chat_model", return_value=None):
+            result = await route_request(
+                {
+                    "route": "",
+                    "messages": [HumanMessage(content="Como funciona o ranking?")],
+                }
+            )
+
+        self.assertEqual(result["routes"], ["ranking"])
+
     async def test_fallback_route_returns_safe_clarifying_response(self) -> None:
         """Retorna apenas uma pergunta segura para mensagens ambíguas."""
         result = await default_agent(
