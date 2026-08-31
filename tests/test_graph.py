@@ -71,7 +71,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             "user",
         )
 
-        self.assertEqual(first.agents, ["router", "default"])
+        self.assertEqual(first.agents, ["router", "ranking", "default"])
         self.assertEqual(second.agents, ["router", "default"])
         self.assertEqual(first.message, DEFAULT_AGENT_RESPONSE)
         self.assertEqual(second.message, DEFAULT_AGENT_RESPONSE)
@@ -189,6 +189,28 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result["messages"][0].content, FALLBACK_RESPONSE)
+
+    async def test_fallback_route_skips_specialist_in_graph(self) -> None:
+        """Encaminha fallback diretamente ao default sem chamada extra."""
+        model = Mock()
+        model.ainvoke = AsyncMock(
+            return_value=AIMessage(content='{"route":"fallback"}')
+        )
+
+        with patch("app.agents.graph.get_chat_model", return_value=model):
+            response = await invoke_graph(
+                build_graph(InMemorySaver()),
+                ChatRequest(
+                    user_id="user",
+                    thread_id="fallback-thread",
+                    message="ajuda",
+                ),
+                "user",
+            )
+
+        self.assertEqual(response.message, FALLBACK_RESPONSE)
+        self.assertEqual(response.agents, ["router", "default"])
+        self.assertEqual(model.ainvoke.await_count, 1)
 
     def test_router_falls_back_for_invalid_model_output(self) -> None:
         self.assertEqual(_extract_route(AIMessage(content="nao e json")), "fallback")

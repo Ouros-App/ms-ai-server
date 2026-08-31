@@ -160,13 +160,13 @@ async def route_request(state: AgentState) -> dict:
         if requested_route:
             routes = [requested_route]
         else:
-            model = get_chat_model(profile_for("router"))
-            if model is None:
-                routes = ["default"]
-            else:
-                latest_message = state.get("messages", [])[-1:]
-                routes = _deterministic_routes(latest_message[0]) if latest_message else None
-                if routes is None:
+            latest_message = state.get("messages", [])[-1:]
+            routes = _deterministic_routes(latest_message[0]) if latest_message else None
+            if routes is None:
+                model = get_chat_model(profile_for("router"))
+                if model is None:
+                    routes = ["default"]
+                else:
                     try:
                         response = await model.ainvoke([
                             {"role": "system", "content": ROUTER_PROMPT},
@@ -176,8 +176,8 @@ async def route_request(state: AgentState) -> dict:
                     except Exception:
                         logger.exception("agent_router_failed")
                         routes = ["fallback"]
-                else:
-                    logger.info("agent_routes_selected source=deterministic routes=%s", routes)
+            else:
+                logger.info("agent_routes_selected source=deterministic routes=%s", routes)
             logger.info("agent_routes_selected routes=%s", routes)
 
     return {
@@ -430,7 +430,11 @@ AGENTS = _build_agents()
 def choose_agents(state: AgentState, agents: dict) -> list[str]:
     """Filtra as rotas planejadas para agentes registrados."""
     routes = state.get("routes") or [state.get("route", "default")]
-    selected = [route for route in routes if route in agents and route != "default"]
+    selected = [
+        route
+        for route in routes
+        if route in agents and route not in {"default", "fallback"}
+    ]
     return selected or (["default"] if "default" in agents else [])
 
 
