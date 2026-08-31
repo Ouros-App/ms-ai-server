@@ -75,9 +75,11 @@ class MainTest(unittest.IsolatedAsyncioTestCase):
             patch.object(main, "AsyncMongoClient", return_value=client),
             patch.object(main, "get_checkpointer", return_value=checkpointer_context),
             patch.object(main, "build_graph", side_effect=RuntimeError("startup failed")),
-            self.assertRaises(RuntimeError),
         ):
-            async with main.lifespan(main.app):
-                pass
+            with self.assertLogs(main.logger, level="INFO") as logs:
+                with self.assertRaises(RuntimeError):
+                    async with main.lifespan(main.app):
+                        pass
 
         client.close.assert_awaited_once()
+        self.assertNotIn("database_ready", "\n".join(logs.output))
