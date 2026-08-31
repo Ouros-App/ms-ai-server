@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from pymongo import AsyncMongoClient
 
 from app.agents.graph import build_graph
+from app.agents.mcp import MCPToolProvider
 from app.api.routes import router
 from app.core.config import settings
 from app.core.logging_config import configure_logging
@@ -32,7 +33,11 @@ async def lifespan(app: FastAPI):
         with get_checkpointer() as checkpointer:
             app.state.checkpointer = checkpointer
             app.state.thread_ownership = thread_ownership
-            app.state.graph = build_graph(checkpointer, memory_store=memory_store)
+            app.state.graph = build_graph(
+                checkpointer,
+                memory_store=memory_store,
+                mcp_provider=MCPToolProvider.from_settings(),
+            )
             logger.info("database_ready database=%s", settings.mongodb_database)
             logger.info("application_ready")
             yield

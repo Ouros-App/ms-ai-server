@@ -21,8 +21,9 @@ O serviço está implementado com:
 - endpoints de saúde, chat e histórico de conversas;
 - endpoint Prometheus autenticado em `/metrics`;
 - roteamento entre os agentes `faq`, `sustainability`, `ranking`, `support` e `fallback`;
+- especialistas com contrato JSON e um agente `default` dedicado à síntese da resposta;
 - resposta padrão quando nenhum provedor de IA está configurado;
-- autenticação por um token Bearer compartilhado;
+- autenticação operacional por Bearer e identidade de usuário por JWT;
 - guardrails de entrada e revisão de saída.
 
 As chaves de IA são opcionais para iniciar a aplicação, mas o `AUTH_BEARER_TOKEN` é necessário para acessar os endpoints autenticados.
@@ -31,8 +32,9 @@ As chaves de IA são opcionais para iniciar a aplicação, mas o `AUTH_BEARER_TO
 
 - `app/main.py`: cria a aplicação FastAPI, inicializa MongoDB, o checkpointer e o grafo.
 - `app/api/routes.py`: expõe as rotas HTTP.
-- `app/agents/graph.py`: define o fluxo de roteamento e execução dos agentes.
-- `app/agents/prompts.py`: regras comuns, rotas e prompts especializados.
+- `app/agents/graph.py`: define o fluxo de roteamento, execução estruturada e síntese.
+- `app/agents/mcp.py`: conecta o MCP externo, emite JWTs curtos e aplica a allowlist.
+- `app/agents/prompts.py`: regras comuns, contrato JSON, rota e prompts especializados.
 - `app/agents/model.py`: configura os perfis rápido e potente do Groq e NVIDIA NIM.
 - `app/agents/guardrails.py`: valida entradas e revisa respostas.
 - `app/repositories/`: checkpointer, memórias e posse das threads.
@@ -60,13 +62,29 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 | `NVIDIA_API_KEY` / `NVIDIA_NIM_FAST_MODEL` / `NVIDIA_NIM_MODEL` / `NVIDIA_NIM_BASE_URL` | Provedor NVIDIA NIM e perfis rápido/potente. |
 | `LLM_TEMPERATURE` / `LLM_TIMEOUT_SECONDS` | Parâmetros das chamadas ao modelo. |
 | `AUTH_BEARER_TOKEN` | Token exigido no header `Authorization: Bearer ...`. |
+| `AUTH_JWT_SECRET` / `AUTH_JWT_ISSUER` / `AUTH_JWT_AUDIENCE` | Validação do JWT vinculado ao usuário; o `sub` deve ser o ID do usuário no MIDAS. |
+| `AUTH_REQUIRE_USER_JWT` | Exige identidade vinculada ao usuário para chat e histórico; quando `true`, `AUTH_JWT_SECRET` é obrigatório; mantenha `true` em produção. |
+| `MCP_URL` | Endpoint Streamable HTTP do servidor MCP externo. |
+| `MCP_ACCESS_TOKEN` | Token MCP fixo de fallback; prefira JWT por usuário em produção. |
+| `MCP_JWT_SECRET` / `MCP_JWT_ISSUER_URL` / `MCP_RESOURCE_URL` | Emissão de JWT curto por usuário para o MCP. |
+| `MCP_USER_TYPE` / `MCP_JWT_TTL_SECONDS` | Identidade e validade do JWT MCP. |
 
 Não versione o arquivo `.env` nem os tokens.
 
-O roteador, guardrails, FAQ, suporte e fallback usam os perfis rápidos
-`GROQ_FAST_MODEL` e `NVIDIA_NIM_FAST_MODEL`. Ranking, sustentabilidade e o
-agente default usam os perfis potentes `GROQ_MODEL` e `NVIDIA_NIM_MODEL`. Se o
+O roteador, guardrails, FAQ, suporte, fallback e o sintetizador default usam os perfis rápidos
+`GROQ_FAST_MODEL` e `NVIDIA_NIM_FAST_MODEL`. Ranking e sustentabilidade usam os
+perfis potentes `GROQ_MODEL` e `NVIDIA_NIM_MODEL`. Se o
 Groq falhar, o NVIDIA NIM é usado como fallback do mesmo perfil.
+
+O fluxo é `router → especialistas → fan-in → default`. O roteador pode selecionar
+até quatro especialistas independentes, que rodam em paralelo no LangGraph. Cada
+especialista retorna somente JSON com fatos, recomendações, dados ausentes e
+fontes; o `default` é o único agente que gera linguagem natural para o usuário.
+
+As tools de memória e MCP ficam disponíveis somente para especialistas. O cliente
+MCP usa Streamable HTTP, cria um JWT curto por usuário quando `MCP_JWT_SECRET` está
+configurado e aplica a allowlist em `app/agents/mcp.py`. O sintetizador não recebe
+nenhuma dessas tools.
 
 ## Execução
 
@@ -101,7 +119,7 @@ Exemplo de requisição:
 
 ```json
 {
-  "user_id": "usuario-1",
+  "user_id": "6",
   "message": "Como funciona o ranking?",
   "thread_id": "conversa-1"
 }
@@ -109,17 +127,21 @@ Exemplo de requisição:
 
 ```bash
 curl -X POST http://localhost:8000/v1/chat \
-  -H "Authorization: Bearer <token-configurado>" \
+  -H "Authorization: Bearer <jwt-do-usuario>" \
   -H "Content-Type: application/json" \
-  -d '{"user_id":"usuario-1","thread_id":"conversa-1","message":"Como funciona o ranking?"}'
+  -d '{"user_id":"6","thread_id":"conversa-1","message":"Como funciona o ranking?"}'
 ```
 
-A resposta contém `thread_id`, `message`, `agents` e `tools`. O mesmo `thread_id` não pode ser usado por outro `user_id`.
+A resposta contém `thread_id`, `message`, `agents` e `tools`. O `user_id` enviado
+no corpo deve ser igual ao `sub` do JWT autenticado. O primeiro chat cria a
+sessão e vincula o `thread_id` a esse usuário; depois disso, tanto o `user_id`
+quanto o dono da thread são imutáveis. Um Bearer compartilhado não pode acessar
+chat ou histórico quando `AUTH_REQUIRE_USER_JWT=true`.
 
 O histórico aceita `limit` entre 1 e 100, com padrão 20, e o cursor `before` para buscar a página anterior:
 
 ```bash
-curl "http://localhost:8000/v1/chat/conversa-1/history?user_id=usuario-1&limit=20" \
+curl "http://localhost:8000/v1/chat/conversa-1/history?user_id=6&limit=20" \
   -H "Authorization: Bearer <token-configurado>"
 ```
 

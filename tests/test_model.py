@@ -60,7 +60,10 @@ class ModelTest(unittest.TestCase):
         ):
             build_chat_model(config, "fast")
 
-        self.assertEqual(nvidia.call_args.kwargs["model"], "meta/llama-3.1-8b-instruct")
+        self.assertEqual(
+            nvidia.call_args.kwargs["model"],
+            "nvidia/nemotron-3-nano-30b-a3b",
+        )
 
     def test_groq_uses_nim_as_fallback(self) -> None:
         groq = Mock()
@@ -91,7 +94,7 @@ class ModelTest(unittest.TestCase):
             max_retries=0,
         )
         nvidia.assert_called_once_with(
-            model="meta/llama-3.3-70b-instruct",
+            model="nvidia/nemotron-3-super-120b-a12b",
             api_key="nvidia-key",
             base_url="https://integrate.api.nvidia.com/v1",
             temperature=0.2,

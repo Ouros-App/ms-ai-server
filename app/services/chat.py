@@ -43,6 +43,7 @@ async def invoke_graph(
     input_guardrail = await guard_input(
         payload.message,
         has_history=bool(snapshot.values.get("messages")),
+        user_id=principal_id,
     )
     if not input_guardrail.allowed:
         observe_chat_result("blocked", ["guardrail"], [])
@@ -67,8 +68,10 @@ async def invoke_graph(
                     "messages": [HumanMessage(content=safe_payload.message)],
                     "user_id": principal_id,
                     "route": "",
+                    "routes": [],
                     "agents": [],
                     "tools": [],
+                    "specialist_results": [],
                     "input_guardrail": input_guardrail.as_state(),
                 },
                 config=config,

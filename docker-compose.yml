@@ -5,7 +5,28 @@ services:
       APP_PORT: 8000
       MONGODB_URI: ${MONGODB_URI_DOCKER:-mongodb://mongo:27017}
       MONGODB_DATABASE: ${MONGODB_DATABASE:-mongodb-ai-prod}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_FAST_MODEL: ${GROQ_FAST_MODEL:-openai/gpt-oss-20b}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      NVIDIA_NIM_FAST_MODEL: ${NVIDIA_NIM_FAST_MODEL:-nvidia/nemotron-3-nano-30b-a3b}
+      NVIDIA_NIM_MODEL: ${NVIDIA_NIM_MODEL:-nvidia/nemotron-3-super-120b-a12b}
+      NVIDIA_NIM_BASE_URL: ${NVIDIA_NIM_BASE_URL:-https://integrate.api.nvidia.com/v1}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.2}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-30}
+      LLM_TOTAL_TIMEOUT_SECONDS: ${LLM_TOTAL_TIMEOUT_SECONDS:-60}
       AUTH_BEARER_TOKEN: ${AUTH_BEARER_TOKEN:?Defina_AUTH_BEARER_TOKEN}
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:-}
+      AUTH_JWT_ISSUER: ${AUTH_JWT_ISSUER:-}
+      AUTH_JWT_AUDIENCE: ${AUTH_JWT_AUDIENCE:-}
+      AUTH_REQUIRE_USER_JWT: ${AUTH_REQUIRE_USER_JWT:-false}
+      MCP_URL: ${MCP_URL:-https://ms-midas-mcp.discloud.app/mcp/}
+      MCP_ACCESS_TOKEN: ${MCP_ACCESS_TOKEN:-}
+      MCP_JWT_SECRET: ${MCP_JWT_SECRET:-}
+      MCP_JWT_ISSUER_URL: ${MCP_JWT_ISSUER_URL:-https://auth.ouros.local}
+      MCP_RESOURCE_URL: ${MCP_RESOURCE_URL:-}
+      MCP_USER_TYPE: ${MCP_USER_TYPE:-farm_owner}
+      MCP_JWT_TTL_SECONDS: ${MCP_JWT_TTL_SECONDS:-300}
     ports:
       - "${APP_PORT:-8000}:8000"
     depends_on:
