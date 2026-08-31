@@ -10,13 +10,6 @@ class UserMemoryStore:
     def __init__(self, database) -> None:
         self.collection = database["user_memories"]
 
-    async def ensure_indexes(self) -> None:
-        await self.collection.create_index(
-            [("user_id", 1), ("memory", 1)],
-            unique=True,
-        )
-        await self.collection.create_index([("user_id", 1), ("updated_at", -1)])
-
     async def list(self, user_id: str, limit: int = 20) -> list[str]:
         cursor = (
             self.collection.find(

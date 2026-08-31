@@ -7,9 +7,6 @@ class ThreadOwnershipStore:
     def __init__(self, database) -> None:
         self.collection = database["thread_owners"]
 
-    async def ensure_indexes(self) -> None:
-        await self.collection.create_index("thread_id", unique=True)
-
     async def claim(self, thread_id: str, user_id: str) -> bool:
         document = await self.collection.find_one_and_update(
             {"thread_id": thread_id},

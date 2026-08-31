@@ -55,7 +55,7 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 | `APP_PORT` | Porta publicada pelo Compose, com padrão `8000`. |
 | `MONGODB_URI` | URI do MongoDB para execução fora do Compose. |
 | `MONGODB_URI_DOCKER` | URI usada pelo serviço no Compose. |
-| `MONGODB_DATABASE` | Banco usado pelo serviço, com padrão `ai_server`. |
+| `MONGODB_DATABASE` | Banco usado pelo serviço, com padrão `mongodb-ai-prod`; use `mongodb-ai-qa` no ambiente de QA. |
 | `GROQ_API_KEY` / `GROQ_FAST_MODEL` / `GROQ_MODEL` | Provedor Groq e perfis rápido/potente. |
 | `NVIDIA_API_KEY` / `NVIDIA_NIM_FAST_MODEL` / `NVIDIA_NIM_MODEL` / `NVIDIA_NIM_BASE_URL` | Provedor NVIDIA NIM e perfis rápido/potente. |
 | `LLM_TEMPERATURE` / `LLM_TIMEOUT_SECONDS` | Parâmetros das chamadas ao modelo. |
