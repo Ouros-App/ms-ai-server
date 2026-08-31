@@ -4,7 +4,7 @@ services:
     environment:
       APP_PORT: 8000
       MONGODB_URI: ${MONGODB_URI_DOCKER:-mongodb://mongo:27017}
-      MONGODB_DATABASE: ${MONGODB_DATABASE:-ai_server}
+      MONGODB_DATABASE: ${MONGODB_DATABASE:-mongodb-ai-prod}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_FAST_MODEL: ${GROQ_FAST_MODEL:-openai/gpt-oss-20b}
       GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}

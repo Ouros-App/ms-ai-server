@@ -29,9 +29,7 @@ async def lifespan(app: FastAPI):
         database = memory_client[settings.mongodb_database]
         memory_store = UserMemoryStore(database)
         thread_ownership = ThreadOwnershipStore(database)
-        await memory_store.ensure_indexes()
-        await thread_ownership.ensure_indexes()
-        logger.info("memory_indexes_ready database=%s", settings.mongodb_database)
+        logger.info("database_configured database=%s", settings.mongodb_database)
         with get_checkpointer() as checkpointer:
             app.state.checkpointer = checkpointer
             app.state.thread_ownership = thread_ownership
@@ -40,6 +38,7 @@ async def lifespan(app: FastAPI):
                 memory_store=memory_store,
                 mcp_provider=MCPToolProvider.from_settings(),
             )
+            logger.info("database_ready database=%s", settings.mongodb_database)
             logger.info("application_ready")
             yield
     finally:

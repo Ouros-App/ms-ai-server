@@ -84,7 +84,8 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgresql://app:app@localhost:5432/app_test
-      MONGODB_URL: mongodb://localhost:27017/app_test
+      MONGODB_URI: mongodb://localhost:27017
+      MONGODB_DATABASE: mongodb-ai-qa
       REDIS_URL: redis://localhost:6379/0
 
     steps:
