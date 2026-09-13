@@ -21,7 +21,7 @@ def load_infisical_secrets() -> None:
     )
     response = client.secrets.list_secrets(
         project_id=project_id,
-        environment_slug=os.getenv("INFISICAL_ENV", "prod"),
+        environment_slug=environment,
         secret_path=secret_path,
         view_secret_value=True,
     )

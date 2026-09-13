@@ -5,12 +5,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.infisical import load_infisical_secrets
 
-load_infisical_secrets()
-
 
 class Settings(BaseSettings):
     """Configuracao tipada carregada do ambiente."""
     model_config = SettingsConfigDict(env_file=".env", env_ignore_empty=True, extra="ignore")
+
+    def __init__(self, **kwargs) -> None:
+        load_infisical_secrets()
+        super().__init__(**kwargs)
 
     project_name: str = "AI Server"
     description: str = "API de orquestracao de IA."
