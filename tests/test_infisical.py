@@ -12,9 +12,10 @@ class InfisicalTest(unittest.TestCase):
             load_infisical_secrets()
 
     def test_rejects_incomplete_configuration(self) -> None:
-        with patch.dict(os.environ, {"INFISICAL_TOKEN": "token"}, clear=True):
-            with self.assertRaisesRegex(RuntimeError, "INFISICAL_PROJECT_ID"):
-                load_infisical_secrets()
+        with patch.dict(os.environ, {"INFISICAL_TOKEN": "token"}, clear=True), self.assertRaisesRegex(
+            RuntimeError, "INFISICAL_PROJECT_ID"
+        ):
+            load_infisical_secrets()
 
     def test_rejects_unknown_environment(self) -> None:
         env = {
@@ -23,9 +24,10 @@ class InfisicalTest(unittest.TestCase):
             "INFISICAL_ENV": "staging",
             "INFISICAL_PATH": "/service",
         }
-        with patch.dict(os.environ, env, clear=True):
-            with self.assertRaisesRegex(RuntimeError, "prod.*dev"):
-                load_infisical_secrets()
+        with patch.dict(os.environ, env, clear=True), self.assertRaisesRegex(
+            RuntimeError, "prod.*dev"
+        ):
+            load_infisical_secrets()
 
     def test_loads_secrets(self) -> None:
         env = {
