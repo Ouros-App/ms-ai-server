@@ -11,11 +11,12 @@ class InfisicalTest(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True), patch("app.core.infisical.load_dotenv"):
             load_infisical_secrets()
 
-    def test_rejects_incomplete_configuration(self) -> None:
-        with patch.dict(os.environ, {"INFISICAL_TOKEN": "token"}, clear=True), self.assertRaisesRegex(
-            RuntimeError, "INFISICAL_PROJECT_ID"
-        ):
+    def test_skips_incomplete_configuration(self) -> None:
+        with patch.dict(os.environ, {"INFISICAL_TOKEN": "token"}, clear=True), patch(
+            "app.core.infisical.InfisicalSDKClient"
+        ) as client:
             load_infisical_secrets()
+        client.assert_not_called()
 
     def test_rejects_unknown_environment(self) -> None:
         env = {
