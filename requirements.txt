@@ -1,6 +1,8 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 pydantic-settings==2.7.1
+infisicalsdk==1.0.14
+python-dotenv==1.2.2
 langgraph>=1.0,<2
 langgraph-checkpoint-mongodb==0.4.0
 pymongo>=4.13,<5
