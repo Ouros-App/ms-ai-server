@@ -1,3 +1,4 @@
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
@@ -122,7 +123,7 @@ class ApiTest(unittest.TestCase):
     def test_chat_uses_user_id_from_jwt_and_rejects_mismatch(self) -> None:
         secret = "j" * 32
         token = jwt.encode(
-            {"sub": "6", "user_type": "farm_owner"},
+            {"sub": "6", "user_type": "farm_owner", "exp": int(time.time()) + 60},
             secret,
             algorithm="HS256",
         )
@@ -151,7 +152,7 @@ class ApiTest(unittest.TestCase):
     def test_chat_preserves_distinct_jwt_subject_and_user_id(self) -> None:
         secret = "j" * 32
         token = jwt.encode(
-            {"sub": "subject-6", "user_id": "6", "user_type": "farm_owner"},
+            {"sub": "subject-6", "user_id": "6", "user_type": "farm_owner", "exp": int(time.time()) + 60},
             secret,
             algorithm="HS256",
         )
