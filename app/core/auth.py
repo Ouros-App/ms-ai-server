@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import InvalidTokenError, PyJWKClient, decode
-from jwt.exceptions import PyJWKClientError
+from jwt.exceptions import PyJWKClientConnectionError, PyJWKClientError
 
 from app.core.config import settings
 
@@ -75,6 +75,8 @@ def _decode_keycloak_token(token: str) -> dict | None:
                 "require": ["exp", "iat", "iss", "aud", "sub"],
             },
         )
+    except PyJWKClientConnectionError:
+        raise
     except (InvalidTokenError, PyJWKClientError, ValueError):
         return None
     return claims if isinstance(claims, dict) else None
@@ -138,6 +140,7 @@ def _legacy_hs256_principal(token: str) -> Principal | None:
     options = {
         "verify_iss": bool(settings.auth_jwt_issuer),
         "verify_aud": bool(settings.auth_jwt_audience),
+        "require": ["exp"],
     }
     try:
         claims = decode(
@@ -199,10 +202,16 @@ async def get_current_principal(
         )
 
     if keycloak_configured:
-        claims = await asyncio.to_thread(
-            _decode_keycloak_token,
-            bearer_token,
-        )
+        try:
+            claims = await asyncio.to_thread(
+                _decode_keycloak_token,
+                bearer_token,
+            )
+        except PyJWKClientConnectionError as error:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Servico de chaves de autenticacao indisponivel.",
+            ) from error
         if claims is not None:
             principal = _keycloak_principal(claims, bearer_token)
             if principal is not None:
