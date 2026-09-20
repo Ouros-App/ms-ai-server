@@ -47,6 +47,7 @@ async def chat(
         user_id,
         getattr(request.app.state, "thread_ownership", None),
         principal_token=(principal.access_token if principal.user_id is not None else None),
+        principal_type=principal.user_type,
     )
 
 
