@@ -45,7 +45,7 @@ As chaves de IA são opcionais para iniciar a aplicação. Em produção, os end
 
 - Docker e Docker Compose para a execução completa com MongoDB.
 - Python 3.12 para execução fora do container.
-- Um token para `AUTH_BEARER_TOKEN`.
+- Configure `AUTH_JWT_ISSUER`, `AUTH_JWT_AUDIENCE` e `AUTH_JWKS_URL` do Keycloak e use um JWT de usuário nos endpoints autenticados. `AUTH_BEARER_TOKEN` permanece apenas como fallback legado de rollout.
 - Chaves `GROQ_API_KEY` e/ou `NVIDIA_API_KEY` quando a resposta por IA for necessária.
 
 ## Instalação e configuração
