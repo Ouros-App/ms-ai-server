@@ -33,7 +33,7 @@ As chaves de IA são opcionais para iniciar a aplicação. Em produção, os end
 - `app/main.py`: cria a aplicação FastAPI, inicializa MongoDB, o checkpointer e o grafo.
 - `app/api/routes.py`: expõe as rotas HTTP.
 - `app/agents/graph.py`: define o fluxo de roteamento, execução estruturada e síntese.
-- `app/agents/mcp.py`: conecta o MCP externo, emite JWTs curtos e aplica a allowlist.
+- `app/agents/mcp.py`: conecta o MCP externo, encaminha a identidade autenticada e aplica a allowlist.
 - `app/agents/prompts.py`: regras comuns, contrato JSON, rota e prompts especializados.
 - `app/agents/model.py`: configura os perfis rápido e potente do Groq e NVIDIA NIM.
 - `app/agents/guardrails.py`: valida entradas e revisa respostas.
@@ -45,7 +45,7 @@ As chaves de IA são opcionais para iniciar a aplicação. Em produção, os end
 
 - Docker e Docker Compose para a execução completa com MongoDB.
 - Python 3.12 para execução fora do container.
-- Um token para `AUTH_BEARER_TOKEN`.
+- Em produção, um JWT de usuário emitido pelo Keycloak do realm `ouros`; `AUTH_BEARER_TOKEN` é apenas compatibilidade temporária de rollout.
 - Chaves `GROQ_API_KEY` e/ou `NVIDIA_API_KEY` quando a resposta por IA for necessária.
 
 ## Instalação e configuração
@@ -140,7 +140,7 @@ O histórico aceita `limit` entre 1 e 100, com padrão 20, e o cursor `before` p
 
 ```bash
 curl "http://localhost:8000/v1/chat/conversa-1/history?user_id=6&limit=20" \
-  -H "Authorization: Bearer <token-configurado>"
+  -H "Authorization: Bearer <jwt-do-usuario>"
 ```
 
 ## Observabilidade
