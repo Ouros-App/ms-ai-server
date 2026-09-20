@@ -27,6 +27,7 @@ MCP_TOOL_ALLOWLIST: dict[str, frozenset[str]] = {
     "fallback": frozenset({"search_knowledge"}),
 }
 MCP_USER_SCOPED_TOOLS = frozenset({"get_user_context", "get_user_farm_data"})
+MCP_TOOLS_CACHE_MAX_ENTRIES = 256
 _FORWARDED_ACCESS_TOKEN: ContextVar[str | None] = ContextVar(
     "mcp_forwarded_access_token",
     default=None,
@@ -157,6 +158,21 @@ class MCPToolProvider:
 
         return sha256(token.encode()).hexdigest()
 
+    def _prune_tools_cache(self, now: float) -> None:
+        """Remove expired entries and keep the per-token tools cache bounded."""
+
+        expired_keys = [
+            key
+            for key, (_, created_at) in self._tools_cache.items()
+            if now - created_at >= self.jwt_ttl_seconds
+        ]
+        for key in expired_keys:
+            self._tools_cache.pop(key, None)
+
+        while len(self._tools_cache) >= MCP_TOOLS_CACHE_MAX_ENTRIES:
+            oldest_key = next(iter(self._tools_cache))
+            self._tools_cache.pop(oldest_key, None)
+
     async def _load_tools(self, token: str) -> list:
         now = monotonic()
         cache_key = self._token_cache_key(token)
@@ -169,6 +185,7 @@ class MCPToolProvider:
             cached = self._tools_cache.get(cache_key)
             if cached and now - cached[1] < self.jwt_ttl_seconds:
                 return cached[0]
+            self._prune_tools_cache(now)
 
             from langchain_mcp_adapters.client import MultiServerMCPClient
 
