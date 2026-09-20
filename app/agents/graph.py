@@ -21,7 +21,6 @@ from app.agents.prompts import (
     SYSTEM_PROMPT,
 )
 from app.agents.tools import build_memory_tools
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 ROUTES = frozenset(AGENT_PROMPTS)
