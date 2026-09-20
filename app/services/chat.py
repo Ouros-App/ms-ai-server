@@ -6,6 +6,7 @@ from fastapi import HTTPException, status
 from langchain_core.messages import HumanMessage
 
 from app.agents.guardrails import guard_input
+from app.agents.mcp import forward_mcp_access_token
 from app.core.config import settings
 from app.core.metrics import observe_chat_result
 from app.schemas.chat import ChatRequest, ChatResponse
@@ -18,6 +19,8 @@ async def invoke_graph(
     payload: ChatRequest,
     principal_id: str,
     thread_ownership=None,
+    principal_token: str | None = None,
+    principal_type: str | None = None,
 ) -> ChatResponse:
     """Valida a posse da thread, executa o grafo e formata a resposta."""
     started_at = perf_counter()
@@ -59,23 +62,26 @@ async def invoke_graph(
             tools=[],
         )
 
-    safe_payload = payload.model_copy(update={"message": input_guardrail.sanitized_text})
+    safe_payload = payload.model_copy(
+        update={"message": input_guardrail.sanitized_text}
+    )
 
     try:
         async with asyncio.timeout(settings.llm_total_timeout_seconds):
-            result = await graph.ainvoke(
-                {
-                    "messages": [HumanMessage(content=safe_payload.message)],
-                    "user_id": principal_id,
-                    "route": "",
-                    "routes": [],
-                    "agents": [],
-                    "tools": [],
-                    "specialist_results": [],
-                    "input_guardrail": input_guardrail.as_state(),
-                },
-                config=config,
-            )
+            with forward_mcp_access_token(principal_token, principal_type):
+                result = await graph.ainvoke(
+                    {
+                        "messages": [HumanMessage(content=safe_payload.message)],
+                        "user_id": principal_id,
+                        "route": "",
+                        "routes": [],
+                        "agents": [],
+                        "tools": [],
+                        "specialist_results": [],
+                        "input_guardrail": input_guardrail.as_state(),
+                    },
+                    config=config,
+                )
     except TimeoutError as error:
         logger.warning(
             "chat_provider_timeout thread_id=%s timeout_seconds=%s",
@@ -86,6 +92,7 @@ async def invoke_graph(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="O provedor de IA demorou para responder. Tente novamente.",
         ) from error
+
     message = result["messages"][-1].content
     tools = result.get("tools", [])
     observe_chat_result("success", result["agents"], tools)
