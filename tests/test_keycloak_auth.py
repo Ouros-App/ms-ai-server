@@ -3,7 +3,6 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import jwt
-
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 from jwt.exceptions import PyJWKClientConnectionError
