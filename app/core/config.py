@@ -6,6 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     """Configuracao tipada carregada do ambiente."""
+
     model_config = SettingsConfigDict(env_file=".env", env_ignore_empty=True, extra="ignore")
 
     project_name: str = "AI Server"
@@ -28,6 +29,7 @@ class Settings(BaseSettings):
     auth_jwt_secret: SecretStr | None = None
     auth_jwt_issuer: str | None = None
     auth_jwt_audience: str | None = None
+    auth_jwks_url: str | None = None
     auth_require_user_jwt: bool = False
     mcp_url: str | None = None
     mcp_access_token: SecretStr | None = None
@@ -58,6 +60,7 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     """Retorna a configuracao compartilhada da aplicacao."""
+
     return Settings()
 
 
