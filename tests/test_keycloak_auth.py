@@ -97,6 +97,52 @@ class KeycloakAuthTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(raised.exception.status_code, 401)
 
+
+    async def test_keycloak_claim_rejects_malformed_identity_types(self) -> None:
+        credentials = HTTPAuthorizationCredentials(
+            scheme="Bearer",
+            credentials="signed-keycloak-token",
+        )
+        malformed_claims = [
+            {
+                "sub": "subject",
+                "database_id": True,
+                "account_type": "farm_owner",
+                "realm_access": {"roles": ["farm_owner"]},
+            },
+            {
+                "sub": "subject",
+                "database_id": 42.5,
+                "account_type": "farm_owner",
+                "realm_access": {"roles": ["farm_owner"]},
+            },
+            {
+                "sub": "subject",
+                "database_id": 42,
+                "account_type": "farm_owner",
+                "realm_access": {"roles": "farm_owner"},
+            },
+        ]
+
+        for claims in malformed_claims:
+            with (
+                self.subTest(claims=claims),
+                patch.object(
+                    settings,
+                    "auth_jwt_issuer",
+                    "https://ouros-keycloak.discloud.app/realms/ouros",
+                ),
+                patch.object(settings, "auth_jwt_audience", "ms-ai-server"),
+                patch.object(settings, "auth_bearer_token", None),
+                patch.object(settings, "auth_jwt_secret", None),
+                patch(
+                    "app.core.auth._decode_keycloak_token",
+                    return_value=claims,
+                ),
+                self.assertRaises(HTTPException),
+            ):
+                await get_current_principal(credentials)
+
     async def test_validated_user_token_is_forwarded_to_mcp_provider(self) -> None:
         provider = MCPToolProvider(
             url="https://ms-midas-mcp.discloud.app/mcp/",
