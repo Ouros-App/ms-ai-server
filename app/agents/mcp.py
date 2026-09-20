@@ -31,6 +31,8 @@ _FORWARDED_ACCESS_TOKEN: ContextVar[str | None] = ContextVar(
     "mcp_forwarded_access_token",
     default=None,
 )
+
+
 @contextmanager
 def forward_mcp_access_token(token: str | None):
     """Expose one validated Keycloak token only for the current request."""
