@@ -10,4 +10,4 @@ prometheus-client>=0.22,<1
 langchain-groq>=1.0,<2
 langchain-openai>=1.0,<2
 langchain-mcp-adapters>=0.3,<1
-PyJWT>=2.10,<3
+PyJWT[crypto]>=2.14,<3

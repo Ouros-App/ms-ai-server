@@ -23,10 +23,10 @@ O serviço está implementado com:
 - roteamento entre os agentes `faq`, `sustainability`, `ranking`, `support` e `fallback`;
 - especialistas com contrato JSON e um agente `default` dedicado à síntese da resposta;
 - resposta padrão quando nenhum provedor de IA está configurado;
-- autenticação operacional por Bearer e identidade de usuário por JWT;
+- autenticação de usuário por JWT do Keycloak validado localmente via JWKS, com Bearer/HS256 legado apenas para rollout;
 - guardrails de entrada e revisão de saída.
 
-As chaves de IA são opcionais para iniciar a aplicação, mas o `AUTH_BEARER_TOKEN` é necessário para acessar os endpoints autenticados.
+As chaves de IA são opcionais para iniciar a aplicação. Em produção, os endpoints autenticados usam JWTs emitidos pelo realm `ouros`; mecanismos legados permanecem apenas para rollout.
 
 ## Principais componentes
 
@@ -45,7 +45,7 @@ As chaves de IA são opcionais para iniciar a aplicação, mas o `AUTH_BEARER_TO
 
 - Docker e Docker Compose para a execução completa com MongoDB.
 - Python 3.12 para execução fora do container.
-- Um token para `AUTH_BEARER_TOKEN`.
+- Configure `AUTH_JWT_ISSUER`, `AUTH_JWT_AUDIENCE` e `AUTH_JWKS_URL` do Keycloak e use um JWT de usuário nos endpoints autenticados. `AUTH_BEARER_TOKEN` permanece apenas como fallback legado de rollout.
 - Chaves `GROQ_API_KEY` e/ou `NVIDIA_API_KEY` quando a resposta por IA for necessária.
 
 ## Instalação e configuração
@@ -63,9 +63,10 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 | `GROQ_API_KEY` / `GROQ_FAST_MODEL` / `GROQ_MODEL` | Provedor Groq e perfis rápido/potente. |
 | `NVIDIA_API_KEY` / `NVIDIA_NIM_FAST_MODEL` / `NVIDIA_NIM_MODEL` / `NVIDIA_NIM_BASE_URL` | Provedor NVIDIA NIM e perfis rápido/potente. |
 | `LLM_TEMPERATURE` / `LLM_TIMEOUT_SECONDS` | Parâmetros das chamadas ao modelo. |
-| `AUTH_BEARER_TOKEN` | Token exigido no header `Authorization: Bearer ...`. |
-| `AUTH_JWT_SECRET` / `AUTH_JWT_ISSUER` / `AUTH_JWT_AUDIENCE` | Validação do JWT vinculado ao usuário; o `sub` deve ser o ID do usuário no MIDAS. |
-| `AUTH_REQUIRE_USER_JWT` | Exige identidade vinculada ao usuário para chat e histórico; quando `true`, `AUTH_JWT_SECRET` é obrigatório; mantenha `true` em produção. |
+| `AUTH_BEARER_TOKEN` | Bearer compartilhado legado, mantido apenas para rollout. |
+| `AUTH_JWT_ISSUER` / `AUTH_JWT_AUDIENCE` / `AUTH_JWKS_URL` | Contrato oficial do Keycloak; valida assinatura RS256, issuer, audience e expiração. `database_id` é o ID do banco legado e `sub` permanece a identidade do Keycloak. |
+| `AUTH_JWT_SECRET` | HS256 legado, mantido somente para compatibilidade durante o rollout. |
+| `AUTH_REQUIRE_USER_JWT` | Exige identidade de usuário autenticada para chat e histórico; mantenha `true` em produção. |
 | `MCP_URL` | Endpoint Streamable HTTP do servidor MCP externo. |
 | `MCP_ACCESS_TOKEN` | Token MCP fixo de fallback; prefira JWT por usuário em produção. |
 | `MCP_JWT_SECRET` / `MCP_JWT_ISSUER_URL` / `MCP_RESOURCE_URL` | Emissão de JWT curto por usuário para o MCP. |
@@ -137,7 +138,7 @@ curl -X POST http://localhost:8000/v1/chat \
 ```
 
 A resposta contém `thread_id`, `message`, `agents` e `tools`. O `user_id` enviado
-no corpo deve ser igual ao `sub` do JWT autenticado. O primeiro chat cria a
+no corpo deve ser igual ao claim `database_id` do JWT autenticado. O `sub` continua sendo a identidade estável do Keycloak. O primeiro chat cria a
 sessão e vincula o `thread_id` a esse usuário; depois disso, tanto o `user_id`
 quanto o dono da thread são imutáveis. Um Bearer compartilhado não pode acessar
 chat ou histórico quando `AUTH_REQUIRE_USER_JWT=true`.
