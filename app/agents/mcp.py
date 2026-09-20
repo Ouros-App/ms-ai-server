@@ -31,17 +31,26 @@ _FORWARDED_ACCESS_TOKEN: ContextVar[str | None] = ContextVar(
     "mcp_forwarded_access_token",
     default=None,
 )
+_FORWARDED_USER_TYPE: ContextVar[str | None] = ContextVar(
+    "mcp_forwarded_user_type",
+    default=None,
+)
 
 
 @contextmanager
-def forward_mcp_access_token(token: str | None):
-    """Expose one validated user token only for the current request context."""
+def forward_mcp_access_token(
+    token: str | None,
+    user_type: str | None = None,
+):
+    """Expose validated user auth only for the current request context."""
 
-    marker = _FORWARDED_ACCESS_TOKEN.set(token)
+    token_marker = _FORWARDED_ACCESS_TOKEN.set(token)
+    type_marker = _FORWARDED_USER_TYPE.set(user_type)
     try:
         yield
     finally:
-        _FORWARDED_ACCESS_TOKEN.reset(marker)
+        _FORWARDED_USER_TYPE.reset(type_marker)
+        _FORWARDED_ACCESS_TOKEN.reset(token_marker)
 
 
 class _NoArguments(BaseModel):
@@ -196,7 +205,7 @@ class MCPToolProvider:
             logger.exception("mcp_tools_load_failed agent=%s", agent_name)
             return []
 
-        token_identity = bool(_FORWARDED_ACCESS_TOKEN.get())
+        bound_user_type = _FORWARDED_USER_TYPE.get() or self.user_type
         selected = []
         for tool in tools:
             if tool.name not in allowed:
@@ -214,7 +223,7 @@ class MCPToolProvider:
                     tool,
                     numeric_user_id,
                     request_text=request_text,
-                    token_identity=token_identity,
+                    bound_user_type=bound_user_type,
                 )
             )
         logger.info("mcp_tools_loaded agent=%s count=%d", agent_name, len(selected))
@@ -225,7 +234,7 @@ class MCPToolProvider:
         tool,
         user_id: int,
         request_text: str | None = None,
-        token_identity: bool = False,
+        bound_user_type: str | None = None,
     ) -> StructuredTool:
         """Bind authenticated identity without exposing identifiers to the model."""
 
@@ -233,12 +242,12 @@ class MCPToolProvider:
         if tool.name == "get_user_context":
 
             async def invoke() -> object:
-                arguments = (
-                    {}
-                    if token_identity
-                    else {"user_type": self.user_type, "user_id": user_id}
+                return await tool.ainvoke(
+                    {
+                        "user_type": bound_user_type or self.user_type,
+                        "user_id": user_id,
+                    }
                 )
-                return await tool.ainvoke(arguments)
 
             args_schema = _NoArguments
         else:
@@ -249,15 +258,13 @@ class MCPToolProvider:
             ) -> object:
                 if farm_id is None and _has_explicit_farm_id(request_text):
                     return self._scope_denied(user_id)
-                arguments = {"limit": limit}
-                if not token_identity:
-                    arguments.update(
-                        {
-                            "user_type": self.user_type,
-                            "user_id": user_id,
-                        }
-                    )
-                result = await tool.ainvoke(arguments)
+                result = await tool.ainvoke(
+                    {
+                        "user_type": bound_user_type or self.user_type,
+                        "user_id": user_id,
+                        "limit": limit,
+                    }
+                )
                 return self._filter_farm_data(result, user_id, farm_id)
 
             args_schema = _FarmDataArguments
