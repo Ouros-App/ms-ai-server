@@ -62,9 +62,9 @@ class KeycloakAuthTests(unittest.IsolatedAsyncioTestCase):
             patch.object(settings, "auth_bearer_token", None),
             patch.object(settings, "auth_jwt_secret", None),
             patch("app.core.auth._decode_keycloak_token", return_value=claims),
+            self.assertRaises(HTTPException) as raised,
         ):
-            with self.assertRaises(HTTPException) as raised:
-                await get_current_principal(credentials)
+            await get_current_principal(credentials)
 
         self.assertEqual(raised.exception.status_code, 401)
 
@@ -91,9 +91,9 @@ class KeycloakAuthTests(unittest.IsolatedAsyncioTestCase):
             patch.object(settings, "auth_bearer_token", None),
             patch.object(settings, "auth_jwt_secret", None),
             patch("app.core.auth._decode_keycloak_token", return_value=claims),
+            self.assertRaises(HTTPException) as raised,
         ):
-            with self.assertRaises(HTTPException) as raised:
-                await get_current_principal(credentials)
+            await get_current_principal(credentials)
 
         self.assertEqual(raised.exception.status_code, 401)
 
