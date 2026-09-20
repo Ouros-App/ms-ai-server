@@ -114,11 +114,12 @@ class KeycloakAuthTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIsNone(_keycloak_principal(claims, "token"))
 
     async def test_invalid_keycloak_token_has_no_legacy_fallback(self) -> None:
+        credentials = self.credentials("legacy-token")
         with (
             patch("app.core.auth._decode_keycloak_token", return_value=None),
             self.assertRaises(HTTPException) as raised,
         ):
-            await get_current_principal(self.credentials("legacy-token"))
+            await get_current_principal(credentials)
 
         self.assertEqual(raised.exception.status_code, 401)
 
