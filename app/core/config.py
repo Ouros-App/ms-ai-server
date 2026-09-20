@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import SecretStr, field_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.infisical import load_infisical_secrets
@@ -41,6 +41,20 @@ class Settings(BaseSettings):
     mcp_resource_url: str | None = None
     mcp_user_type: str = "farm_owner"
     mcp_jwt_ttl_seconds: int = 300
+
+    @model_validator(mode="after")
+    def validate_keycloak_jwt_config(self) -> "Settings":
+        issuer = bool(self.auth_jwt_issuer)
+        audience = bool(self.auth_jwt_audience)
+        if issuer != audience:
+            raise ValueError(
+                "AUTH_JWT_ISSUER e AUTH_JWT_AUDIENCE devem ser configurados juntos"
+            )
+        if self.auth_jwks_url and not (issuer and audience):
+            raise ValueError(
+                "AUTH_JWKS_URL exige AUTH_JWT_ISSUER e AUTH_JWT_AUDIENCE"
+            )
+        return self
 
     @field_validator(
         "groq_api_key",
