@@ -224,11 +224,10 @@ async def default_agent(state: AgentState) -> dict:
             )
             content = _response_content(response)
 
-    sensitive_token = ""
     return {
         "agents": [*state["agents"], "default"],
         "tools": state.get("tools", []),
-        "messages": [AIMessage(content=guard_output(content, sensitive_token))],
+        "messages": [AIMessage(content=guard_output(content))],
     }
 
 
