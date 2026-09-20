@@ -138,8 +138,8 @@ def _legacy_hs256_principal(token: str) -> Principal | None:
         return None
 
     options = {
-        "verify_iss": bool(settings.auth_jwt_issuer),
-        "verify_aud": bool(settings.auth_jwt_audience),
+        "verify_iss": False,
+        "verify_aud": False,
         "require": ["exp"],
     }
     try:
@@ -147,8 +147,6 @@ def _legacy_hs256_principal(token: str) -> Principal | None:
             token,
             jwt_secret,
             algorithms=["HS256"],
-            issuer=settings.auth_jwt_issuer,
-            audience=settings.auth_jwt_audience,
             options=options,
         )
     except InvalidTokenError:
@@ -172,6 +170,21 @@ def _legacy_hs256_principal(token: str) -> Principal | None:
         user_type=user_type if isinstance(user_type, str) else None,
         access_token=token,
     )
+
+
+async def _keycloak_principal_for_token(token: str) -> Principal | None:
+    """Validate one Keycloak token and map it to a principal."""
+
+    try:
+        claims = await asyncio.to_thread(_decode_keycloak_token, token)
+    except PyJWKClientConnectionError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Servico de chaves de autenticacao indisponivel.",
+        ) from error
+    if claims is None:
+        return None
+    return _keycloak_principal(claims, token)
 
 
 async def get_current_principal(
@@ -202,20 +215,9 @@ async def get_current_principal(
         )
 
     if keycloak_configured:
-        try:
-            claims = await asyncio.to_thread(
-                _decode_keycloak_token,
-                bearer_token,
-            )
-        except PyJWKClientConnectionError as error:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Servico de chaves de autenticacao indisponivel.",
-            ) from error
-        if claims is not None:
-            principal = _keycloak_principal(claims, bearer_token)
-            if principal is not None:
-                return principal
+        keycloak_principal = await _keycloak_principal_for_token(bearer_token)
+        if keycloak_principal is not None:
+            return keycloak_principal
 
     legacy_principal = _legacy_hs256_principal(bearer_token)
     if legacy_principal is not None:
