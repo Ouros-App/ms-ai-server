@@ -87,19 +87,32 @@ def _keycloak_principal(claims: dict, token: str) -> Principal | None:
     database_id = claims.get("database_id")
     account_type = claims.get("account_type")
     realm_access = claims.get("realm_access")
-    roles = realm_access.get("roles", []) if isinstance(realm_access, dict) else []
+    roles = realm_access.get("roles") if isinstance(realm_access, dict) else None
 
     if not isinstance(subject, (str, int)) or not str(subject).strip():
         return None
-    if not isinstance(database_id, (str, int)) or not str(database_id).strip():
+    if (
+        not isinstance(account_type, str)
+        or account_type not in VALID_ACCOUNT_TYPES
+        or not isinstance(roles, list)
+        or not all(isinstance(role, str) for role in roles)
+        or account_type not in roles
+    ):
         return None
-    try:
+
+    if isinstance(database_id, bool):
+        return None
+    if isinstance(database_id, int):
+        numeric_database_id = database_id
+    elif (
+        isinstance(database_id, str)
+        and database_id.isascii()
+        and database_id.isdecimal()
+    ):
         numeric_database_id = int(database_id)
-    except (TypeError, ValueError):
+    else:
         return None
     if numeric_database_id <= 0:
-        return None
-    if account_type not in VALID_ACCOUNT_TYPES or account_type not in roles:
         return None
 
     return Principal(
