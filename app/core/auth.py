@@ -19,6 +19,7 @@ class Principal:
     user_id: str | None = None
     user_type: str | None = None
     access_token: str = field(default="", repr=False, compare=False)
+    forward_to_mcp: bool = False
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -105,6 +106,7 @@ def _keycloak_principal(claims: dict, token: str) -> Principal | None:
         user_id=str(numeric_database_id),
         user_type=account_type,
         access_token=token,
+        forward_to_mcp=True,
     )
 
 
