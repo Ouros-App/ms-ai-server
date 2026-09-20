@@ -225,9 +225,7 @@ async def default_agent(state: AgentState) -> dict:
             )
             content = _response_content(response)
 
-    sensitive_token = (
-        settings.auth_bearer_token.get_secret_value() if settings.auth_bearer_token else ""
-    )
+    sensitive_token = ""
     return {
         "agents": [*state["agents"], "default"],
         "tools": state.get("tools", []),
