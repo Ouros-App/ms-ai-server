@@ -4,10 +4,33 @@ from unittest.mock import AsyncMock, patch
 
 import jwt
 
-from app.agents.mcp import MCPToolProvider
+from app.agents.mcp import MCP_TOOLS_CACHE_MAX_ENTRIES, MCPToolProvider
 
 
 class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
+    def test_tools_cache_prunes_expired_and_bounds_entries(self) -> None:
+        provider = MCPToolProvider(
+            url="http://mcp.test/mcp",
+            access_token="token",
+            jwt_ttl_seconds=10,
+        )
+        provider._tools_cache = {
+            "expired": (["old"], 80.0),
+            **{
+                f"active-{index}": (["tool"], 95.0)
+                for index in range(MCP_TOOLS_CACHE_MAX_ENTRIES)
+            },
+        }
+
+        provider._prune_tools_cache(100.0)
+
+        self.assertNotIn("expired", provider._tools_cache)
+        self.assertLess(
+            len(provider._tools_cache),
+            MCP_TOOLS_CACHE_MAX_ENTRIES,
+        )
+        self.assertNotIn("active-0", provider._tools_cache)
+
     async def test_provider_filters_tools_and_issues_user_jwt(self) -> None:
         captured = {}
         captured["calls"] = 0
