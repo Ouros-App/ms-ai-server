@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     auth_jwt_secret: SecretStr | None = None
     auth_jwt_issuer: str | None = None
     auth_jwt_audience: str | None = None
+    auth_jwks_url: str | None = None
     auth_require_user_jwt: bool = False
     mcp_url: str | None = None
     mcp_access_token: SecretStr | None = None
