@@ -2,6 +2,8 @@ import os
 import unittest
 from unittest.mock import patch
 
+from pydantic import ValidationError
+
 from app.agents.tools import TOOLS
 from app.core.config import Settings, get_settings, settings
 
@@ -22,3 +24,23 @@ class ConfigTest(unittest.TestCase):
         self.assertFalse(config.auth_require_user_jwt)
         self.assertEqual(TOOLS, [])
         self.assertIs(get_settings(), settings)
+
+    def test_partial_keycloak_config_is_rejected(self) -> None:
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            self.assertRaises(ValidationError),
+        ):
+            Settings(
+                _env_file=None,
+                auth_jwt_issuer="https://ouros-keycloak.discloud.app/realms/ouros",
+                auth_jwt_audience=None,
+            )
+
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            self.assertRaises(ValidationError),
+        ):
+            Settings(
+                _env_file=None,
+                auth_jwks_url="https://ouros-keycloak.discloud.app/realms/ouros/protocol/openid-connect/certs",
+            )
