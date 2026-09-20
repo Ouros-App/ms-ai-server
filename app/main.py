@@ -5,7 +5,6 @@ from time import perf_counter
 from fastapi import FastAPI
 from pymongo import AsyncMongoClient
 
-
 from app.agents.graph import build_graph
 from app.agents.mcp import MCPToolProvider
 from app.api.routes import router
