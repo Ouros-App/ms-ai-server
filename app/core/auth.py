@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass, field
 from functools import lru_cache
 from secrets import compare_digest
@@ -185,7 +186,10 @@ async def get_current_principal(
         )
 
     if keycloak_configured:
-        claims = _decode_keycloak_token(bearer_token)
+        claims = await asyncio.to_thread(
+            _decode_keycloak_token,
+            bearer_token,
+        )
         if claims is not None:
             principal = _keycloak_principal(claims, bearer_token)
             if principal is not None:
