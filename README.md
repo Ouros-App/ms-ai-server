@@ -55,6 +55,8 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 | Variável | Função |
 | --- | --- |
 | `APP_PORT` | Porta publicada pelo Compose, com padrão `8000`. |
+| `INFISICAL_TOKEN` / `INFISICAL_PROJECT_ID` / `INFISICAL_ENV` / `INFISICAL_PATH` | Bootstrap opcional do Infisical. Configure as quatro juntas; `INFISICAL_ENV` aceita `prod` ou `dev`. |
+| `INFISICAL_HOST` | Host do Infisical, padrão `https://app.infisical.com`. |
 | `MONGODB_URI` | URI do MongoDB para execução fora do Compose. |
 | `MONGODB_URI_DOCKER` | URI usada pelo serviço no Compose. |
 | `MONGODB_DATABASE` | Banco usado pelo serviço, com padrão `mongodb-ai-prod`; use `mongodb-ai-qa` no ambiente de QA. |
@@ -69,7 +71,7 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 | `MCP_JWT_SECRET` / `MCP_JWT_ISSUER_URL` / `MCP_RESOURCE_URL` | Emissão de JWT curto por usuário para o MCP. |
 | `MCP_USER_TYPE` / `MCP_JWT_TTL_SECONDS` | Identidade e validade do JWT MCP. |
 
-Não versione o arquivo `.env` nem os tokens.
+Não versione o arquivo `.env` nem os tokens. Quando o Infisical está totalmente configurado, os secrets carregados do cofre são aplicados antes da criação de `Settings` e prevalecem sobre valores locais com a mesma chave. Sem nenhuma das quatro variáveis de bootstrap, o serviço pode rodar em modo local. Configuração parcial ou ambiente inválido interrompe o startup para evitar fallback silencioso.
 
 O roteador, guardrails, FAQ, suporte, fallback e o sintetizador default usam os perfis rápidos
 `GROQ_FAST_MODEL` e `NVIDIA_NIM_FAST_MODEL`. Ranking e sustentabilidade usam os
