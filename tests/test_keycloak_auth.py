@@ -127,6 +127,35 @@ class KeycloakAuthTests(unittest.IsolatedAsyncioTestCase):
         ):
             self.assertIsNone(_legacy_hs256_principal(token_without_exp))
 
+    def test_legacy_hs256_stays_independent_from_keycloak_contract(self) -> None:
+        secret = "s" * 32
+        token = jwt.encode(
+            {
+                "sub": "42",
+                "user_id": "42",
+                "user_type": "farm_owner",
+                "exp": 4102444800,
+            },
+            secret,
+            algorithm="HS256",
+        )
+
+        with (
+            patch.object(settings, "auth_jwt_secret", SecretStr(secret)),
+            patch.object(
+                settings,
+                "auth_jwt_issuer",
+                "https://ouros-keycloak.discloud.app/realms/ouros",
+            ),
+            patch.object(settings, "auth_jwt_audience", "ms-ai-server"),
+        ):
+            principal = _legacy_hs256_principal(token)
+
+        self.assertIsNotNone(principal)
+        assert principal is not None
+        self.assertEqual(principal.user_id, "42")
+        self.assertEqual(principal.user_type, "farm_owner")
+
     async def test_keycloak_claims_map_business_identity(self) -> None:
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
