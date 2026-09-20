@@ -193,11 +193,7 @@ class ApiTest(unittest.TestCase):
     def test_route_forwards_validated_access_token_to_graph(self) -> None:
         with patch(
             "app.api.routes.invoke_graph",
-            new=AsyncMock(
-                return_value=SimpleNamespace(
-                    model_dump=lambda: {},
-                )
-            ),
+            new=AsyncMock(),
         ) as invoke:
             # Return type validation expects a ChatResponse, so use the actual model.
             from app.schemas.chat import ChatResponse
