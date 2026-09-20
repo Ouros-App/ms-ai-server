@@ -46,6 +46,7 @@ async def chat(
         payload.model_copy(update={"user_id": user_id}),
         user_id,
         getattr(request.app.state, "thread_ownership", None),
+        principal_token=principal.access_token,
     )
 
 
