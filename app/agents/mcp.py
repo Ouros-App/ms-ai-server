@@ -2,7 +2,10 @@ import asyncio
 import json
 import logging
 import re
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from time import monotonic
 
 from langchain_core.tools import StructuredTool
@@ -14,12 +17,31 @@ logger = logging.getLogger(__name__)
 
 MCP_TOOL_ALLOWLIST: dict[str, frozenset[str]] = {
     "faq": frozenset({"search_knowledge", "get_user_context"}),
-    "sustainability": frozenset({"search_knowledge", "get_user_context", "get_user_farm_data"}),
-    "ranking": frozenset({"get_user_context", "get_user_farm_data", "postgres_status"}),
+    "sustainability": frozenset(
+        {"search_knowledge", "get_user_context", "get_user_farm_data"}
+    ),
+    "ranking": frozenset(
+        {"get_user_context", "get_user_farm_data", "postgres_status"}
+    ),
     "support": frozenset({"search_knowledge", "get_user_context"}),
     "fallback": frozenset({"search_knowledge"}),
 }
 MCP_USER_SCOPED_TOOLS = frozenset({"get_user_context", "get_user_farm_data"})
+_FORWARDED_ACCESS_TOKEN: ContextVar[str | None] = ContextVar(
+    "mcp_forwarded_access_token",
+    default=None,
+)
+
+
+@contextmanager
+def forward_mcp_access_token(token: str | None):
+    """Expose one validated user token only for the current request context."""
+
+    marker = _FORWARDED_ACCESS_TOKEN.set(token)
+    try:
+        yield
+    finally:
+        _FORWARDED_ACCESS_TOKEN.reset(marker)
 
 
 class _NoArguments(BaseModel):
@@ -39,7 +61,7 @@ class _FarmDataArguments(BaseModel):
 
 
 class MCPToolProvider:
-    """Carrega tools MCP por especialista sem expor o cliente ao sintetizador."""
+    """Load MCP tools per specialist without exposing credentials to the model."""
 
     server_name = "midas"
 
@@ -85,10 +107,14 @@ class MCPToolProvider:
         )
 
     def _token_for(self, user_id: str) -> str | None:
+        forwarded = _FORWARDED_ACCESS_TOKEN.get()
+        if forwarded:
+            return forwarded
         if self.access_token:
             return self.access_token
         if not self.jwt_secret:
             return None
+
         now_monotonic = monotonic()
         cached_token = self._token_cache.get(user_id)
         if cached_token and now_monotonic - cached_token[1] < self.jwt_ttl_seconds:
@@ -116,15 +142,22 @@ class MCPToolProvider:
         self._token_cache[user_id] = (token, now_monotonic)
         return token
 
+    @staticmethod
+    def _token_cache_key(token: str) -> str:
+        """Avoid retaining raw Bearer tokens as dictionary keys."""
+
+        return sha256(token.encode()).hexdigest()
+
     async def _load_tools(self, token: str) -> list:
         now = monotonic()
-        cached = self._tools_cache.get(token)
+        cache_key = self._token_cache_key(token)
+        cached = self._tools_cache.get(cache_key)
         if cached and now - cached[1] < self.jwt_ttl_seconds:
             return cached[0]
 
         async with self._tools_cache_lock:
             now = monotonic()
-            cached = self._tools_cache.get(token)
+            cached = self._tools_cache.get(cache_key)
             if cached and now - cached[1] < self.jwt_ttl_seconds:
                 return cached[0]
 
@@ -141,7 +174,7 @@ class MCPToolProvider:
                 handle_tool_errors=True,
             )
             tools = await client.get_tools(server_name=self.server_name)
-            self._tools_cache[token] = (tools, now)
+            self._tools_cache[cache_key] = (tools, now)
             return tools
 
     async def tools_for(
@@ -150,7 +183,8 @@ class MCPToolProvider:
         user_id: str,
         request_text: str | None = None,
     ) -> list:
-        """Retorna apenas as tools permitidas para o agente solicitado."""
+        """Return only MCP tools authorized for one specialist."""
+
         allowed = MCP_TOOL_ALLOWLIST.get(agent_name, frozenset())
         token = self._token_for(user_id)
         if not self.url or not allowed or not token:
@@ -162,6 +196,7 @@ class MCPToolProvider:
             logger.exception("mcp_tools_load_failed agent=%s", agent_name)
             return []
 
+        token_identity = bool(_FORWARDED_ACCESS_TOKEN.get())
         selected = []
         for tool in tools:
             if tool.name not in allowed:
@@ -175,7 +210,12 @@ class MCPToolProvider:
                 logger.warning("mcp_tools_skipped reason=non_numeric_user_id")
                 continue
             selected.append(
-                self._bind_user_tool(tool, numeric_user_id, request_text=request_text)
+                self._bind_user_tool(
+                    tool,
+                    numeric_user_id,
+                    request_text=request_text,
+                    token_identity=token_identity,
+                )
             )
         logger.info("mcp_tools_loaded agent=%s count=%d", agent_name, len(selected))
         return selected
@@ -185,31 +225,42 @@ class MCPToolProvider:
         tool,
         user_id: int,
         request_text: str | None = None,
+        token_identity: bool = False,
     ) -> StructuredTool:
-        """Vincula a identidade autenticada sem expor IDs ao modelo."""
+        """Bind authenticated identity without exposing identifiers to the model."""
+
         description = getattr(tool, "description", None) or tool.name
         if tool.name == "get_user_context":
+
             async def invoke() -> object:
-                return await tool.ainvoke(
-                    {"user_type": self.user_type, "user_id": user_id}
+                arguments = (
+                    {}
+                    if token_identity
+                    else {"user_type": self.user_type, "user_id": user_id}
                 )
+                return await tool.ainvoke(arguments)
 
             args_schema = _NoArguments
         else:
-            async def invoke(farm_id: int | None = None, limit: int = 20) -> object:
+
+            async def invoke(
+                farm_id: int | None = None,
+                limit: int = 20,
+            ) -> object:
                 if farm_id is None and _has_explicit_farm_id(request_text):
                     return self._scope_denied(user_id)
-                result = await tool.ainvoke(
-                    {
-                        "user_type": self.user_type,
-                        "user_id": user_id,
-                        "limit": limit,
-                    }
-                )
+                arguments = {"limit": limit}
+                if not token_identity:
+                    arguments.update(
+                        {
+                            "user_type": self.user_type,
+                            "user_id": user_id,
+                        }
+                    )
+                result = await tool.ainvoke(arguments)
                 return self._filter_farm_data(result, user_id, farm_id)
 
             args_schema = _FarmDataArguments
-
             description = (
                 f"{description} Antes de usar, consulte get_user_context e use somente "
                 "um farm_id retornado para este usuario. Para consultar a propria "
@@ -225,18 +276,31 @@ class MCPToolProvider:
         )
 
     @staticmethod
-    def _filter_farm_data(result: object, user_id: int, farm_id: int) -> dict:
-        """Retorna somente registros da fazenda autorizada solicitada."""
+    def _filter_farm_data(
+        result: object,
+        user_id: int,
+        farm_id: int | None,
+    ) -> dict:
+        """Return only records for the authorized farm selection."""
+
         result = MCPToolProvider._decode_tool_result(result)
         if result is None:
             return MCPToolProvider._scope_denied(user_id)
 
         authorized_ids = [
-            item for item in result.get("farm_ids", []) if isinstance(item, int)
+            item
+            for item in result.get("farm_ids", [])
+            if isinstance(item, int)
         ]
         requested_ids = authorized_ids if farm_id is None else [farm_id]
-        if not requested_ids or not all(item in authorized_ids for item in requested_ids):
-            logger.warning("mcp_farm_scope_denied user_id=%s farm_id=%s", user_id, farm_id)
+        if not requested_ids or not all(
+            item in authorized_ids for item in requested_ids
+        ):
+            logger.warning(
+                "mcp_farm_scope_denied user_id=%s farm_id=%s",
+                user_id,
+                farm_id,
+            )
             return {
                 "user_type": result.get("user_type"),
                 "user_id": user_id,
@@ -252,7 +316,8 @@ class MCPToolProvider:
                     continue
                 key = "id" if name == "farms" else "id_farm"
                 data[name] = [
-                    row for row in rows
+                    row
+                    for row in rows
                     if isinstance(row, dict) and row.get(key) in requested_ids
                 ]
         return {
@@ -276,7 +341,8 @@ class MCPToolProvider:
             text = "".join(
                 item.get("text", "")
                 for item in result
-                if isinstance(item, dict) and isinstance(item.get("text"), str)
+                if isinstance(item, dict)
+                and isinstance(item.get("text"), str)
             )
             return MCPToolProvider._decode_tool_result(text)
         return None
