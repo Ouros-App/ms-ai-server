@@ -2,13 +2,18 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import jwt
+
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
+from jwt.exceptions import PyJWKClientConnectionError
+from pydantic import SecretStr
 
 from app.agents.mcp import MCPToolProvider, forward_mcp_access_token
 from app.core.auth import (
     _decode_keycloak_token,
     _jwks_url,
+    _legacy_hs256_principal,
     get_current_principal,
 )
 from app.core.config import settings
@@ -80,6 +85,48 @@ class KeycloakAuthTests(unittest.IsolatedAsyncioTestCase):
             patch.object(settings, "auth_jwt_audience", None),
         ):
             self.assertIsNone(_decode_keycloak_token("token"))
+
+    async def test_jwks_connection_failure_returns_service_unavailable(
+        self,
+    ) -> None:
+        credentials = HTTPAuthorizationCredentials(
+            scheme="Bearer",
+            credentials="signed-keycloak-token",
+        )
+
+        with (
+            patch.object(
+                settings,
+                "auth_jwt_issuer",
+                "https://ouros-keycloak.discloud.app/realms/ouros",
+            ),
+            patch.object(settings, "auth_jwt_audience", "ms-ai-server"),
+            patch.object(settings, "auth_bearer_token", None),
+            patch.object(settings, "auth_jwt_secret", None),
+            patch(
+                "app.core.auth._decode_keycloak_token",
+                side_effect=PyJWKClientConnectionError("jwks unavailable"),
+            ),
+            self.assertRaises(HTTPException) as raised,
+        ):
+            await get_current_principal(credentials)
+
+        self.assertEqual(raised.exception.status_code, 503)
+
+    def test_legacy_hs256_requires_expiration(self) -> None:
+        secret = "s" * 32
+        token_without_exp = jwt.encode(
+            {"sub": "42", "user_id": "42"},
+            secret,
+            algorithm="HS256",
+        )
+
+        with (
+            patch.object(settings, "auth_jwt_secret", SecretStr(secret)),
+            patch.object(settings, "auth_jwt_issuer", None),
+            patch.object(settings, "auth_jwt_audience", None),
+        ):
+            self.assertIsNone(_legacy_hs256_principal(token_without_exp))
 
     async def test_keycloak_claims_map_business_identity(self) -> None:
         credentials = HTTPAuthorizationCredentials(
