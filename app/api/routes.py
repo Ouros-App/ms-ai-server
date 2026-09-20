@@ -46,12 +46,7 @@ async def chat(
         payload.model_copy(update={"user_id": user_id}),
         user_id,
         getattr(request.app.state, "thread_ownership", None),
-        principal_token=(
-            principal.access_token if principal.forward_to_mcp else None
-        ),
-        principal_type=(
-            principal.user_type if principal.forward_to_mcp else None
-        ),
+        principal_token=principal.access_token,
     )
 
 
@@ -59,7 +54,7 @@ async def chat(
 async def chat_history(
     thread_id: str,
     request: Request,
-    user_id: Annotated[str, Query(min_length=1, max_length=128)],
+    user_id: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     before: Annotated[str | None, Query(min_length=1, max_length=32)] = None,
     principal: Annotated[Principal, Depends(get_current_principal)] = None,
