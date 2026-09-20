@@ -23,17 +23,17 @@ O serviço está implementado com:
 - roteamento entre os agentes `faq`, `sustainability`, `ranking`, `support` e `fallback`;
 - especialistas com contrato JSON e um agente `default` dedicado à síntese da resposta;
 - resposta padrão quando nenhum provedor de IA está configurado;
-- autenticação de usuário por JWT do Keycloak validado localmente via JWKS, com Bearer/HS256 legado apenas para rollout;
+- autenticação de usuário exclusivamente por JWT RS256 do Keycloak validado localmente via JWKS;
 - guardrails de entrada e revisão de saída.
 
-As chaves de IA são opcionais para iniciar a aplicação. Em produção, os endpoints autenticados usam JWTs emitidos pelo realm `ouros`; mecanismos legados permanecem apenas para rollout.
+As chaves de IA são opcionais para iniciar a aplicação. Todos os endpoints autenticados aceitam somente JWTs emitidos pelo realm `ouros`.
 
 ## Principais componentes
 
 - `app/main.py`: cria a aplicação FastAPI, inicializa MongoDB, o checkpointer e o grafo.
 - `app/api/routes.py`: expõe as rotas HTTP.
 - `app/agents/graph.py`: define o fluxo de roteamento, execução estruturada e síntese.
-- `app/agents/mcp.py`: conecta o MCP externo, emite JWTs curtos e aplica a allowlist.
+- `app/agents/mcp.py`: encaminha o JWT validado do usuário ao MCP e aplica a allowlist.
 - `app/agents/prompts.py`: regras comuns, contrato JSON, rota e prompts especializados.
 - `app/agents/model.py`: configura os perfis rápido e potente do Groq e NVIDIA NIM.
 - `app/agents/guardrails.py`: valida entradas e revisa respostas.
@@ -45,7 +45,7 @@ As chaves de IA são opcionais para iniciar a aplicação. Em produção, os end
 
 - Docker e Docker Compose para a execução completa com MongoDB.
 - Python 3.12 para execução fora do container.
-- Configure `AUTH_JWT_ISSUER`, `AUTH_JWT_AUDIENCE` e `AUTH_JWKS_URL` do Keycloak e use um JWT de usuário nos endpoints autenticados. `AUTH_BEARER_TOKEN` permanece apenas como fallback legado de rollout.
+- Configure `AUTH_JWT_ISSUER`, `AUTH_JWT_AUDIENCE` e `AUTH_JWKS_URL` do Keycloak e use um JWT de usuário nos endpoints autenticados.
 - Chaves `GROQ_API_KEY` e/ou `NVIDIA_API_KEY` quando a resposta por IA for necessária.
 
 ## Instalação e configuração
@@ -63,18 +63,14 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 | `GROQ_API_KEY` / `GROQ_FAST_MODEL` / `GROQ_MODEL` | Provedor Groq e perfis rápido/potente. |
 | `NVIDIA_API_KEY` / `NVIDIA_NIM_FAST_MODEL` / `NVIDIA_NIM_MODEL` / `NVIDIA_NIM_BASE_URL` | Provedor NVIDIA NIM e perfis rápido/potente. |
 | `LLM_TEMPERATURE` / `LLM_TIMEOUT_SECONDS` | Parâmetros das chamadas ao modelo. |
-| `AUTH_BEARER_TOKEN` | Bearer compartilhado legado, mantido apenas para rollout. |
 | `AUTH_JWT_ISSUER` / `AUTH_JWT_AUDIENCE` / `AUTH_JWKS_URL` | Contrato oficial do Keycloak; valida assinatura RS256, issuer, audience e expiração. `database_id` é o ID do banco legado e `sub` permanece a identidade do Keycloak. |
-| `AUTH_JWT_SECRET` | HS256 legado, mantido somente para compatibilidade durante o rollout. |
-| `AUTH_REQUIRE_USER_JWT` | Exige identidade de usuário autenticada para chat e histórico; mantenha `true` em produção. |
 | `MCP_URL` | Endpoint Streamable HTTP do servidor MCP externo. |
-| `MCP_ACCESS_TOKEN` | Token MCP fixo de fallback; prefira JWT por usuário em produção. |
-| `MCP_JWT_SECRET` / `MCP_JWT_ISSUER_URL` / `MCP_RESOURCE_URL` | Emissão de JWT curto por usuário para o MCP. |
-| `MCP_USER_TYPE` / `MCP_JWT_TTL_SECONDS` | Identidade e validade do JWT MCP. |
+| `MCP_RESOURCE_URL` | Identificador/URL do recurso MCP. |
+| `MCP_TOOLS_CACHE_TTL_SECONDS` | TTL do cache de tools MCP por token validado. |
 
 Não versione o arquivo `.env` nem os tokens. Quando o Infisical está totalmente configurado, os secrets carregados do cofre são aplicados antes da criação de `Settings` e prevalecem sobre valores locais com a mesma chave. Sem nenhuma das quatro variáveis de bootstrap, o serviço pode rodar em modo local. Configuração parcial ou ambiente inválido interrompe o startup para evitar fallback silencioso.
 
-Em deploy, `INFISICAL_TOKEN` é o único bootstrap secreto que precisa existir fora do cofre. Os secrets de aplicação esperados no Infisical incluem `MONGODB_URI` quando contiver credenciais, `GROQ_API_KEY`, `NVIDIA_API_KEY`, `AUTH_BEARER_TOKEN`, `AUTH_JWT_SECRET`, `MCP_ACCESS_TOKEN` e `MCP_JWT_SECRET`. Os dois últimos grupos permanecem apenas enquanto a etapa de autenticação ainda não for refatorada.
+Em deploy, `INFISICAL_TOKEN` é o único bootstrap secreto que precisa existir fora do cofre. Os secrets de aplicação esperados no Infisical incluem `MONGODB_URI` quando contiver credenciais, `GROQ_API_KEY` e `NVIDIA_API_KEY`. A autenticação de usuário não depende mais de shared secrets locais.
 
 O roteador, guardrails, FAQ, suporte, fallback e o sintetizador default usam os perfis rápidos
 `GROQ_FAST_MODEL` e `NVIDIA_NIM_FAST_MODEL`. Ranking e sustentabilidade usam os
@@ -87,8 +83,7 @@ especialista retorna somente JSON com fatos, recomendações, dados ausentes e
 fontes; o `default` é o único agente que gera linguagem natural para o usuário.
 
 As tools de memória e MCP ficam disponíveis somente para especialistas. O cliente
-MCP usa Streamable HTTP, cria um JWT curto por usuário quando `MCP_JWT_SECRET` está
-configurado e aplica a allowlist em `app/agents/mcp.py`. O sintetizador não recebe
+MCP usa Streamable HTTP, recebe exatamente o access token Keycloak já validado pela API e aplica a allowlist em `app/agents/mcp.py`. O sintetizador não recebe
 nenhuma dessas tools.
 
 ## Execução
@@ -124,7 +119,6 @@ Exemplo de requisição:
 
 ```json
 {
-  "user_id": "6",
   "message": "Como funciona o ranking?",
   "thread_id": "conversa-1"
 }
@@ -134,19 +128,15 @@ Exemplo de requisição:
 curl -X POST http://localhost:8000/v1/chat \
   -H "Authorization: Bearer <jwt-do-usuario>" \
   -H "Content-Type: application/json" \
-  -d '{"user_id":"6","thread_id":"conversa-1","message":"Como funciona o ranking?"}'
+  -d '{"thread_id":"conversa-1","message":"Como funciona o ranking?"}'
 ```
 
-A resposta contém `thread_id`, `message`, `agents` e `tools`. O `user_id` enviado
-no corpo deve ser igual ao claim `database_id` do JWT autenticado. O `sub` continua sendo a identidade estável do Keycloak. O primeiro chat cria a
-sessão e vincula o `thread_id` a esse usuário; depois disso, tanto o `user_id`
-quanto o dono da thread são imutáveis. Um Bearer compartilhado não pode acessar
-chat ou histórico quando `AUTH_REQUIRE_USER_JWT=true`.
+A resposta contém `thread_id`, `message`, `agents` e `tools`. A identidade efetiva vem sempre do claim assinado `database_id`; `user_id`, quando enviado por clientes antigos, é apenas um campo de compatibilidade e precisa coincidir com o JWT. O `sub` continua sendo a identidade estável do Keycloak. O primeiro chat vincula o `thread_id` ao usuário autenticado e essa posse é imutável.
 
 O histórico aceita `limit` entre 1 e 100, com padrão 20, e o cursor `before` para buscar a página anterior:
 
 ```bash
-curl "http://localhost:8000/v1/chat/conversa-1/history?user_id=6&limit=20" \
+curl "http://localhost:8000/v1/chat/conversa-1/history?limit=20" \
   -H "Authorization: Bearer <token-configurado>"
 ```
 
