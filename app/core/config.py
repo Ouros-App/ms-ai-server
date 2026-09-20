@@ -3,6 +3,10 @@ from functools import lru_cache
 from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.infisical import load_infisical_secrets
+
+load_infisical_secrets()
+
 
 class Settings(BaseSettings):
     """Configuracao tipada carregada do ambiente."""
