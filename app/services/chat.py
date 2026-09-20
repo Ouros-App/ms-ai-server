@@ -20,6 +20,7 @@ async def invoke_graph(
     principal_id: str,
     thread_ownership=None,
     principal_token: str | None = None,
+    principal_type: str | None = None,
 ) -> ChatResponse:
     """Valida a posse da thread, executa o grafo e formata a resposta."""
     started_at = perf_counter()
@@ -67,7 +68,7 @@ async def invoke_graph(
 
     try:
         async with asyncio.timeout(settings.llm_total_timeout_seconds):
-            with forward_mcp_access_token(principal_token):
+            with forward_mcp_access_token(principal_token, principal_type):
                 result = await graph.ainvoke(
                     {
                         "messages": [HumanMessage(content=safe_payload.message)],
