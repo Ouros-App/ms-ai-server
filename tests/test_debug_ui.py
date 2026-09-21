@@ -2,6 +2,7 @@ from time import time
 from unittest.mock import AsyncMock, patch
 
 import httpx
+import pytest
 from fastapi import FastAPI, HTTPException, status
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
@@ -11,6 +12,8 @@ from app.core.config import settings
 from app.debug_ui.router import (
     COOKIE_NAME,
     REFRESH_COOKIE_NAME,
+    _debug_client_auth,
+    _oauth_error,
     _principal_needs_refresh,
     install_debug_ui,
 )
@@ -138,6 +141,57 @@ def test_login_proxies_credentials_and_sets_http_only_cookie() -> None:
     assert "test-client-value" not in captured["body"]
     assert captured["authorization"].startswith("Basic ")
     assert session.status_code == 200
+
+
+
+def test_debug_client_auth_requires_secret() -> None:
+    with (
+        patch.object(settings, "debug_ui_keycloak_client_secret", None),
+        pytest.raises(HTTPException) as exc,
+    ):
+        _debug_client_auth()
+
+    assert exc.value.status_code == 503
+
+
+def test_oauth_error_handles_expected_and_malformed_payloads() -> None:
+    assert _oauth_error(httpx.Response(400, json={"error": "invalid_grant"})) == "invalid_grant"
+    assert _oauth_error(httpx.Response(400, json={"detail": "no oauth error"})) is None
+    assert _oauth_error(httpx.Response(400, json=["invalid_grant"])) is None
+    assert _oauth_error(httpx.Response(500, content=b"not-json")) is None
+
+
+def test_login_maps_keycloak_invalid_grant_to_unauthorized() -> None:
+    real_async_client = httpx.AsyncClient
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={"error": "invalid_grant", "error_description": "bad credentials"},
+        )
+
+    def client_factory(**kwargs):
+        return real_async_client(
+            transport=httpx.MockTransport(handler),
+            timeout=kwargs.get("timeout"),
+            follow_redirects=kwargs.get("follow_redirects", False),
+        )
+
+    with (
+        patch.object(settings, "debug_ui_enabled", True),
+        patch.object(settings, "debug_ui_cookie_secure", False),
+        _debug_client_secret_patch(),
+        patch("app.debug_ui.router.httpx.AsyncClient", side_effect=client_factory),
+    ):
+        app = build_debug_app()
+        with TestClient(app) as client:
+            response = client.post(
+                "/debug/api/login",
+                json={"email": "user@example.com", "password": "wrong-password"},
+            )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Credenciais inválidas."
 
 
 def test_validated_principal_refresh_window() -> None:
