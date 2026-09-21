@@ -1,7 +1,8 @@
+from unittest.mock import AsyncMock, patch
+
 import httpx
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, patch
 
 from app.core.auth import Principal
 from app.core.config import settings
