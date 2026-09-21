@@ -13,18 +13,25 @@ const conversationList = $("#conversation-list");
 const conversationTitle = $("#conversation-title");
 const debugContent = $("#debug-content");
 const debugPanel = $("#debug-panel");
-const STORAGE_KEY = "ouros-ai-debug-conversations-v1";
+const STORAGE_PREFIX = "ouros-ai-debug-conversations-v1";
 
 let session = null;
-let conversations = loadConversations();
-let currentId = conversations[0]?.id || null;
+let conversations = [];
+let currentId = null;
 let busy = false;
 
 marked.setOptions({ gfm: true, breaks: true });
 
+function storageKey() {
+  if (!session?.user_id) return null;
+  return `${STORAGE_PREFIX}:${session.user_id}`;
+}
+
 function loadConversations() {
+  const key = storageKey();
+  if (!key) return [];
   try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    const parsed = JSON.parse(localStorage.getItem(key) || "[]");
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
@@ -32,7 +39,15 @@ function loadConversations() {
 }
 
 function saveConversations() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations.slice(0, 40)));
+  const key = storageKey();
+  if (!key) return;
+  localStorage.setItem(key, JSON.stringify(conversations.slice(0, 40)));
+}
+
+function restoreConversations() {
+  localStorage.removeItem(STORAGE_PREFIX);
+  conversations = loadConversations();
+  currentId = conversations[0]?.id || null;
 }
 
 function newConversation() {
@@ -225,12 +240,15 @@ async function api(path, options = {}) {
 
 function showLogin() {
   session = null;
+  conversations = [];
+  currentId = null;
   loginScreen.hidden = false;
   appShell.hidden = true;
   $("#password").value = "";
 }
 
 function showApp() {
+  restoreConversations();
   loginScreen.hidden = true;
   appShell.hidden = false;
   $("#session-label").textContent = `${session.account_type} · DB #${session.user_id}`;
