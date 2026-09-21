@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, Cookie, Depends, FastAPI, HTTPException, Response, status
+from fastapi import APIRouter, Cookie, Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -163,12 +163,27 @@ async def debug_session(
 @router.post("/api/chat", response_model=DebugChatResponse)
 async def debug_chat(
     payload: DebugChatRequest,
+    request: Request,
     principal: Annotated[Principal, Depends(_debug_principal)],
-    app: FastAPI = None,
 ) -> DebugChatResponse:
-    # FastAPI injects the application through the request object below; the
-    # explicit app parameter is never supplied by clients.
-    raise RuntimeError("unreachable")
+    response, diagnostics = await invoke_graph_debug(
+        request.app.state.graph,
+        ChatRequest(
+            user_id=principal.user_id,
+            message=payload.message,
+            thread_id=payload.thread_id,
+        ),
+        principal.user_id,
+        getattr(request.app.state, "thread_ownership", None),
+        principal_token=principal.access_token,
+    )
+    return DebugChatResponse(
+        thread_id=response.thread_id,
+        message=response.message,
+        agents=response.agents,
+        tools=response.tools,
+        **diagnostics,
+    )
 
 
 def install_debug_ui(app: FastAPI) -> None:
@@ -176,43 +191,6 @@ def install_debug_ui(app: FastAPI) -> None:
 
     if not settings.debug_ui_enabled:
         return
-
-    # Replace the chat endpoint with a closure that has direct access to app
-    # state while keeping the router itself free from global application state.
-    async def chat_handler(
-        payload: DebugChatRequest,
-        principal: Annotated[Principal, Depends(_debug_principal)],
-    ) -> DebugChatResponse:
-        response, diagnostics = await invoke_graph_debug(
-            app.state.graph,
-            ChatRequest(
-                user_id=principal.user_id,
-                message=payload.message,
-                thread_id=payload.thread_id,
-            ),
-            principal.user_id,
-            getattr(app.state, "thread_ownership", None),
-            principal_token=principal.access_token,
-        )
-        return DebugChatResponse(
-            thread_id=response.thread_id,
-            message=response.message,
-            agents=response.agents,
-            tools=response.tools,
-            **diagnostics,
-        )
-
-    # Remove the placeholder /api/chat route before registration.
-    router.routes[:] = [
-        route for route in router.routes if getattr(route, "path", "") != "/debug/api/chat"
-    ]
-    router.add_api_route(
-        "/api/chat",
-        chat_handler,
-        methods=["POST"],
-        response_model=DebugChatResponse,
-        include_in_schema=False,
-    )
     app.include_router(router)
     app.mount(
         "/debug/assets",
