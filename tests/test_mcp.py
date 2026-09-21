@@ -81,6 +81,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             "user_id": 42,
             "profile": {"name": "Produtor"},
             "farms": [{"id": 11, "name": "Fazenda"}],
+            "enterprises": [],
         }
         remote_context = SimpleNamespace(
             name="get_user_context",
@@ -201,6 +202,113 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             ),
             {"farm_ids": [11], "data": {}},
         )
+
+    def test_decoder_covers_nested_adapter_shapes_and_model_dump(self) -> None:
+        """Decode structured MCP data from all supported adapter wrappers."""
+        payload = {"farm_ids": [11], "data": {}}
+
+        self.assertEqual(
+            MCPToolProvider._decode_tool_result(
+                {"structuredContent": payload}
+            ),
+            payload,
+        )
+        self.assertEqual(
+            MCPToolProvider._decode_tool_result(
+                {"artifact": {"structured_content": payload}}
+            ),
+            payload,
+        )
+
+        wrapped = SimpleNamespace(
+            artifact={"structured_content": payload},
+            content="ignored",
+        )
+        self.assertEqual(
+            MCPToolProvider._decode_tool_result(wrapped),
+            payload,
+        )
+
+        dumped = SimpleNamespace(
+            artifact=None,
+            content=None,
+            model_dump=lambda: {"structured_content": payload},
+        )
+        self.assertEqual(
+            MCPToolProvider._decode_tool_result(dumped),
+            payload,
+        )
+
+        self.assertIsNone(
+            MCPToolProvider._decode_tool_result("not-json")
+        )
+
+    def test_user_scoped_result_contracts_reject_error_payloads(self) -> None:
+        """Reject malformed MCP dictionaries instead of treating them as scope state."""
+        valid_farm = {"farm_ids": [11], "data": {}}
+        self.assertTrue(
+            MCPToolProvider._result_contract_is_valid(
+                valid_farm,
+                tool_name="get_user_farm_data",
+            )
+        )
+        for payload in (
+            {"error": "timeout"},
+            {"farm_ids": "11", "data": {}},
+            {"farm_ids": [True], "data": {}},
+            {"farm_ids": [11], "data": []},
+        ):
+            with self.subTest(payload=payload):
+                self.assertFalse(
+                    MCPToolProvider._result_contract_is_valid(
+                        payload,
+                        tool_name="get_user_farm_data",
+                    )
+                )
+
+        valid_context = {
+            "user_type": "farm_owner",
+            "user_id": 42,
+            "profile": {},
+            "farms": [],
+            "enterprises": [],
+        }
+        self.assertTrue(
+            MCPToolProvider._result_contract_is_valid(
+                valid_context,
+                tool_name="get_user_context",
+            )
+        )
+        self.assertFalse(
+            MCPToolProvider._result_contract_is_valid(
+                {"user_type": "farm_owner", "user_id": 42},
+                tool_name="get_user_context",
+            )
+        )
+        self.assertFalse(
+            MCPToolProvider._result_contract_is_valid(
+                {**valid_context, "user_id": True},
+                tool_name="get_user_context",
+            )
+        )
+
+    def test_require_decoded_result_rejects_error_dict_and_traces_it(self) -> None:
+        """Emit diagnostics for decoded dictionaries that violate the tool contract."""
+        with capture_debug_trace() as events:
+            with self.assertRaises(MCPToolResultError):
+                MCPToolProvider._require_decoded_result(
+                    {"error": "timeout"},
+                    tool_name="get_user_farm_data",
+                )
+
+        invalid = [
+            event
+            for event in events
+            if event["event"] == "mcp.tool_result_invalid"
+        ]
+        self.assertEqual(len(invalid), 1)
+        self.assertEqual(invalid[0]["tool"], "get_user_farm_data")
+        self.assertEqual(invalid[0]["result_type"], "dict")
 
     async def test_invalid_mcp_result_is_not_reported_as_authorization_denial(
         self,
