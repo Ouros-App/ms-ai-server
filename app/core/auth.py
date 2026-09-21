@@ -19,6 +19,7 @@ class Principal:
     user_id: str
     user_type: str
     access_token: str = field(default="", repr=False, compare=False)
+    expires_at: float | None = field(default=None, repr=False, compare=False)
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -113,11 +114,20 @@ def _keycloak_principal(claims: dict, token: str) -> Principal | None:
     if numeric_database_id <= 0:
         return None
 
+    expires_at_claim = claims.get("exp")
+    expires_at = (
+        float(expires_at_claim)
+        if isinstance(expires_at_claim, (int, float))
+        and not isinstance(expires_at_claim, bool)
+        else None
+    )
+
     return Principal(
         subject=subject,
         user_id=str(numeric_database_id),
         user_type=account_type,
         access_token=token,
+        expires_at=expires_at,
     )
 
 
