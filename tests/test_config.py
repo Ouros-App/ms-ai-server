@@ -18,6 +18,14 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.auth_jwt_issuer, "https://ouros-keycloak.discloud.app/realms/ouros")
         self.assertEqual(config.auth_jwt_audience, "ms-ai-server")
         self.assertIsNone(config.auth_jwks_url)
+        self.assertEqual(
+            config.mcp_url,
+            "https://ms-midas-mcp.discloud.app/mcp/",
+        )
+        self.assertEqual(
+            config.mcp_resource_url,
+            "https://ms-midas-mcp.discloud.app/mcp/",
+        )
         self.assertEqual(config.mcp_tools_cache_ttl_seconds, 300)
         self.assertEqual(TOOLS, [])
         self.assertIs(get_settings(), settings)

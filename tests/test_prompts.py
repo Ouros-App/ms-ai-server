@@ -1,6 +1,7 @@
 import unittest
 
 from app.agents.prompts import (
+    COMMON_AGENT_RULES,
     MEMORY_AGENT_RULES,
     RANKING_AGENT_PROMPT,
     SPECIALIST_JSON_RULES,
@@ -21,3 +22,7 @@ class PromptTest(unittest.TestCase):
         self.assertIn("recall_user_memories", MEMORY_AGENT_RULES)
         self.assertIn("recall_user_memories", RANKING_AGENT_PROMPT)
         self.assertNotIn("recall_user_memories", SYSTEM_PROMPT)
+
+    def test_prompts_never_request_internal_identity_fields(self) -> None:
+        self.assertIn("Nunca peca `farm_id`", COMMON_AGENT_RULES)
+        self.assertIn("Nunca peca identificadores internos", SYSTEM_PROMPT)

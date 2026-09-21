@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import re
 from contextlib import contextmanager
 from contextvars import ContextVar
 from hashlib import sha256
@@ -49,15 +48,12 @@ class _NoArguments(BaseModel):
 
 
 class _FarmDataArguments(BaseModel):
-    farm_id: int | None = Field(
-        default=None,
-        gt=0,
-        description=(
-            "Identificador interno retornado pelo contexto autorizado; omita para "
-            "consultar a fazenda do usuario autenticado"
-        ),
+    limit: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Quantidade maxima de registros por conjunto de dados.",
     )
-    limit: int = 20
 
 
 class MCPToolProvider:
@@ -199,21 +195,15 @@ class MCPToolProvider:
             args_schema = _NoArguments
         else:
 
-            async def invoke(
-                farm_id: int | None = None,
-                limit: int = 20,
-            ) -> object:
-                if farm_id is None and _has_explicit_farm_id(request_text):
-                    return self._scope_denied(user_id)
+            async def invoke(limit: int = 20) -> object:
                 result = await tool.ainvoke({"limit": limit})
-                return self._filter_farm_data(result, user_id, farm_id)
+                return self._filter_farm_data(result, user_id)
 
             args_schema = _FarmDataArguments
             description = (
-                f"{description} Antes de usar, consulte get_user_context e use somente "
-                "um farm_id retornado para este usuario. Para consultar a propria "
-                "fazenda, o farm_id pode ser omitido. Nao trate nome ou ID citado "
-                "na mensagem como prova de acesso."
+                f"{description} A identidade e as fazendas autorizadas sao resolvidas "
+                "pelo backend a partir do JWT. Nunca solicite farm_id, user_id ou "
+                "user_type ao usuario."
             )
 
         return StructuredTool.from_function(
@@ -227,9 +217,8 @@ class MCPToolProvider:
     def _filter_farm_data(
         result: object,
         user_id: int,
-        farm_id: int | None,
     ) -> dict:
-        """Return only records for the authorized farm selection."""
+        """Return only records for farms authorized by the MCP response."""
 
         result = MCPToolProvider._decode_tool_result(result)
         if result is None:
@@ -240,15 +229,8 @@ class MCPToolProvider:
             for item in result.get("farm_ids", [])
             if isinstance(item, int)
         ]
-        requested_ids = authorized_ids if farm_id is None else [farm_id]
-        if not requested_ids or not all(
-            item in authorized_ids for item in requested_ids
-        ):
-            logger.warning(
-                "mcp_farm_scope_denied user_id=%s farm_id=%s",
-                user_id,
-                farm_id,
-            )
+        if not authorized_ids:
+            logger.warning("mcp_farm_scope_denied user_id=%s", user_id)
             return {
                 "user_type": result.get("user_type"),
                 "user_id": user_id,
@@ -266,7 +248,7 @@ class MCPToolProvider:
                 data[name] = [
                     row
                     for row in rows
-                    if isinstance(row, dict) and row.get(key) in requested_ids
+                    if isinstance(row, dict) and row.get(key) in authorized_ids
                 ]
         return {
             "user_type": result.get("user_type"),
@@ -299,13 +281,3 @@ class MCPToolProvider:
     def _scope_denied(user_id: int) -> dict:
         return {"user_id": user_id, "authorized": False, "data": {}}
 
-
-_EXPLICIT_FARM_ID_PATTERN = re.compile(
-    r"\b(?:farm[_ ]?id|fazenda|granja)\s*(?:\(\s*)?(?:(?:de|com)\s+)?"
-    r"(?:id\s*)?(?:=|:)?\s*#?(\d+)\b",
-    re.IGNORECASE,
-)
-
-
-def _has_explicit_farm_id(request_text: str | None) -> bool:
-    return bool(request_text and _EXPLICIT_FARM_ID_PATTERN.search(request_text))

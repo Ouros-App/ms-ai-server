@@ -93,7 +93,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
 
         remote_context.ainvoke.assert_awaited_once_with({})
 
-    async def test_farm_data_filter_still_limits_returned_farms(self) -> None:
+    async def test_farm_data_tool_hides_internal_ids_and_filters_scope(self) -> None:
         remote_tool = SimpleNamespace(
             name="get_user_farm_data",
             description="Dados",
@@ -126,12 +126,16 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             patch("langchain_mcp_adapters.client.MultiServerMCPClient", FakeClient),
         ):
             tools = await provider.tools_for("ranking", "42")
-            authorized = await tools[0].ainvoke({"farm_id": 11})
-            denied = await tools[0].ainvoke({"farm_id": 99})
+            result = await tools[0].ainvoke({"limit": 20})
 
-        self.assertTrue(authorized["authorized"])
-        self.assertEqual(authorized["data"]["farms"], [{"id": 11}])
-        self.assertFalse(denied["authorized"])
+        self.assertNotIn("farm_id", tools[0].args_schema.model_fields)
+        self.assertTrue(result["authorized"])
+        self.assertEqual(result["data"]["farms"], [{"id": 11}])
+        self.assertEqual(
+            result["data"]["water_registries"],
+            [{"id_farm": 11, "value": 5}],
+        )
+        remote_tool.ainvoke.assert_awaited_once_with({"limit": 20})
 
     async def test_provider_exposes_no_mcp_tools_without_forwarded_user_token(self) -> None:
         provider = MCPToolProvider(url="http://mcp.test/mcp")
