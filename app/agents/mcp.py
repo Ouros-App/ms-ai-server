@@ -4,7 +4,6 @@ import logging
 import re
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from time import monotonic
 
@@ -32,25 +31,16 @@ _FORWARDED_ACCESS_TOKEN: ContextVar[str | None] = ContextVar(
     "mcp_forwarded_access_token",
     default=None,
 )
-_FORWARDED_USER_TYPE: ContextVar[str | None] = ContextVar(
-    "mcp_forwarded_user_type",
-    default=None,
-)
 
 
 @contextmanager
-def forward_mcp_access_token(
-    token: str | None,
-    user_type: str | None = None,
-):
-    """Expose validated user auth only for the current request context."""
+def forward_mcp_access_token(token: str | None):
+    """Expose one validated Keycloak token only for the current request."""
 
     token_marker = _FORWARDED_ACCESS_TOKEN.set(token)
-    type_marker = _FORWARDED_USER_TYPE.set(user_type)
     try:
         yield
     finally:
-        _FORWARDED_USER_TYPE.reset(type_marker)
         _FORWARDED_ACCESS_TOKEN.reset(token_marker)
 
 
@@ -78,21 +68,12 @@ class MCPToolProvider:
     def __init__(
         self,
         url: str | None = None,
-        access_token: str | None = None,
-        jwt_secret: str | None = None,
-        issuer_url: str | None = None,
         resource_url: str | None = None,
-        user_type: str = "farm_owner",
-        jwt_ttl_seconds: int = 300,
+        cache_ttl_seconds: int = 300,
     ) -> None:
         self.url = url
-        self.access_token = access_token
-        self.jwt_secret = jwt_secret
-        self.issuer_url = issuer_url
         self.resource_url = resource_url or url
-        self.user_type = user_type
-        self.jwt_ttl_seconds = jwt_ttl_seconds
-        self._token_cache: dict[str, tuple[str, float]] = {}
+        self.cache_ttl_seconds = cache_ttl_seconds
         self._tools_cache: dict[str, tuple[list, float]] = {}
         self._tools_cache_lock = asyncio.Lock()
 
@@ -100,57 +81,14 @@ class MCPToolProvider:
     def from_settings(cls) -> "MCPToolProvider":
         return cls(
             url=settings.mcp_url,
-            access_token=(
-                settings.mcp_access_token.get_secret_value()
-                if settings.mcp_access_token
-                else None
-            ),
-            jwt_secret=(
-                settings.mcp_jwt_secret.get_secret_value()
-                if settings.mcp_jwt_secret
-                else None
-            ),
-            issuer_url=settings.mcp_jwt_issuer_url,
             resource_url=settings.mcp_resource_url,
-            user_type=settings.mcp_user_type,
-            jwt_ttl_seconds=settings.mcp_jwt_ttl_seconds,
+            cache_ttl_seconds=settings.mcp_tools_cache_ttl_seconds,
         )
 
-    def _token_for(self, user_id: str) -> str | None:
-        forwarded = _FORWARDED_ACCESS_TOKEN.get()
-        if forwarded:
-            return forwarded
-        if self.access_token:
-            return self.access_token
-        if not self.jwt_secret:
-            return None
+    def _token_for(self, _user_id: str) -> str | None:
+        """Return only the validated Keycloak token forwarded by the API."""
 
-        now_monotonic = monotonic()
-        cached_token = self._token_cache.get(user_id)
-        if cached_token and now_monotonic - cached_token[1] < self.jwt_ttl_seconds:
-            return cached_token[0]
-        try:
-            numeric_user_id = int(user_id)
-        except (TypeError, ValueError):
-            logger.warning("mcp_tools_skipped reason=non_numeric_user_id")
-            return None
-        if numeric_user_id <= 0:
-            return None
-
-        import jwt
-
-        now = datetime.now(timezone.utc)
-        claims = {
-            "sub": str(numeric_user_id),
-            "user_type": self.user_type,
-            "iss": self.issuer_url,
-            "aud": self.resource_url,
-            "iat": now,
-            "exp": now + timedelta(seconds=self.jwt_ttl_seconds),
-        }
-        token = jwt.encode(claims, self.jwt_secret, algorithm="HS256")
-        self._token_cache[user_id] = (token, now_monotonic)
-        return token
+        return _FORWARDED_ACCESS_TOKEN.get()
 
     @staticmethod
     def _token_cache_key(token: str) -> str:
@@ -164,7 +102,7 @@ class MCPToolProvider:
         expired_keys = [
             key
             for key, (_, created_at) in self._tools_cache.items()
-            if now - created_at >= self.jwt_ttl_seconds
+            if now - created_at >= self.cache_ttl_seconds
         ]
         for key in expired_keys:
             self._tools_cache.pop(key, None)
@@ -177,13 +115,13 @@ class MCPToolProvider:
         now = monotonic()
         cache_key = self._token_cache_key(token)
         cached = self._tools_cache.get(cache_key)
-        if cached and now - cached[1] < self.jwt_ttl_seconds:
+        if cached and now - cached[1] < self.cache_ttl_seconds:
             return cached[0]
 
         async with self._tools_cache_lock:
             now = monotonic()
             cached = self._tools_cache.get(cache_key)
-            if cached and now - cached[1] < self.jwt_ttl_seconds:
+            if cached and now - cached[1] < self.cache_ttl_seconds:
                 return cached[0]
             self._prune_tools_cache(now)
 
@@ -222,7 +160,6 @@ class MCPToolProvider:
             logger.exception("mcp_tools_load_failed agent=%s", agent_name)
             return []
 
-        bound_user_type = _FORWARDED_USER_TYPE.get() or self.user_type
         selected = []
         for tool in tools:
             if tool.name not in allowed:
@@ -240,7 +177,6 @@ class MCPToolProvider:
                     tool,
                     numeric_user_id,
                     request_text=request_text,
-                    bound_user_type=bound_user_type,
                 )
             )
         logger.info("mcp_tools_loaded agent=%s count=%d", agent_name, len(selected))
@@ -251,7 +187,6 @@ class MCPToolProvider:
         tool,
         user_id: int,
         request_text: str | None = None,
-        bound_user_type: str | None = None,
     ) -> StructuredTool:
         """Bind authenticated identity without exposing identifiers to the model."""
 
@@ -259,12 +194,7 @@ class MCPToolProvider:
         if tool.name == "get_user_context":
 
             async def invoke() -> object:
-                return await tool.ainvoke(
-                    {
-                        "user_type": bound_user_type or self.user_type,
-                        "user_id": user_id,
-                    }
-                )
+                return await tool.ainvoke({})
 
             args_schema = _NoArguments
         else:
@@ -275,13 +205,7 @@ class MCPToolProvider:
             ) -> object:
                 if farm_id is None and _has_explicit_farm_id(request_text):
                     return self._scope_denied(user_id)
-                result = await tool.ainvoke(
-                    {
-                        "user_type": bound_user_type or self.user_type,
-                        "user_id": user_id,
-                        "limit": limit,
-                    }
-                )
+                result = await tool.ainvoke({"limit": limit})
                 return self._filter_farm_data(result, user_id, farm_id)
 
             args_schema = _FarmDataArguments

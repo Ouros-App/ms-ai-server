@@ -1,13 +1,12 @@
 import asyncio
 from dataclasses import dataclass, field
 from functools import lru_cache
-from secrets import compare_digest
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import InvalidTokenError, PyJWKClient, decode
-from jwt.exceptions import PyJWKClientConnectionError, PyJWKClientError
+from jwt.exceptions import PyJWKClientConnectionError, PyJWKClientError, PyJWKSetError
 
 from app.core.config import settings
 
@@ -17,13 +16,16 @@ VALID_ACCOUNT_TYPES = {"farm_owner", "company_employee", "admin"}
 @dataclass(frozen=True)
 class Principal:
     subject: str
-    user_id: str | None = None
-    user_type: str | None = None
+    user_id: str
+    user_type: str
     access_token: str = field(default="", repr=False, compare=False)
-    forward_to_mcp: bool = False
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+
+class AuthenticationKeyServiceError(RuntimeError):
+    """Raised when Keycloak JWKS cannot provide a usable key set."""
 
 
 def _unauthorized() -> HTTPException:
@@ -36,62 +38,56 @@ def _unauthorized() -> HTTPException:
 
 @lru_cache(maxsize=8)
 def _get_jwks_client(jwks_url: str) -> PyJWKClient:
-    """Reuse the JWKS client so signing keys remain cached between requests."""
-
     return PyJWKClient(jwks_url, cache_keys=True, lifespan=300)
 
 
-def _jwks_url() -> str | None:
-    """Resolve the explicit JWKS URL or derive it from the configured issuer."""
-
-    if settings.auth_jwks_url:
-        return settings.auth_jwks_url
-    if not settings.auth_jwt_issuer:
-        return None
+def _jwks_url() -> str:
     return (
-        settings.auth_jwt_issuer.rstrip("/")
+        settings.auth_jwks_url
+        or settings.auth_jwt_issuer.rstrip("/")
         + "/protocol/openid-connect/certs"
     )
 
 
-def _decode_keycloak_token(token: str) -> dict | None:
-    """Validate a Keycloak access token using JWKS, issuer and audience."""
-
-    issuer = settings.auth_jwt_issuer
-    audience = settings.auth_jwt_audience
-    jwks_url = _jwks_url()
-    if not issuer or not audience or not jwks_url:
+def _get_signing_key(token: str):
+    client = _get_jwks_client(_jwks_url())
+    try:
+        client.get_jwk_set()
+        return client.get_signing_key_from_jwt(token)
+    except PyJWKClientConnectionError:
+        raise
+    except PyJWKSetError as exc:
+        raise AuthenticationKeyServiceError("invalid JWKS key set") from exc
+    except (InvalidTokenError, PyJWKClientError, ValueError, TypeError):
         return None
 
+
+def _decode_keycloak_token(token: str) -> dict | None:
+    signing_key = _get_signing_key(token)
+    if signing_key is None:
+        return None
     try:
-        signing_key = _get_jwks_client(jwks_url).get_signing_key_from_jwt(token)
         claims = decode(
             token,
             signing_key.key,
             algorithms=["RS256"],
-            issuer=issuer,
-            audience=audience,
-            options={
-                "require": ["exp", "iat", "iss", "aud", "sub"],
-            },
+            issuer=settings.auth_jwt_issuer,
+            audience=settings.auth_jwt_audience,
+            options={"require": ["exp", "iat", "iss", "aud", "sub"]},
         )
-    except PyJWKClientConnectionError:
-        raise
-    except (InvalidTokenError, PyJWKClientError, ValueError):
+    except InvalidTokenError:
         return None
     return claims if isinstance(claims, dict) else None
 
 
 def _keycloak_principal(claims: dict, token: str) -> Principal | None:
-    """Map signed Ouros identity claims to the API principal."""
-
     subject = claims.get("sub")
     database_id = claims.get("database_id")
     account_type = claims.get("account_type")
     realm_access = claims.get("realm_access")
     roles = realm_access.get("roles") if isinstance(realm_access, dict) else None
 
-    if not isinstance(subject, (str, int)) or not str(subject).strip():
+    if not isinstance(subject, str) or not subject.strip():
         return None
     if (
         not isinstance(account_type, str)
@@ -118,73 +114,11 @@ def _keycloak_principal(claims: dict, token: str) -> Principal | None:
         return None
 
     return Principal(
-        subject=str(subject),
+        subject=subject,
         user_id=str(numeric_database_id),
         user_type=account_type,
         access_token=token,
-        forward_to_mcp=True,
     )
-
-
-def _legacy_hs256_principal(token: str) -> Principal | None:
-    """Keep the previous HS256 flow available during the migration window."""
-
-    jwt_secret = (
-        settings.auth_jwt_secret.get_secret_value()
-        if settings.auth_jwt_secret
-        else ""
-    )
-    if not jwt_secret:
-        return None
-
-    options = {
-        "verify_iss": False,
-        "verify_aud": False,
-        "require": ["exp"],
-    }
-    try:
-        claims = decode(
-            token,
-            jwt_secret,
-            algorithms=["HS256"],
-            options=options,
-        )
-    except InvalidTokenError:
-        return None
-    if not isinstance(claims, dict):
-        return None
-
-    subject = claims.get("sub") or claims.get("user_id")
-    user_id = claims.get("user_id") or subject
-    if (
-        not isinstance(subject, (str, int))
-        or not str(subject).strip()
-        or not isinstance(user_id, (str, int))
-        or not str(user_id).strip()
-    ):
-        return None
-    user_type = claims.get("user_type")
-    return Principal(
-        subject=str(subject),
-        user_id=str(user_id),
-        user_type=user_type if isinstance(user_type, str) else None,
-        access_token=token,
-    )
-
-
-async def _keycloak_principal_for_token(token: str) -> Principal | None:
-    """Validate one Keycloak token and map it to a principal."""
-
-    try:
-        claims = await asyncio.to_thread(_decode_keycloak_token, token)
-    except PyJWKClientConnectionError as error:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Servico de chaves de autenticacao indisponivel.",
-        ) from error
-    if claims is None:
-        return None
-    return _keycloak_principal(claims, token)
 
 
 async def get_current_principal(
@@ -193,53 +127,38 @@ async def get_current_principal(
         Depends(bearer_scheme),
     ],
 ) -> Principal:
-    """Validate Keycloak JWTs first, with legacy Bearer fallback for rollout."""
+    """Validate the only supported user credential: a Keycloak access token."""
 
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise _unauthorized()
 
-    bearer_token = credentials.credentials
-    expected_token = (
-        settings.auth_bearer_token.get_secret_value()
-        if settings.auth_bearer_token
-        else ""
-    )
-    keycloak_configured = bool(
-        settings.auth_jwt_issuer and settings.auth_jwt_audience
-    )
-
-    if not expected_token and not settings.auth_jwt_secret and not keycloak_configured:
+    try:
+        claims = await asyncio.to_thread(
+            _decode_keycloak_token,
+            credentials.credentials,
+        )
+    except (PyJWKClientConnectionError, AuthenticationKeyServiceError) as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Autenticacao nao configurada.",
-        )
+            detail="Servico de chaves de autenticacao indisponivel.",
+        ) from error
 
-    if keycloak_configured:
-        keycloak_principal = await _keycloak_principal_for_token(bearer_token)
-        if keycloak_principal is not None:
-            return keycloak_principal
-
-    legacy_principal = _legacy_hs256_principal(bearer_token)
-    if legacy_principal is not None:
-        return legacy_principal
-
-    if not expected_token or not compare_digest(bearer_token, expected_token):
+    if claims is None:
         raise _unauthorized()
 
-    return Principal(subject="shared-client", access_token=bearer_token)
+    principal = _keycloak_principal(claims, credentials.credentials)
+    if principal is None:
+        raise _unauthorized()
+    return principal
 
 
-def user_id_for_request(requested_user_id: str, principal: Principal) -> str:
-    """Return only the identity authorized for personalized data."""
+def user_id_for_request(
+    requested_user_id: str | None,
+    principal: Principal,
+) -> str:
+    """Use the signed database_id; a supplied compatibility ID may only match."""
 
-    if principal.user_id is None:
-        if settings.auth_require_user_jwt:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Use um token de usuario para acessar dados personalizados.",
-            )
-        return requested_user_id
-    if requested_user_id != principal.user_id:
+    if requested_user_id is not None and requested_user_id != principal.user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="O user_id nao corresponde ao usuario autenticado.",

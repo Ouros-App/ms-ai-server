@@ -78,7 +78,7 @@ class InfisicalTest(unittest.TestCase):
         response = SimpleNamespace(
             secrets=[
                 SimpleNamespace(
-                    secretKey="AUTH_BEARER_TOKEN",
+                    secretKey="NVIDIA_API_KEY",
                     secretValue="from-infisical",
                 )
             ]
@@ -94,7 +94,7 @@ class InfisicalTest(unittest.TestCase):
 
             importlib.reload(config)
             self.assertEqual(
-                config.settings.auth_bearer_token.get_secret_value(),
+                config.settings.nvidia_api_key.get_secret_value(),
                 "from-infisical",
             )
 

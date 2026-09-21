@@ -28,41 +28,24 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.2
     llm_timeout_seconds: float = 30
     llm_total_timeout_seconds: float = 60
-    auth_bearer_token: SecretStr | None = None
-    auth_jwt_secret: SecretStr | None = None
-    auth_jwt_issuer: str | None = None
-    auth_jwt_audience: str | None = None
+    auth_jwt_issuer: str = "https://ouros-keycloak.discloud.app/realms/ouros"
+    auth_jwt_audience: str = "ms-ai-server"
     auth_jwks_url: str | None = None
-    auth_require_user_jwt: bool = False
     mcp_url: str | None = None
-    mcp_access_token: SecretStr | None = None
-    mcp_jwt_secret: SecretStr | None = None
-    mcp_jwt_issuer_url: str = "https://auth.ouros.local"
     mcp_resource_url: str | None = None
-    mcp_user_type: str = "farm_owner"
-    mcp_jwt_ttl_seconds: int = 300
+    mcp_tools_cache_ttl_seconds: int = 300
 
     @model_validator(mode="after")
     def validate_keycloak_jwt_config(self) -> "Settings":
-        issuer = bool(self.auth_jwt_issuer)
-        audience = bool(self.auth_jwt_audience)
-        if issuer != audience:
+        if not self.auth_jwt_issuer.strip() or not self.auth_jwt_audience.strip():
             raise ValueError(
-                "AUTH_JWT_ISSUER e AUTH_JWT_AUDIENCE devem ser configurados juntos"
-            )
-        if self.auth_jwks_url and not (issuer and audience):
-            raise ValueError(
-                "AUTH_JWKS_URL exige AUTH_JWT_ISSUER e AUTH_JWT_AUDIENCE"
+                "AUTH_JWT_ISSUER e AUTH_JWT_AUDIENCE são obrigatórios"
             )
         return self
 
     @field_validator(
         "groq_api_key",
         "nvidia_api_key",
-        "auth_bearer_token",
-        "auth_jwt_secret",
-        "mcp_access_token",
-        "mcp_jwt_secret",
         mode="before",
     )
     @classmethod

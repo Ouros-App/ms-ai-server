@@ -21,7 +21,6 @@ from app.agents.prompts import (
     SYSTEM_PROMPT,
 )
 from app.agents.tools import build_memory_tools
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 ROUTES = frozenset(AGENT_PROMPTS)
@@ -225,13 +224,10 @@ async def default_agent(state: AgentState) -> dict:
             )
             content = _response_content(response)
 
-    sensitive_token = (
-        settings.auth_bearer_token.get_secret_value() if settings.auth_bearer_token else ""
-    )
     return {
         "agents": [*state["agents"], "default"],
         "tools": state.get("tools", []),
-        "messages": [AIMessage(content=guard_output(content, sensitive_token))],
+        "messages": [AIMessage(content=guard_output(content))],
     }
 
 
