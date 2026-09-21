@@ -35,7 +35,11 @@ class Settings(BaseSettings):
     mcp_resource_url: str | None = "https://ms-midas-mcp.discloud.app/mcp/"
     mcp_tools_cache_ttl_seconds: int = 300
     debug_ui_enabled: bool = False
-    debug_ui_auth_service_url: str = "https://ms-auth-service.discloud.app"
+    debug_ui_keycloak_token_url: str = (
+        "https://ouros-keycloak.discloud.app/realms/ouros/protocol/openid-connect/token"
+    )
+    debug_ui_keycloak_client_id: str = "ms-ai-server-debug"
+    debug_ui_keycloak_client_secret: SecretStr | None = None
     debug_ui_cookie_secure: bool = True
     debug_ui_request_timeout_seconds: float = 8.0
 
@@ -45,11 +49,25 @@ class Settings(BaseSettings):
             raise ValueError(
                 "AUTH_JWT_ISSUER e AUTH_JWT_AUDIENCE são obrigatórios"
             )
+        if self.debug_ui_enabled:
+            if not self.debug_ui_keycloak_token_url.strip():
+                raise ValueError(
+                    "DEBUG_UI_KEYCLOAK_TOKEN_URL é obrigatório quando DEBUG_UI_ENABLED=true"
+                )
+            if not self.debug_ui_keycloak_client_id.strip():
+                raise ValueError(
+                    "DEBUG_UI_KEYCLOAK_CLIENT_ID é obrigatório quando DEBUG_UI_ENABLED=true"
+                )
+            if self.debug_ui_keycloak_client_secret is None:
+                raise ValueError(
+                    "DEBUG_UI_KEYCLOAK_CLIENT_SECRET é obrigatório quando DEBUG_UI_ENABLED=true"
+                )
         return self
 
     @field_validator(
         "groq_api_key",
         "nvidia_api_key",
+        "debug_ui_keycloak_client_secret",
         mode="before",
     )
     @classmethod
