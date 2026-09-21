@@ -193,7 +193,9 @@ Ative explicitamente no ambiente de debug:
 
 ```dotenv
 DEBUG_UI_ENABLED=true
-DEBUG_UI_AUTH_SERVICE_URL=https://ms-auth-service.discloud.app
+DEBUG_UI_KEYCLOAK_TOKEN_URL=https://ouros-keycloak.discloud.app/realms/ouros/protocol/openid-connect/token
+DEBUG_UI_KEYCLOAK_CLIENT_ID=ms-ai-server-debug
+DEBUG_UI_KEYCLOAK_CLIENT_SECRET=<secret-gerado-pelo-keycloak>
 DEBUG_UI_COOKIE_SECURE=true
 DEBUG_UI_REQUEST_TIMEOUT_SECONDS=8
 ```
@@ -201,10 +203,16 @@ DEBUG_UI_REQUEST_TIMEOUT_SECONDS=8
 Em desenvolvimento local via HTTP, use `DEBUG_UI_COOKIE_SECURE=false`.
 
 O login usa uma conta real já existente no Ouros (`farm_owner`,
-`company_employee` ou `admin`). A senha é enviada somente do backend do AI
-Server para `ms-auth-service /v1/auth/token`. O browser não recebe client
-secrets nem refresh tokens. O access token validado fica em cookie `HttpOnly`,
-`SameSite=Strict`, restrito ao caminho `/debug`.
+`company_employee` ou `admin`). O backend do AI Server troca as credenciais
+diretamente no token endpoint do Keycloak usando o client confidencial e isolado
+`ms-ai-server-debug`. Esse client é a única exceção de Direct Access Grant para
+o painel de desenvolvimento; mobile e web continuam obrigados ao Browser Flow
+com Authorization Code + PKCE e, quando habilitado, OTP por e-mail.
+
+O browser nunca recebe o client secret nem refresh tokens. Access e refresh token
+ficam somente em cookies `HttpOnly`, `SameSite=Strict`, restritos a `/debug`.
+Com isso o Debug Console deixa de depender do broker legado do `ms-auth-service`,
+permitindo desativar `KEYCLOAK_PASSWORD_BROKER_ENABLED` sem quebrar o painel.
 
 A interface usa a mesma pipeline de chat do endpoint normal. Para cada resposta
 ela mostra:
