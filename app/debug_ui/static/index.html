@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ouros AI Debug</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/styles/github-dark.min.css"
+        integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
+        crossorigin="anonymous" referrerpolicy="no-referrer">
+  <link rel="stylesheet" href="/debug/assets/style.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js"
+          integrity="sha384-H+hy9ULve6xfxRkWIh/YOtvDdpXgV2fmAGQkIDTxIgZwNoaoBal14Di2YTMR6MzR"
+          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"
+          integrity="sha384-JEyTNhjM6R1ElGoJns4U2Ln4ofPcqzSsynQkmEc/KGy6336qAZl70tDLufbkla+3"
+          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/lib/common.min.js"
+          integrity="sha384-G1iI5trr0DuWJ4NYPelg1hUJ294nf3Zswb/slEY9TdRDWg+AAog8pt8symR7wDpZ"
+          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script defer src="/debug/assets/app.js"></script>
+</head>
+<body>
+  <section id="login-screen" class="login-screen">
+    <form id="login-form" class="login-card">
+      <div class="brand-mark">◒</div>
+      <div>
+        <p class="eyebrow">OUROS AI</p>
+        <h1>Debug Console</h1>
+        <p class="muted">Entre com qualquer usuário válido do Ouros.</p>
+      </div>
+      <label>
+        <span>E-mail</span>
+        <input id="email" name="email" type="email" autocomplete="username" required>
+      </label>
+      <label>
+        <span>Senha</span>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </label>
+      <p id="login-error" class="error" hidden></p>
+      <button id="login-button" class="primary" type="submit">Entrar</button>
+    </form>
+  </section>
+
+  <main id="app-shell" class="app-shell" hidden>
+    <aside class="sidebar" aria-label="Conversas de debug">
+      <div class="sidebar-brand">
+        <span class="brand-mark small">◒</span>
+        <div><strong>Ouros AI</strong><small>DEBUG</small></div>
+      </div>
+      <button id="new-chat" class="new-chat" type="button">+ Nova conversa</button>
+      <div id="conversation-list" class="conversation-list"></div>
+      <div class="sidebar-footer">
+        <div id="session-label" class="session-label"></div>
+        <button id="logout" class="ghost" type="button">Sair</button>
+      </div>
+    </aside>
+
+    <section class="chat-column">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">CHAT</p>
+          <h2 id="conversation-title">Nova conversa</h2>
+        </div>
+        <button id="toggle-debug" class="ghost mobile-debug" type="button">Debug</button>
+      </header>
+
+      <div id="messages" class="messages">
+        <div class="empty-state">
+          <span class="brand-mark">◒</span>
+          <h3>Console de conversa</h3>
+          <p>Mesma pipeline do produto, com o capô aberto.</p>
+        </div>
+      </div>
+
+      <form id="composer" class="composer">
+        <label class="sr-only" for="message-input">Mensagem</label>
+        <textarea id="message-input" rows="1" maxlength="8000" placeholder="Mensagem para o AI Server..." required></textarea>
+        <button id="send-button" class="send-button" type="submit" aria-label="Enviar">↑</button>
+      </form>
+      <p class="composer-hint">Enter envia · Shift+Enter quebra linha</p>
+    </section>
+
+    <aside id="debug-panel" class="debug-panel" aria-label="Painel de diagnóstico">
+      <header class="debug-header">
+        <div>
+          <p class="eyebrow">REQUEST TRACE</p>
+          <h2>Debug</h2>
+        </div>
+        <button id="close-debug" class="ghost mobile-debug" type="button">×</button>
+      </header>
+      <div id="debug-content" class="debug-content">
+        <div class="debug-empty">
+          Envie uma mensagem para inspecionar rota, agentes, tools e respostas internas.
+        </div>
+      </div>
+    </aside>
+  </main>
+</body>
+</html>

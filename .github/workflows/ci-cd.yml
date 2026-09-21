@@ -165,6 +165,7 @@ jobs:
             echo "sonar.sources=app"
             echo "sonar.tests=tests"
             echo "sonar.python.coverage.reportPaths=coverage.xml"
+            echo "sonar.coverage.exclusions=app/debug_ui/static/**"
             if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
               echo "sonar.branch.name=main"
             fi
@@ -184,6 +185,15 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
+
+      - name: Report SonarCloud PR issues
+        if: github.event_name == 'pull_request'
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          project_key="$(grep '^sonar.projectKey=' sonar-project.properties | cut -d= -f2-)"
+          curl -sS -u "${SONAR_TOKEN}:"             "https://sonarcloud.io/api/issues/search?componentKeys=${project_key}&pullRequest=${PR_NUMBER}&issueStatuses=OPEN,CONFIRMED&ps=100"             | python -c 'import json,sys; data=json.load(sys.stdin); [print(f"{i.get("rule")} | {i.get("component")}:{i.get("line")} | {i.get("message")} | {i.get("severity")}") for i in data.get("issues", [])]'
 
       - name: Publish SonarCloud project
         env:

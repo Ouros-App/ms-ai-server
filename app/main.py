@@ -11,6 +11,7 @@ from app.api.routes import router
 from app.core.config import settings
 from app.core.logging_config import configure_logging
 from app.core.metrics import observe_http_request
+from app.debug_ui.router import install_debug_ui
 from app.repositories.checkpointer import get_checkpointer
 from app.repositories.memory import UserMemoryStore
 from app.repositories.thread_ownership import ThreadOwnershipStore
@@ -54,6 +55,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(router)
+install_debug_ui(app)
 
 
 @app.middleware("http")

@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     mcp_url: str | None = None
     mcp_resource_url: str | None = None
     mcp_tools_cache_ttl_seconds: int = 300
+    debug_ui_enabled: bool = False
+    debug_ui_auth_service_url: str = "https://ms-auth-service.discloud.app"
+    debug_ui_cookie_secure: bool = True
+    debug_ui_request_timeout_seconds: float = 8.0
 
     @model_validator(mode="after")
     def validate_keycloak_jwt_config(self) -> "Settings":

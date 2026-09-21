@@ -23,6 +23,10 @@ services:
       MCP_URL: ${MCP_URL:-https://ms-midas-mcp.discloud.app/mcp/}
       MCP_RESOURCE_URL: ${MCP_RESOURCE_URL:-}
       MCP_TOOLS_CACHE_TTL_SECONDS: ${MCP_TOOLS_CACHE_TTL_SECONDS:-300}
+      DEBUG_UI_ENABLED: ${DEBUG_UI_ENABLED:-false}
+      DEBUG_UI_AUTH_SERVICE_URL: ${DEBUG_UI_AUTH_SERVICE_URL:-https://ms-auth-service.discloud.app}
+      DEBUG_UI_COOKIE_SECURE: ${DEBUG_UI_COOKIE_SECURE:-true}
+      DEBUG_UI_REQUEST_TIMEOUT_SECONDS: ${DEBUG_UI_REQUEST_TIMEOUT_SECONDS:-8}
     ports:
       - "${APP_PORT:-8000}:8000"
     depends_on:

@@ -21,6 +21,7 @@ from app.agents.prompts import (
     SYSTEM_PROMPT,
 )
 from app.agents.tools import build_memory_tools
+from app.debug_ui.trace import trace_event
 
 logger = logging.getLogger(__name__)
 ROUTES = frozenset(AGENT_PROMPTS)
@@ -179,6 +180,7 @@ async def route_request(state: AgentState) -> dict:
                 logger.info("agent_routes_selected source=deterministic routes=%s", routes)
             logger.info("agent_routes_selected routes=%s", routes)
 
+    trace_event("router.selected", routes=routes)
     return {
         "route": routes[0],
         "routes": routes,
@@ -224,6 +226,7 @@ async def default_agent(state: AgentState) -> dict:
             )
             content = _response_content(response)
 
+    trace_event("synthesis.response", response=content)
     return {
         "agents": [*state["agents"], "default"],
         "tools": state.get("tools", []),
@@ -239,6 +242,7 @@ async def _run_agent(
     mcp_provider: MCPToolProvider | None = None,
 ) -> dict:
     """Executa um especialista e armazena apenas o contrato JSON no estado."""
+    trace_event("agent.started", agent=agent_name)
     latest_message = state["messages"][-1] if state["messages"] else None
     user_text = getattr(latest_message, "content", "")
     used_tools: list[str] = []
@@ -291,12 +295,23 @@ async def _run_agent(
                 state["user_id"],
                 [*(specialist_tools or []), *mcp_tools],
             )
+            trace_event(
+                "agent.response",
+                agent=agent_name,
+                response=_response_content(response),
+            )
             result = _normalize_specialist_result(response)
         else:
             result = _empty_specialist_result("error")
 
     if used_tools:
         logger.info("agent_tools_used agent=%s tools=%s", agent_name, used_tools)
+    trace_event(
+        "agent.result",
+        agent=agent_name,
+        tools=used_tools,
+        result=result,
+    )
 
     return {
         "agents": [*state["agents"], agent_name],
@@ -372,7 +387,18 @@ async def _invoke_model(
                 continue
             if selected_tool.name not in used_tools:
                 used_tools.append(selected_tool.name)
-            result = await selected_tool.ainvoke(call.get("args", {}))
+            tool_args = call.get("args", {})
+            trace_event(
+                "tool.call",
+                tool=selected_tool.name,
+                args=tool_args,
+            )
+            result = await selected_tool.ainvoke(tool_args)
+            trace_event(
+                "tool.result",
+                tool=selected_tool.name,
+                result=result,
+            )
             conversation.append(
                 ToolMessage(
                     content=str(result),

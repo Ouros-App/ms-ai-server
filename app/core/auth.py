@@ -121,6 +121,26 @@ def _keycloak_principal(claims: dict, token: str) -> Principal | None:
     )
 
 
+async def principal_from_token(token: str) -> Principal:
+    """Validate one Keycloak access token and return its signed identity."""
+
+    try:
+        claims = await asyncio.to_thread(_decode_keycloak_token, token)
+    except (PyJWKClientConnectionError, AuthenticationKeyServiceError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Servico de chaves de autenticacao indisponivel.",
+        ) from error
+
+    if claims is None:
+        raise _unauthorized()
+
+    principal = _keycloak_principal(claims, token)
+    if principal is None:
+        raise _unauthorized()
+    return principal
+
+
 async def get_current_principal(
     credentials: Annotated[
         HTTPAuthorizationCredentials | None,
@@ -131,25 +151,7 @@ async def get_current_principal(
 
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise _unauthorized()
-
-    try:
-        claims = await asyncio.to_thread(
-            _decode_keycloak_token,
-            credentials.credentials,
-        )
-    except (PyJWKClientConnectionError, AuthenticationKeyServiceError) as error:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Servico de chaves de autenticacao indisponivel.",
-        ) from error
-
-    if claims is None:
-        raise _unauthorized()
-
-    principal = _keycloak_principal(claims, credentials.credentials)
-    if principal is None:
-        raise _unauthorized()
-    return principal
+    return await principal_from_token(credentials.credentials)
 
 
 def user_id_for_request(

@@ -182,3 +182,46 @@ Este projeto está sob a licença MIT, conforme o arquivo [LICENSE](LICENSE).
 <!-- CONTRIBUTORS:END -->
 
 > Atualizado automaticamente semanalmente pelo workflow de metadados do README.
+
+
+## Debug Console
+
+O AI Server inclui uma UI de diagnóstico opcional em `/debug`. Ela não faz parte
+do produto final e fica desligada por padrão.
+
+Ative explicitamente no ambiente de debug:
+
+```dotenv
+DEBUG_UI_ENABLED=true
+DEBUG_UI_AUTH_SERVICE_URL=https://ms-auth-service.discloud.app
+DEBUG_UI_COOKIE_SECURE=true
+DEBUG_UI_REQUEST_TIMEOUT_SECONDS=8
+```
+
+Em desenvolvimento local via HTTP, use `DEBUG_UI_COOKIE_SECURE=false`.
+
+O login usa uma conta real já existente no Ouros (`farm_owner`,
+`company_employee` ou `admin`). A senha é enviada somente do backend do AI
+Server para `ms-auth-service /v1/auth/token`. O browser não recebe client
+secrets nem refresh tokens. O access token validado fica em cookie `HttpOnly`,
+`SameSite=Strict`, restrito ao caminho `/debug`.
+
+A interface usa a mesma pipeline de chat do endpoint normal. Para cada resposta
+ela mostra:
+
+- Markdown GFM renderizado e sanitizado;
+- loading enquanto o grafo está executando;
+- rota escolhida pelo router;
+- agentes executados;
+- tools chamadas;
+- resultados estruturados dos especialistas;
+- respostas internas dos agentes capturadas durante aquela requisição;
+- trace cronológico com guardrail, router, agentes, tools e duração.
+
+O coletor de trace é request-local e vira no-op fora das requisições do painel.
+Conversas e títulos da sidebar ficam somente no `localStorage` do navegador; o
+token de autenticação não é armazenado em JavaScript.
+
+O frontend é HTML/CSS/JavaScript vanilla em `app/debug_ui/static` e o backend
+específico da UI fica em `app/debug_ui`, mantendo o painel desacoplado das
+rotas públicas do produto.
