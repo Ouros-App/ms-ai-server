@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 from fastapi import FastAPI, HTTPException, status
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from app.core.auth import Principal
 from app.core.config import settings
