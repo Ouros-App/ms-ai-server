@@ -79,6 +79,7 @@ def test_login_proxies_credentials_and_sets_http_only_cookie() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         captured["path"] = request.url.path
         captured["body"] = request.content.decode()
+        captured["authorization"] = request.headers.get("authorization", "")
         return httpx.Response(
             200,
             json={
