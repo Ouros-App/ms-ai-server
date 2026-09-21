@@ -163,9 +163,23 @@ def test_debug_chat_uses_authenticated_identity_and_returns_trace() -> None:
 def test_trace_capture_is_request_local_and_sanitized() -> None:
     trace_event("ignored", token="secret")
     with capture_debug_trace() as events:
-        trace_event("agent.response", response="ok", values=[1, 2, 3])
+        trace_event(
+            "agent.response",
+            response="ok",
+            values=[1, 2, 3],
+            authorization="Bearer very-secret",
+            result={
+                "safe": "visible",
+                "access_token": "hidden",
+                "nested": {"password": "hidden-too"},
+            },
+        )
 
     assert len(events) == 1
     assert events[0]["event"] == "agent.response"
     assert events[0]["response"] == "ok"
     assert events[0]["values"] == [1, 2, 3]
+    assert events[0]["authorization"] == "[REDACTED]"
+    assert events[0]["result"]["safe"] == "visible"
+    assert events[0]["result"]["access_token"] == "[REDACTED]"
+    assert events[0]["result"]["nested"]["password"] == "[REDACTED]"
