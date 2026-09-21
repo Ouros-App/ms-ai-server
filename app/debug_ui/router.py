@@ -15,7 +15,7 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from jwt import decode as decode_jwt
+from jwt import InvalidTokenError, decode as decode_jwt
 
 from app.core.auth import Principal, principal_from_token
 from app.core.config import settings
@@ -92,7 +92,7 @@ def _token_needs_refresh(token: str) -> bool:
                 "verify_aud": False,
             },
         )
-    except Exception:
+    except (InvalidTokenError, TypeError, ValueError):
         return False
     expires_at = claims.get("exp")
     return (
