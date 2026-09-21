@@ -225,10 +225,10 @@ async def _prefetch_personal_farm_data(
     agent_name: str,
     user_text: str,
     mcp_tools: list,
-) -> tuple[dict | None, list[str]]:
+) -> tuple[dict | None, list[str], dict[str, object] | None]:
     """Run get_user_farm_data deterministically when the request is personal."""
     if not _requires_personal_farm_data(agent_name, user_text):
-        return None, []
+        return None, [], None
 
     farm_tool = next(
         (
@@ -244,7 +244,7 @@ async def _prefetch_personal_farm_data(
             agent=agent_name,
             reason="tool_not_available",
         )
-        return _personal_data_system_message(None, unavailable=True), []
+        return _personal_data_system_message(None, unavailable=True), [], None
 
     args = {"limit": 20}
     trace_event(
@@ -263,7 +263,7 @@ async def _prefetch_personal_farm_data(
             source="required_prefetch",
             error=type(error).__name__,
         )
-        return _personal_data_system_message(None, unavailable=True), []
+        return _personal_data_system_message(None, unavailable=True), [], None
 
     trace_event(
         "tool.result",
@@ -271,7 +271,23 @@ async def _prefetch_personal_farm_data(
         result=result,
         source="required_prefetch",
     )
-    return _personal_data_system_message(result), ["get_user_farm_data"]
+    if isinstance(result, dict) and result.get("authorized") is False:
+        trace_event(
+            "mcp.personal_data_unavailable",
+            agent=agent_name,
+            reason=str(result.get("reason") or "no_farm_scope"),
+        )
+        return (
+            _personal_data_system_message(None, unavailable=True),
+            ["get_user_farm_data"],
+            result,
+        )
+
+    return (
+        _personal_data_system_message(result),
+        ["get_user_farm_data"],
+        result if isinstance(result, dict) else None,
+    )
 
 
 async def route_request(state: AgentState) -> dict:
@@ -417,7 +433,11 @@ async def _run_agent(
                 agent_name,
                 user_text,
             )
-            prefetch_message, prefetched_tools = await _prefetch_personal_farm_data(
+            (
+                prefetch_message,
+                prefetched_tools,
+                prefetched_personal_data,
+            ) = await _prefetch_personal_farm_data(
                 agent_name,
                 user_text,
                 mcp_tools,
@@ -463,6 +483,18 @@ async def _run_agent(
                 response=_response_content(response),
             )
             result = _normalize_specialist_result(response)
+            if (
+                personal_data_required
+                and (
+                    prefetched_personal_data is None
+                    or prefetched_personal_data.get("authorized") is False
+                )
+            ):
+                result = _empty_specialist_result("error")
+                result["facts"] = [
+                    "Os dados autenticados da fazenda estao indisponiveis para esta conta."
+                ]
+                result["sources"] = ["dados autenticados da conta"]
         else:
             result = _empty_specialist_result("error")
 
