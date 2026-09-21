@@ -7,6 +7,26 @@ from typing import Any
 _TRACE: ContextVar[dict[str, Any] | None] = ContextVar("debug_trace", default=None)
 _MAX_STRING = 20_000
 _MAX_DEPTH = 5
+_SENSITIVE_KEY_PARTS = (
+    "password",
+    "secret",
+    "token",
+    "authorization",
+    "cookie",
+    "api_key",
+    "apikey",
+)
+
+
+def _is_sensitive_key(key: object) -> bool:
+    normalized = str(key).strip().lower().replace("-", "_")
+    return any(part in normalized for part in _SENSITIVE_KEY_PARTS)
+
+
+def _safe_keyed(key: object, value: Any, depth: int) -> Any:
+    if _is_sensitive_key(key):
+        return "[REDACTED]"
+    return _safe(value, depth)
 
 
 def _safe(value: Any, depth: int = 0) -> Any:
@@ -18,7 +38,7 @@ def _safe(value: Any, depth: int = 0) -> Any:
         return value if len(value) <= _MAX_STRING else value[:_MAX_STRING] + "…"
     if isinstance(value, dict):
         return {
-            str(key): _safe(item, depth + 1)
+            str(key): _safe_keyed(key, item, depth + 1)
             for key, item in list(value.items())[:100]
         }
     if isinstance(value, (list, tuple, set, frozenset)):
@@ -49,6 +69,9 @@ def trace_event(event: str, **payload: Any) -> None:
         {
             "t_ms": round(elapsed_ms, 1),
             "event": event,
-            **{key: _safe(value) for key, value in payload.items()},
+            **{
+                key: _safe_keyed(key, value, 0)
+                for key, value in payload.items()
+            },
         }
     )
