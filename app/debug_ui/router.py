@@ -15,6 +15,7 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+
 from app.core.auth import Principal, principal_from_token
 from app.core.config import settings
 from app.debug_ui.schemas import (
@@ -143,6 +144,8 @@ async def _refresh_debug_session(
     try:
         principal = await principal_from_token(access_token)
     except HTTPException as exc:
+        if exc.status_code != status.HTTP_401_UNAUTHORIZED:
+            raise
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Auth service devolveu um token renovado incompatível.",
@@ -272,6 +275,8 @@ async def debug_login(
     try:
         principal = await principal_from_token(access_token)
     except HTTPException as exc:
+        if exc.status_code != status.HTTP_401_UNAUTHORIZED:
+            raise
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Auth service devolveu um token incompatível com o AI Server.",
