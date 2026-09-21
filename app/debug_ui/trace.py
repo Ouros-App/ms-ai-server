@@ -1,7 +1,8 @@
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from time import perf_counter
-from typing import Any, Iterator
+from typing import Any
 
 _TRACE: ContextVar[dict[str, Any] | None] = ContextVar("debug_trace", default=None)
 _MAX_STRING = 20_000
