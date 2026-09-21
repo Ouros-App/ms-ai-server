@@ -130,9 +130,13 @@ def test_login_proxies_credentials_and_sets_http_only_cookie() -> None:
         for value in set_cookies
     )
     assert all("samesite=strict" in value.lower() for value in set_cookies)
-    assert captured["path"].endswith("/v1/auth/token")
-    assert "user%40example.com" not in captured["body"]
-    assert '"email":"user@example.com"' in captured["body"]
+    assert captured["path"].endswith("/realms/ouros/protocol/openid-connect/token")
+    assert "grant_type=password" in captured["body"]
+    assert "username=user%40example.com" in captured["body"]
+    assert "password=Senha123%21" in captured["body"]
+    assert "scope=openid+ouros-identity" in captured["body"]
+    assert "test-client-value" not in captured["body"]
+    assert captured["authorization"].startswith("Basic ")
     assert session.status_code == 200
 
 
@@ -286,8 +290,10 @@ def test_debug_session_refreshes_expired_access_token_silently() -> None:
 
     assert response.status_code == 200
     assert response.json()["user_id"] == "42"
-    assert captured["path"].endswith("/v1/auth/token/refresh")
-    assert '"refresh_token":"valid-refresh-token"' in captured["body"]
+    assert captured["path"].endswith("/realms/ouros/protocol/openid-connect/token")
+    assert "grant_type=refresh_token" in captured["body"]
+    assert "refresh_token=valid-refresh-token" in captured["body"]
+    assert "test-client-value" not in captured["body"]
     set_cookies = response.headers.get_list("set-cookie")
     assert any("rotated-access-token" in value for value in set_cookies)
     assert any("rotated-refresh-token" in value for value in set_cookies)
@@ -347,7 +353,10 @@ def test_debug_session_rejects_expired_refresh_token() -> None:
     real_async_client = httpx.AsyncClient
 
     def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(401, json={"detail": "expired"})
+        return httpx.Response(
+            400,
+            json={"error": "invalid_grant", "error_description": "Session expired"},
+        )
 
     def client_factory(**kwargs):
         return real_async_client(
