@@ -280,6 +280,55 @@ def test_debug_session_refreshes_expired_access_token_silently() -> None:
     assert any("rotated-refresh-token" in value for value in set_cookies)
 
 
+def test_debug_session_preserves_key_service_unavailable_on_refresh() -> None:
+    real_async_client = httpx.AsyncClient
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "access_token": "rotated-access-token",
+                "expires_in": 600,
+                "refresh_expires_in": 1800,
+                "refresh_token": "rotated-refresh-token",
+                "token_type": "Bearer",
+            },
+        )
+
+    def client_factory(**kwargs):
+        return real_async_client(
+            transport=httpx.MockTransport(handler),
+            timeout=kwargs.get("timeout"),
+            follow_redirects=kwargs.get("follow_redirects", False),
+        )
+
+    with (
+        patch.object(settings, "debug_ui_enabled", True),
+        patch.object(settings, "debug_ui_cookie_secure", False),
+        patch("app.debug_ui.router.httpx.AsyncClient", side_effect=client_factory),
+        patch(
+            "app.debug_ui.router.principal_from_token",
+            new=AsyncMock(
+                side_effect=[
+                    HTTPException(status_code=status.HTTP_401_UNAUTHORIZED),
+                    HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE),
+                ]
+            ),
+        ),
+    ):
+        app = build_debug_app()
+        with TestClient(app) as client:
+            client.cookies.set(COOKIE_NAME, "expired-access-token", path="/debug")
+            client.cookies.set(
+                REFRESH_COOKIE_NAME,
+                "valid-refresh-token",
+                path="/debug",
+            )
+            response = client.get("/debug/api/session")
+
+    assert response.status_code == 503
+
+
 def test_debug_session_rejects_expired_refresh_token() -> None:
     real_async_client = httpx.AsyncClient
 
