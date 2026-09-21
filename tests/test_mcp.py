@@ -299,12 +299,14 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
 
     def test_require_decoded_result_rejects_error_dict_and_traces_it(self) -> None:
         """Emit diagnostics for decoded dictionaries that violate the tool contract."""
-        with capture_debug_trace() as events:
-            with self.assertRaises(MCPToolResultError):
-                MCPToolProvider._require_decoded_result(
-                    {"error": "timeout"},
-                    tool_name="get_user_farm_data",
-                )
+        with (
+            capture_debug_trace() as events,
+            self.assertRaises(MCPToolResultError),
+        ):
+            MCPToolProvider._require_decoded_result(
+                {"error": "timeout"},
+                tool_name="get_user_farm_data",
+            )
 
         invalid = [
             event
@@ -314,6 +316,25 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(invalid), 1)
         self.assertEqual(invalid[0]["tool"], "get_user_farm_data")
         self.assertEqual(invalid[0]["result_type"], "dict")
+
+    def test_decoder_skips_unsupported_blocks_before_valid_text(self) -> None:
+        """Skip non-text MCP blocks and continue to a later JSON text result."""
+        self.assertEqual(
+            MCPToolProvider._decode_tool_result(
+                [
+                    {
+                        "type": "image",
+                        "base64": "ignored",
+                        "mime_type": "image/png",
+                    },
+                    {
+                        "type": "text",
+                        "text": '{"farm_ids":[11],"data":{}}',
+                    },
+                ]
+            ),
+            {"farm_ids": [11], "data": {}},
+        )
 
     async def test_invalid_mcp_result_is_not_reported_as_authorization_denial(
         self,
