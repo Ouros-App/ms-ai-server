@@ -412,6 +412,10 @@ async def _run_agent(
                 {"role": "system", "content": prompt + SPECIALIST_JSON_RULES},
                 *state["messages"],
             ]
+            personal_data_required = _requires_personal_farm_data(
+                agent_name,
+                user_text,
+            )
             prefetch_message, prefetched_tools = await _prefetch_personal_farm_data(
                 agent_name,
                 user_text,
@@ -439,7 +443,10 @@ async def _run_agent(
             remaining_mcp_tools = [
                 tool
                 for tool in mcp_tools
-                if getattr(tool, "name", None) not in set(prefetched_tools)
+                if not (
+                    personal_data_required
+                    and getattr(tool, "name", None) == "get_user_farm_data"
+                )
             ]
             response, model_used_tools = await _invoke_model(
                 model,
