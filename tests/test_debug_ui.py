@@ -18,6 +18,14 @@ from app.debug_ui.trace import capture_debug_trace, trace_event
 from app.schemas.chat import ChatResponse
 
 
+def _debug_client_secret_patch():
+    return patch.object(
+        settings,
+        "debug_ui_keycloak_client_secret",
+        SecretStr("test-client-value"),
+    )
+
+
 def build_debug_app() -> FastAPI:
     app = FastAPI()
     app.state.graph = object()
@@ -91,6 +99,7 @@ def test_login_proxies_credentials_and_sets_http_only_cookie() -> None:
     with (
         patch.object(settings, "debug_ui_enabled", True),
         patch.object(settings, "debug_ui_cookie_secure", False),
+        _debug_client_secret_patch(),
         patch("app.debug_ui.router.httpx.AsyncClient", side_effect=client_factory),
         patch(
             "app.debug_ui.router.principal_from_token",
@@ -189,6 +198,7 @@ def test_debug_session_refreshes_near_expiry_access_token_silently() -> None:
     with (
         patch.object(settings, "debug_ui_enabled", True),
         patch.object(settings, "debug_ui_cookie_secure", False),
+        _debug_client_secret_patch(),
         patch("app.debug_ui.router.httpx.AsyncClient", side_effect=client_factory),
         patch(
             "app.debug_ui.router.principal_from_token",
@@ -251,6 +261,7 @@ def test_debug_session_refreshes_expired_access_token_silently() -> None:
     with (
         patch.object(settings, "debug_ui_enabled", True),
         patch.object(settings, "debug_ui_cookie_secure", False),
+        _debug_client_secret_patch(),
         patch("app.debug_ui.router.httpx.AsyncClient", side_effect=client_factory),
         patch(
             "app.debug_ui.router.principal_from_token",
@@ -306,6 +317,7 @@ def test_debug_session_preserves_key_service_unavailable_on_refresh() -> None:
     with (
         patch.object(settings, "debug_ui_enabled", True),
         patch.object(settings, "debug_ui_cookie_secure", False),
+        _debug_client_secret_patch(),
         patch("app.debug_ui.router.httpx.AsyncClient", side_effect=client_factory),
         patch(
             "app.debug_ui.router.principal_from_token",
@@ -346,6 +358,7 @@ def test_debug_session_rejects_expired_refresh_token() -> None:
     with (
         patch.object(settings, "debug_ui_enabled", True),
         patch.object(settings, "debug_ui_cookie_secure", False),
+        _debug_client_secret_patch(),
         patch("app.debug_ui.router.httpx.AsyncClient", side_effect=client_factory),
         patch(
             "app.debug_ui.router.principal_from_token",
@@ -394,6 +407,7 @@ def test_debug_chat_uses_authenticated_identity_and_returns_trace() -> None:
     with (
         patch.object(settings, "debug_ui_enabled", True),
         patch.object(settings, "debug_ui_cookie_secure", False),
+        _debug_client_secret_patch(),
         patch(
             "app.debug_ui.router.principal_from_token",
             new=AsyncMock(return_value=principal),
