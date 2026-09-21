@@ -262,9 +262,12 @@ class MCPToolProvider:
         *,
         tool_name: str,
     ) -> dict:
-        """Decode structured MCP output without treating format errors as denial."""
+        """Decode and validate the contract for a structured MCP tool result."""
         decoded = MCPToolProvider._decode_tool_result(result)
-        if decoded is not None:
+        if decoded is not None and MCPToolProvider._result_contract_is_valid(
+            decoded,
+            tool_name=tool_name,
+        ):
             return decoded
 
         trace_event(
@@ -275,6 +278,37 @@ class MCPToolProvider:
         raise MCPToolResultError(
             f"invalid structured result returned by MCP tool {tool_name}"
         )
+
+    @staticmethod
+    def _result_contract_is_valid(
+        result: dict,
+        *,
+        tool_name: str,
+    ) -> bool:
+        """Validate the minimum trusted shape returned by user-scoped MCP tools."""
+        if tool_name == "get_user_farm_data":
+            farm_ids = result.get("farm_ids")
+            data = result.get("data")
+            return (
+                isinstance(farm_ids, list)
+                and all(
+                    isinstance(farm_id, int) and not isinstance(farm_id, bool)
+                    for farm_id in farm_ids
+                )
+                and isinstance(data, dict)
+            )
+
+        if tool_name == "get_user_context":
+            return (
+                isinstance(result.get("user_type"), str)
+                and isinstance(result.get("user_id"), int)
+                and not isinstance(result.get("user_id"), bool)
+                and isinstance(result.get("profile"), dict)
+                and isinstance(result.get("farms"), list)
+                and isinstance(result.get("enterprises"), list)
+            )
+
+        return isinstance(result, dict)
 
     @staticmethod
     def _filter_farm_data(
