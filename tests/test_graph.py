@@ -72,7 +72,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(first.agents, ["router", "ranking", "default"])
-        self.assertEqual(second.agents, ["router", "default"])
+        self.assertEqual(second.agents, ["router", "ranking", "default"])
         self.assertEqual(first.message, DEFAULT_AGENT_RESPONSE)
         self.assertEqual(second.message, DEFAULT_AGENT_RESPONSE)
         snapshot = await graph.aget_state({"configurable": {"thread_id": "thread"}})
@@ -85,6 +85,119 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                 DEFAULT_AGENT_RESPONSE,
             ],
         )
+
+    async def test_contextual_followup_inherits_route_and_explicit_topic_wins(self) -> None:
+        """Carry context only for referential follow-ups, not explicit topic changes."""
+        graph = build_graph(InMemorySaver())
+
+        first = await invoke_graph(
+            graph,
+            ChatRequest(
+                user_id="user",
+                thread_id="context-thread",
+                message="Como funciona o ranking?",
+            ),
+            "user",
+        )
+        followup = await invoke_graph(
+            graph,
+            ChatRequest(
+                user_id="user",
+                thread_id="context-thread",
+                message="E depois?",
+            ),
+            "user",
+        )
+        switched = await invoke_graph(
+            graph,
+            ChatRequest(
+                user_id="user",
+                thread_id="context-thread",
+                message="Agora quero analisar meu consumo de agua",
+            ),
+            "user",
+        )
+
+        self.assertEqual(first.agents, ["router", "ranking", "default"])
+        self.assertEqual(followup.agents, ["router", "ranking", "default"])
+        self.assertEqual(
+            switched.agents,
+            ["router", "sustainability", "default"],
+        )
+
+    def test_personal_ranking_indicators_require_authenticated_prefetch(self) -> None:
+        """Require farm data for personal ranking, score, level and badge queries."""
+        from app.agents.graph import _requires_personal_farm_data
+
+        for message in (
+            "Qual e o meu ranking?",
+            "Qual e a minha pontuacao?",
+            "Qual e o meu nivel?",
+            "Qual e o meu selo?",
+        ):
+            with self.subTest(message=message):
+                self.assertTrue(
+                    _requires_personal_farm_data("ranking", message)
+                )
+
+    async def test_personal_farm_query_prefetches_authenticated_data(self) -> None:
+        """Fetch personal farm data before the specialist can decide to skip tools."""
+        farm_tool = Mock()
+        farm_tool.name = "get_user_farm_data"
+        farm_tool.ainvoke = AsyncMock(
+            return_value={
+                "authorized": True,
+                "data": {
+                    "water_registries": [
+                        {
+                            "registration_date": "2026-09-20",
+                            "start_hydrometer": 100,
+                            "end_hydrometer": 180,
+                        }
+                    ]
+                },
+            }
+        )
+        provider = Mock()
+        provider.tools_for = AsyncMock(return_value=[farm_tool])
+
+        model = Mock()
+        model.ainvoke = AsyncMock(
+            side_effect=[
+                AIMessage(
+                    content=(
+                        '{"status":"ok","facts":["consumo encontrado"],'
+                        '"recommendations":[],"missing_data":[],"sources":["mcp"]}'
+                    )
+                ),
+                AIMessage(content="Seu consumo foi encontrado."),
+            ]
+        )
+
+        with patch("app.agents.graph.get_chat_model", return_value=model):
+            response = await invoke_graph(
+                build_graph(InMemorySaver(), mcp_provider=provider),
+                ChatRequest(
+                    user_id="42",
+                    thread_id="personal-data-thread",
+                    message=(
+                        "Como minha fazenda vem performando no quesito consumo de agua?"
+                    ),
+                ),
+                "42",
+                principal_token="signed-user-token",
+            )
+
+        farm_tool.ainvoke.assert_awaited_once_with({"limit": 20})
+        self.assertIn("get_user_farm_data", response.tools)
+        specialist_messages = model.ainvoke.await_args_list[0].args[0]
+        system_context = "\n".join(
+            str(message.get("content", ""))
+            for message in specialist_messages
+            if isinstance(message, dict)
+        )
+        self.assertIn("Dados pessoais autenticados", system_context)
+        self.assertIn("water_registries", system_context)
 
     async def test_thread_rejects_another_user(self) -> None:
         graph = build_graph(InMemorySaver())

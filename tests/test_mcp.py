@@ -7,6 +7,7 @@ from app.agents.mcp import (
     MCPToolProvider,
     forward_mcp_access_token,
 )
+from app.debug_ui.trace import capture_debug_trace
 
 
 class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
@@ -144,6 +145,37 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(tools, [])
         client.assert_not_called()
+
+    async def test_mcp_load_failure_is_visible_in_debug_trace(self) -> None:
+        """Expose MCP outages in diagnostics instead of silently hiding all tools."""
+
+        class FailingClient:
+            def __init__(self, connections, **kwargs):
+                pass
+
+            async def get_tools(self, server_name):
+                raise RuntimeError("mcp unavailable")
+
+        provider = MCPToolProvider(url="http://mcp.test/mcp")
+        with (
+            capture_debug_trace() as events,
+            forward_mcp_access_token("signed-keycloak-token"),
+            patch(
+                "langchain_mcp_adapters.client.MultiServerMCPClient",
+                FailingClient,
+            ),
+        ):
+            tools = await provider.tools_for("sustainability", "42")
+
+        self.assertEqual(tools, [])
+        failures = [
+            event
+            for event in events
+            if event["event"] == "mcp.tools_load_failed"
+        ]
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0]["agent"], "sustainability")
+        self.assertEqual(failures[0]["error"], "RuntimeError")
 
     async def test_default_agent_has_no_mcp_allowlist(self) -> None:
         provider = MCPToolProvider(url="http://mcp.test/mcp")

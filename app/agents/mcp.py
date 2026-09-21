@@ -10,6 +10,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
+from app.debug_ui.trace import trace_event
 
 logger = logging.getLogger(__name__)
 
@@ -147,13 +148,32 @@ class MCPToolProvider:
 
         allowed = MCP_TOOL_ALLOWLIST.get(agent_name, frozenset())
         token = self._token_for(user_id)
-        if not self.url or not allowed or not token:
+        if not self.url:
+            trace_event(
+                "mcp.tools_unavailable",
+                agent=agent_name,
+                reason="missing_url",
+            )
+            return []
+        if not allowed:
+            return []
+        if not token:
+            trace_event(
+                "mcp.tools_unavailable",
+                agent=agent_name,
+                reason="missing_forwarded_token",
+            )
             return []
 
         try:
             tools = await self._load_tools(token)
-        except Exception:
+        except Exception as error:
             logger.exception("mcp_tools_load_failed agent=%s", agent_name)
+            trace_event(
+                "mcp.tools_load_failed",
+                agent=agent_name,
+                error=type(error).__name__,
+            )
             return []
 
         selected = []
