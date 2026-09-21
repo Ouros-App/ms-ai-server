@@ -74,7 +74,7 @@ function highlight(container) {
 function renderMessages() {
   const conversation = currentConversation();
   messages.innerHTML = "";
-  if (!conversation || !conversation.messages.length) {
+  if (!conversation?.messages.length) {
     messages.innerHTML = `
       <div class="empty-state">
         <span class="brand-mark">◒</span>
@@ -214,22 +214,13 @@ async function api(path, options = {}) {
     ...options,
   });
   if (response.status === 204) return null;
-  const body = await response.json().catch(() => ({}));
+  const body = await response.json().catch(() => null);
   if (!response.ok) {
-    const error = new Error(body.detail || `HTTP ${response.status}`);
+    const error = new Error(body?.detail || `HTTP ${response.status}`);
     error.status = response.status;
     throw error;
   }
   return body;
-}
-
-async function restoreSession() {
-  try {
-    session = await api("/debug/api/session");
-    showApp();
-  } catch {
-    showLogin();
-  }
 }
 
 function showLogin() {
@@ -340,4 +331,9 @@ input.addEventListener("input", () => {
 $("#toggle-debug").addEventListener("click", () => debugPanel.classList.add("open"));
 $("#close-debug").addEventListener("click", () => debugPanel.classList.remove("open"));
 
-restoreSession();
+api("/debug/api/session")
+  .then((restoredSession) => {
+    session = restoredSession;
+    showApp();
+  })
+  .catch(() => showLogin());
