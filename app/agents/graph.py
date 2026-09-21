@@ -277,14 +277,15 @@ async def _run_agent(
                         "role": "system",
                         "content": (
                             "As ferramentas MCP autorizadas estao disponiveis. "
-                            "Para dados atuais ou pessoais, consulte-as antes de "
-                            "pedir informacoes ao usuario. A identidade desta "
-                            "requisicao ja esta vinculada pelo backend; nao peca "
-                            "nem invente user_type ou user_id. Para dados de fazenda, "
-                            "consulte primeiro get_user_context e use somente um "
-                            "farm_id autorizado; se o nome citado nao coincidir, "
-                            "recuse sem substituir por outra fazenda e diga apenas "
-                            "que nao encontrou dados disponiveis."
+                            "Para perguntas sobre a fazenda do proprio usuario, "
+                            "desempenho, consumo, ranking, historico ou dados recentes, "
+                            "consulte get_user_farm_data antes de declarar missing_data. "
+                            "A identidade e o escopo de fazendas ja estao vinculados "
+                            "pelo JWT no backend. Nunca peca nem invente farm_id, "
+                            "user_id ou user_type. Use get_user_context somente quando "
+                            "o perfil ou a lista de fazendas vinculadas forem relevantes. "
+                            "Se os dados pessoais estiverem indisponiveis, informe a "
+                            "indisponibilidade sem pedir identificadores internos."
                         ),
                     },
                 )
