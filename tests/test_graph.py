@@ -199,6 +199,59 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Dados pessoais autenticados", system_context)
         self.assertIn("water_registries", system_context)
 
+    async def test_personal_query_does_not_request_manual_data_without_farm_scope(
+        self,
+    ) -> None:
+        """Treat missing authenticated farm scope as backend state, not user input."""
+        farm_tool = Mock()
+        farm_tool.name = "get_user_farm_data"
+        farm_tool.ainvoke = AsyncMock(
+            return_value={
+                "user_type": "farm_owner",
+                "user_id": 42,
+                "authorized": False,
+                "reason": "no_farm_scope",
+                "data": {},
+            }
+        )
+        provider = Mock()
+        provider.tools_for = AsyncMock(return_value=[farm_tool])
+
+        model = Mock()
+        model.ainvoke = AsyncMock(
+            side_effect=[
+                AIMessage(
+                    content=(
+                        '{"status":"needs_input","facts":[],'
+                        '"recommendations":[],"missing_data":'
+                        '["dados de consumo de agua"],"sources":[]}'
+                    )
+                ),
+                AIMessage(content="Os dados da sua fazenda estao indisponiveis."),
+            ]
+        )
+
+        with patch("app.agents.graph.get_chat_model", return_value=model):
+            response = await invoke_graph(
+                build_graph(InMemorySaver(), mcp_provider=provider),
+                ChatRequest(
+                    user_id="42",
+                    thread_id="no-farm-scope-thread",
+                    message="Como esta o consumo de agua da minha fazenda?",
+                ),
+                "42",
+                principal_token="signed-user-token",
+            )
+
+        self.assertEqual(
+            response.message,
+            "Os dados da sua fazenda estao indisponiveis.",
+        )
+        specialist_context = model.ainvoke.await_args_list[1].args[0][-1]["content"]
+        self.assertNotIn("dados de consumo de agua", specialist_context)
+        self.assertIn('"status":"error"', specialist_context)
+        self.assertIn('"missing_data":[]', specialist_context)
+
     async def test_thread_rejects_another_user(self) -> None:
         graph = build_graph(InMemorySaver())
         await invoke_graph(
