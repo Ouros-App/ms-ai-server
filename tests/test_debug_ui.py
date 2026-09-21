@@ -1,3 +1,4 @@
+from time import time
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -6,7 +7,12 @@ from fastapi.testclient import TestClient
 
 from app.core.auth import Principal
 from app.core.config import settings
-from app.debug_ui.router import COOKIE_NAME, REFRESH_COOKIE_NAME, install_debug_ui
+from app.debug_ui.router import (
+    COOKIE_NAME,
+    REFRESH_COOKIE_NAME,
+    _principal_needs_refresh,
+    install_debug_ui,
+)
 from app.debug_ui.trace import capture_debug_trace, trace_event
 from app.schemas.chat import ChatResponse
 
@@ -117,6 +123,97 @@ def test_login_proxies_credentials_and_sets_http_only_cookie() -> None:
     assert "user%40example.com" not in captured["body"]
     assert '"email":"user@example.com"' in captured["body"]
     assert session.status_code == 200
+
+
+def test_validated_principal_refresh_window() -> None:
+    near_expiry = Principal(
+        subject="keycloak-user",
+        user_id="42",
+        user_type="farm_owner",
+        expires_at=time() + 30,
+    )
+    fresh = Principal(
+        subject="keycloak-user",
+        user_id="42",
+        user_type="farm_owner",
+        expires_at=time() + 300,
+    )
+    without_expiry = Principal(
+        subject="keycloak-user",
+        user_id="42",
+        user_type="farm_owner",
+    )
+
+    assert _principal_needs_refresh(near_expiry)
+    assert not _principal_needs_refresh(fresh)
+    assert not _principal_needs_refresh(without_expiry)
+
+
+def test_debug_session_refreshes_near_expiry_access_token_silently() -> None:
+    expiring_principal = Principal(
+        subject="keycloak-user",
+        user_id="42",
+        user_type="farm_owner",
+        access_token="still-valid-access-token",
+        expires_at=time() + 30,
+    )
+    rotated_principal = Principal(
+        subject="keycloak-user",
+        user_id="42",
+        user_type="farm_owner",
+        access_token="rotated-access-token",
+        expires_at=time() + 600,
+    )
+    real_async_client = httpx.AsyncClient
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "access_token": "rotated-access-token",
+                "expires_in": 600,
+                "refresh_expires_in": 1800,
+                "refresh_token": "rotated-refresh-token",
+                "token_type": "Bearer",
+            },
+        )
+
+    def client_factory(**kwargs):
+        return real_async_client(
+            transport=httpx.MockTransport(handler),
+            timeout=kwargs.get("timeout"),
+            follow_redirects=kwargs.get("follow_redirects", False),
+        )
+
+    with (
+        patch.object(settings, "debug_ui_enabled", True),
+        patch.object(settings, "debug_ui_cookie_secure", False),
+        patch("app.debug_ui.router.httpx.AsyncClient", side_effect=client_factory),
+        patch(
+            "app.debug_ui.router.principal_from_token",
+            new=AsyncMock(side_effect=[expiring_principal, rotated_principal]),
+        ),
+    ):
+        app = build_debug_app()
+        with TestClient(app) as client:
+            client.cookies.set(
+                COOKIE_NAME,
+                "still-valid-access-token",
+                path="/debug",
+            )
+            client.cookies.set(
+                REFRESH_COOKIE_NAME,
+                "valid-refresh-token",
+                path="/debug",
+            )
+            response = client.get("/debug/api/session")
+
+    assert response.status_code == 200
+    assert response.json()["user_id"] == "42"
+    assert any(
+        "rotated-access-token" in value
+        for value in response.headers.get_list("set-cookie")
+    )
 
 
 def test_debug_session_refreshes_expired_access_token_silently() -> None:
