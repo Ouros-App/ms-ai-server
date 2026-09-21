@@ -15,9 +15,6 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from jwt import InvalidTokenError
-from jwt import decode as decode_jwt
-
 from app.core.auth import Principal, principal_from_token
 from app.core.config import settings
 from app.debug_ui.schemas import (
@@ -82,24 +79,11 @@ def _delete_session_cookies(response: Response) -> None:
         )
 
 
-def _token_needs_refresh(token: str) -> bool:
-    """Use an already validated JWT expiry only as a proactive refresh hint."""
-    try:
-        claims = decode_jwt(
-            token,
-            options={
-                "verify_signature": False,
-                "verify_exp": False,
-                "verify_aud": False,
-            },
-        )
-    except (InvalidTokenError, TypeError, ValueError):
-        return False
-    expires_at = claims.get("exp")
+def _principal_needs_refresh(principal: Principal) -> bool:
+    """Refresh only from expiry obtained from an already verified JWT."""
     return (
-        isinstance(expires_at, (int, float))
-        and not isinstance(expires_at, bool)
-        and expires_at <= time() + REFRESH_LEEWAY_SECONDS
+        principal.expires_at is not None
+        and principal.expires_at <= time() + REFRESH_LEEWAY_SECONDS
     )
 
 
@@ -186,7 +170,7 @@ async def _debug_principal(
             if exc.status_code != status.HTTP_401_UNAUTHORIZED:
                 raise
         else:
-            if not _token_needs_refresh(token):
+            if not _principal_needs_refresh(principal):
                 return principal
 
     if not refresh_token:
