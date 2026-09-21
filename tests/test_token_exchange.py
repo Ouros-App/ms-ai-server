@@ -8,8 +8,8 @@ from pydantic import SecretStr
 from app.core.config import settings
 from app.core.token_exchange import (
     ACCESS_TOKEN_TYPE,
-    MCPTokenExchangeError,
     TOKEN_EXCHANGE_GRANT,
+    MCPTokenExchangeError,
     _exchange_with_client,
 )
 
