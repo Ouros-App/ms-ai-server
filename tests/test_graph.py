@@ -125,6 +125,21 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             ["router", "sustainability", "default"],
         )
 
+    def test_personal_ranking_indicators_require_authenticated_prefetch(self) -> None:
+        """Require farm data for personal ranking, score, level and badge queries."""
+        from app.agents.graph import _requires_personal_farm_data
+
+        for message in (
+            "Qual e o meu ranking?",
+            "Qual e a minha pontuacao?",
+            "Qual e o meu nivel?",
+            "Qual e o meu selo?",
+        ):
+            with self.subTest(message=message):
+                self.assertTrue(
+                    _requires_personal_farm_data("ranking", message)
+                )
+
     async def test_personal_farm_query_prefetches_authenticated_data(self) -> None:
         """Fetch personal farm data before the specialist can decide to skip tools."""
         farm_tool = Mock()
