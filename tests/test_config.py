@@ -27,6 +27,15 @@ class ConfigTest(unittest.TestCase):
             "https://ms-midas-mcp.discloud.app/mcp/",
         )
         self.assertEqual(config.mcp_tools_cache_ttl_seconds, 300)
+        self.assertEqual(
+            config.mcp_keycloak_token_exchange_client_id,
+            "ms-ai-server-mcp-exchange",
+        )
+        self.assertEqual(
+            config.mcp_keycloak_token_exchange_audience,
+            "ms-mcp-server-ouros-knowledge",
+        )
+        self.assertIsNone(config.mcp_keycloak_token_exchange_client_secret)
         self.assertEqual(config.debug_ui_keycloak_client_id, "ms-ai-server-debug")
         self.assertIsNone(config.debug_ui_keycloak_client_secret)
         self.assertEqual(TOOLS, [])
@@ -51,6 +60,27 @@ class ConfigTest(unittest.TestCase):
                 _env_file=None,
                 auth_jwt_issuer="https://issuer.example",
                 auth_jwt_audience="",
+            )
+
+    def test_configured_mcp_exchange_requires_complete_contract(self) -> None:
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            self.assertRaises(ValidationError),
+        ):
+            Settings(
+                _env_file=None,
+                mcp_keycloak_token_exchange_client_secret="secret",
+                mcp_keycloak_token_exchange_client_id="",
+            )
+
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            self.assertRaises(ValidationError),
+        ):
+            Settings(
+                _env_file=None,
+                mcp_keycloak_token_exchange_client_secret="secret",
+                mcp_keycloak_token_exchange_audience="",
             )
 
     def test_debug_ui_requires_token_url_and_client_id(self) -> None:
