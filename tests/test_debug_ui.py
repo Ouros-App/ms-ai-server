@@ -32,10 +32,14 @@ def test_debug_ui_serves_console_when_enabled() -> None:
         app = build_debug_app()
         with TestClient(app) as client:
             response = client.get("/debug")
+            styles = client.get("/debug/assets/style.css")
 
     assert response.status_code == 200
     assert "Debug Console" in response.text
     assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+    assert styles.status_code == 200
+    assert "grid-template-rows: 68px minmax(0, 1fr) auto auto" in styles.text
+    assert ".messages { min-height: 0;" in styles.text
 
 
 def test_debug_session_requires_cookie() -> None:
