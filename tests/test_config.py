@@ -53,6 +53,29 @@ class ConfigTest(unittest.TestCase):
                 auth_jwt_audience="",
             )
 
+    def test_debug_ui_requires_token_url_and_client_id(self) -> None:
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            self.assertRaises(ValidationError),
+        ):
+            Settings(
+                _env_file=None,
+                debug_ui_enabled=True,
+                debug_ui_keycloak_token_url="",
+                debug_ui_keycloak_client_secret="test-value",
+            )
+
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            self.assertRaises(ValidationError),
+        ):
+            Settings(
+                _env_file=None,
+                debug_ui_enabled=True,
+                debug_ui_keycloak_client_id="",
+                debug_ui_keycloak_client_secret="test-value",
+            )
+
     def test_debug_ui_requires_confidential_keycloak_client_secret(self) -> None:
         with (
             patch.dict(os.environ, {}, clear=True),
