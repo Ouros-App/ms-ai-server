@@ -31,8 +31,8 @@ class Settings(BaseSettings):
     auth_jwt_issuer: str = "https://ouros-keycloak.discloud.app/realms/ouros"
     auth_jwt_audience: str = "ms-ai-server"
     auth_jwks_url: str | None = None
-    mcp_url: str | None = None
-    mcp_resource_url: str | None = None
+    mcp_url: str | None = "https://ms-midas-mcp.discloud.app/mcp/"
+    mcp_resource_url: str | None = "https://ms-midas-mcp.discloud.app/mcp/"
     mcp_tools_cache_ttl_seconds: int = 300
     debug_ui_enabled: bool = False
     debug_ui_auth_service_url: str = "https://ms-auth-service.discloud.app"
