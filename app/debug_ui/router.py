@@ -27,9 +27,10 @@ from app.schemas.chat import ChatRequest
 from app.services.chat import invoke_graph_debug
 
 COOKIE_NAME = "ouros_debug_session"
+DEBUG_PREFIX = "/debug"
 STATIC_DIR = Path(__file__).with_name("static")
 
-router = APIRouter(prefix="/debug", include_in_schema=False)
+router = APIRouter(prefix=DEBUG_PREFIX, include_in_schema=False)
 
 
 def _require_enabled() -> None:
@@ -73,7 +74,7 @@ async def debug_index() -> FileResponse:
     )
 
 
-@router.post("/api/login", response_model=DebugSessionResponse)
+@router.post("/api/login")
 async def debug_login(
     payload: DebugLoginRequest,
     response: Response,
@@ -145,7 +146,7 @@ async def debug_login(
         httponly=True,
         secure=settings.debug_ui_cookie_secure,
         samesite="strict",
-        path="/debug",
+        path=DEBUG_PREFIX,
     )
     return _session(principal)
 
@@ -155,21 +156,21 @@ async def debug_logout(response: Response) -> None:
     _require_enabled()
     response.delete_cookie(
         COOKIE_NAME,
-        path="/debug",
+        path=DEBUG_PREFIX,
         secure=settings.debug_ui_cookie_secure,
         httponly=True,
         samesite="strict",
     )
 
 
-@router.get("/api/session", response_model=DebugSessionResponse)
+@router.get("/api/session")
 async def debug_session(
     principal: Annotated[Principal, Depends(_debug_principal)],
 ) -> DebugSessionResponse:
     return _session(principal)
 
 
-@router.post("/api/chat", response_model=DebugChatResponse)
+@router.post("/api/chat")
 async def debug_chat(
     payload: DebugChatRequest,
     request: Request,
