@@ -6,6 +6,7 @@ from contextvars import ContextVar
 from hashlib import sha256
 from time import monotonic
 
+from langchain_core.messages import ToolMessage
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
@@ -42,6 +43,10 @@ def forward_mcp_access_token(token: str | None):
         yield
     finally:
         _FORWARDED_ACCESS_TOKEN.reset(token_marker)
+
+
+class MCPToolResultError(RuntimeError):
+    """Raised when an MCP tool result cannot be decoded safely."""
 
 
 class _NoArguments(BaseModel):
@@ -210,13 +215,20 @@ class MCPToolProvider:
         if tool.name == "get_user_context":
 
             async def invoke() -> object:
-                return await tool.ainvoke({})
+                result = await self._invoke_remote_tool(tool, {})
+                return self._require_decoded_result(
+                    result,
+                    tool_name="get_user_context",
+                )
 
             args_schema = _NoArguments
         else:
 
             async def invoke(limit: int = 20) -> object:
-                result = await tool.ainvoke({"limit": limit})
+                result = await self._invoke_remote_tool(
+                    tool,
+                    {"limit": limit},
+                )
                 return self._filter_farm_data(result, user_id)
 
             args_schema = _FarmDataArguments
@@ -234,15 +246,47 @@ class MCPToolProvider:
         )
 
     @staticmethod
+    async def _invoke_remote_tool(tool, arguments: dict[str, object]) -> object:
+        """Invoke an MCP LangChain tool while preserving its structured artifact."""
+        tool_call = {
+            "type": "tool_call",
+            "id": f"mcp-bound-{tool.name}",
+            "name": tool.name,
+            "args": arguments,
+        }
+        return await tool.ainvoke(tool_call)
+
+    @staticmethod
+    def _require_decoded_result(
+        result: object,
+        *,
+        tool_name: str,
+    ) -> dict:
+        """Decode structured MCP output without treating format errors as denial."""
+        decoded = MCPToolProvider._decode_tool_result(result)
+        if decoded is not None:
+            return decoded
+
+        trace_event(
+            "mcp.tool_result_invalid",
+            tool=tool_name,
+            result_type=type(result).__name__,
+        )
+        raise MCPToolResultError(
+            f"invalid structured result returned by MCP tool {tool_name}"
+        )
+
+    @staticmethod
     def _filter_farm_data(
         result: object,
         user_id: int,
     ) -> dict:
         """Return only records for farms authorized by the MCP response."""
 
-        result = MCPToolProvider._decode_tool_result(result)
-        if result is None:
-            return MCPToolProvider._scope_denied(user_id)
+        result = MCPToolProvider._require_decoded_result(
+            result,
+            tool_name="get_user_farm_data",
+        )
 
         authorized_ids = [
             item
@@ -255,6 +299,7 @@ class MCPToolProvider:
                 "user_type": result.get("user_type"),
                 "user_id": user_id,
                 "authorized": False,
+                "reason": "no_farm_scope",
                 "data": {},
             }
 
@@ -279,25 +324,80 @@ class MCPToolProvider:
 
     @staticmethod
     def _decode_tool_result(result: object) -> dict | None:
+        """Decode MCP structured content across LangChain adapter output shapes."""
+        if isinstance(result, ToolMessage):
+            artifact_result = MCPToolProvider._decode_tool_result(result.artifact)
+            if artifact_result is not None:
+                return artifact_result
+            return MCPToolProvider._decode_tool_result(result.content)
+
+        if isinstance(result, tuple) and len(result) == 2:
+            content, artifact = result
+            artifact_result = MCPToolProvider._decode_tool_result(artifact)
+            if artifact_result is not None:
+                return artifact_result
+            return MCPToolProvider._decode_tool_result(content)
+
         if isinstance(result, dict):
+            for key in ("structured_content", "structuredContent"):
+                structured = result.get(key)
+                if isinstance(structured, dict):
+                    return structured
+
+            artifact = result.get("artifact")
+            if artifact is not None:
+                artifact_result = MCPToolProvider._decode_tool_result(artifact)
+                if artifact_result is not None:
+                    return artifact_result
+
+            if (
+                result.get("type") == "text"
+                and isinstance(result.get("text"), str)
+            ):
+                return MCPToolProvider._decode_tool_result(result["text"])
+
             return result
+
         if isinstance(result, str):
             try:
                 decoded = json.loads(result)
             except json.JSONDecodeError:
                 return None
-            return decoded if isinstance(decoded, dict) else None
+            return MCPToolProvider._decode_tool_result(decoded)
+
         if isinstance(result, list):
+            for item in result:
+                decoded = MCPToolProvider._decode_tool_result(item)
+                if decoded is not None:
+                    return decoded
             text = "".join(
                 item.get("text", "")
                 for item in result
                 if isinstance(item, dict)
                 and isinstance(item.get("text"), str)
             )
-            return MCPToolProvider._decode_tool_result(text)
-        return None
+            return MCPToolProvider._decode_tool_result(text) if text else None
 
-    @staticmethod
-    def _scope_denied(user_id: int) -> dict:
-        return {"user_id": user_id, "authorized": False, "data": {}}
+        artifact = getattr(result, "artifact", None)
+        if artifact is not None:
+            decoded = MCPToolProvider._decode_tool_result(artifact)
+            if decoded is not None:
+                return decoded
+
+        content = getattr(result, "content", None)
+        if content is not None and content is not result:
+            decoded = MCPToolProvider._decode_tool_result(content)
+            if decoded is not None:
+                return decoded
+
+        model_dump = getattr(result, "model_dump", None)
+        if callable(model_dump):
+            try:
+                dumped = model_dump()
+            except (TypeError, ValueError):
+                return None
+            if dumped is not result:
+                return MCPToolProvider._decode_tool_result(dumped)
+
+        return None
 
