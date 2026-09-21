@@ -10,10 +10,22 @@ from app.agents.mcp import (
     MCPToolResultError,
     forward_mcp_access_token,
 )
+from app.core.token_exchange import MCPTokenExchangeError
 from app.debug_ui.trace import capture_debug_trace
 
 
 class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        self.exchange_token = AsyncMock(
+            side_effect=lambda token: f"delegated::{token}"
+        )
+        self.exchange_patcher = patch(
+            "app.agents.mcp.exchange_mcp_access_token",
+            new=self.exchange_token,
+        )
+        self.exchange_patcher.start()
+        self.addCleanup(self.exchange_patcher.stop)
+
     def test_tools_cache_prunes_expired_and_bounds_entries(self) -> None:
         """Prune expired MCP tool cache entries and enforce the size limit."""
         provider = MCPToolProvider(
@@ -72,7 +84,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured["calls"], 1)
         self.assertEqual(
             captured["connections"]["midas"]["headers"]["Authorization"],
-            "Bearer signed-keycloak-token",
+            "Bearer delegated::signed-keycloak-token",
         )
 
     async def test_bound_user_tools_preserve_context_artifact_without_identity_args(
@@ -405,6 +417,30 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(tools, [])
         client.assert_not_called()
+
+    async def test_token_exchange_failure_hides_tools_and_emits_trace(self) -> None:
+        """Do not fall back to the user token when delegated exchange fails."""
+
+        self.exchange_token.side_effect = MCPTokenExchangeError("exchange failed")
+        provider = MCPToolProvider(url="http://mcp.test/mcp")
+
+        with (
+            capture_debug_trace() as events,
+            forward_mcp_access_token("signed-keycloak-token"),
+            patch("langchain_mcp_adapters.client.MultiServerMCPClient") as client,
+        ):
+            tools = await provider.tools_for("faq", "42")
+
+        self.assertEqual(tools, [])
+        client.assert_not_called()
+        failures = [
+            event
+            for event in events
+            if event["event"] == "mcp.token_exchange_failed"
+        ]
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0]["agent"], "faq")
+        self.assertEqual(failures[0]["error"], "MCPTokenExchangeError")
 
     async def test_mcp_load_failure_is_visible_in_debug_trace(self) -> None:
         """Expose MCP outages in diagnostics instead of silently hiding all tools."""
