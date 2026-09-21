@@ -15,6 +15,7 @@ from app.debug_ui.trace import capture_debug_trace
 
 class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
     def test_tools_cache_prunes_expired_and_bounds_entries(self) -> None:
+        """Prune expired MCP tool cache entries and enforce the size limit."""
         provider = MCPToolProvider(
             url="http://mcp.test/mcp",
             cache_ttl_seconds=10,
@@ -34,6 +35,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("active-0", provider._tools_cache)
 
     async def test_provider_forwards_same_keycloak_token_and_filters_allowlist(self) -> None:
+        """Forward the validated token while exposing only allowed MCP tools."""
         captured = {"calls": 0}
 
         class FakeClient:
@@ -76,6 +78,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
     async def test_bound_user_tools_preserve_context_artifact_without_identity_args(
         self,
     ) -> None:
+        """Preserve context artifacts without exposing identity arguments."""
         payload = {
             "user_type": "farm_owner",
             "user_id": 42,
@@ -120,6 +123,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
     async def test_farm_data_tool_decodes_structured_artifact_and_filters_scope(
         self,
     ) -> None:
+        """Decode structured farm artifacts and filter rows to authorized farms."""
         payload = {
             "user_type": "farm_owner",
             "user_id": 42,
@@ -178,6 +182,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(call["args"], {"limit": 20})
 
     def test_decode_tool_result_supports_adapter_artifact_shapes(self) -> None:
+        """Decode the common content-and-artifact shapes emitted by the adapter."""
         payload = {
             "user_type": "farm_owner",
             "farm_ids": [11],
@@ -313,6 +318,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
     async def test_invalid_mcp_result_is_not_reported_as_authorization_denial(
         self,
     ) -> None:
+        """Treat undecodable MCP output as integration failure, not scope denial."""
         remote_tool = SimpleNamespace(
             name="get_user_farm_data",
             description="Dados",
@@ -355,6 +361,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
     async def test_empty_farm_scope_is_explicitly_distinct_from_decode_failure(
         self,
     ) -> None:
+        """Represent a real empty farm scope separately from malformed MCP output."""
         result = MCPToolProvider._filter_farm_data(
             {
                 "user_type": "company_employee",
@@ -370,6 +377,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["user_type"], "company_employee")
 
     async def test_provider_exposes_no_mcp_tools_without_forwarded_user_token(self) -> None:
+        """Expose no user-scoped MCP tools when no validated token was forwarded."""
         provider = MCPToolProvider(url="http://mcp.test/mcp")
         with patch("langchain_mcp_adapters.client.MultiServerMCPClient") as client:
             tools = await provider.tools_for("ranking", "42")
@@ -409,6 +417,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(failures[0]["error"], "RuntimeError")
 
     async def test_default_agent_has_no_mcp_allowlist(self) -> None:
+        """Keep MCP tools unavailable to the default synthesizer agent."""
         provider = MCPToolProvider(url="http://mcp.test/mcp")
         with (
             forward_mcp_access_token("signed-keycloak-token"),
