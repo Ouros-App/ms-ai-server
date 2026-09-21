@@ -88,30 +88,55 @@ def _principal_needs_refresh(principal: Principal) -> bool:
     )
 
 
+def _debug_client_auth() -> httpx.BasicAuth:
+    secret = settings.debug_ui_keycloak_client_secret
+    if secret is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Cliente de debug do Keycloak não configurado.",
+        )
+    return httpx.BasicAuth(
+        settings.debug_ui_keycloak_client_id,
+        secret.get_secret_value(),
+    )
+
+
+def _oauth_error(response: httpx.Response) -> str | None:
+    try:
+        document = response.json()
+    except ValueError:
+        return None
+    error = document.get("error") if isinstance(document, dict) else None
+    return error if isinstance(error, str) else None
+
+
 async def _refresh_debug_session(
     refresh_token: str,
     response: Response,
 ) -> Principal:
-    refresh_url = (
-        settings.debug_ui_auth_service_url.rstrip("/")
-        + "/v1/auth/token/refresh"
-    )
     try:
         async with httpx.AsyncClient(
             timeout=settings.debug_ui_request_timeout_seconds,
             follow_redirects=False,
         ) as client:
             upstream = await client.post(
-                refresh_url,
-                json={"refresh_token": refresh_token},
+                settings.debug_ui_keycloak_token_url,
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                },
+                auth=_debug_client_auth(),
             )
     except httpx.HTTPError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Auth service indisponível.",
+            detail="Keycloak indisponível.",
         ) from exc
 
-    if upstream.status_code == 401:
+    if (
+        upstream.status_code in {400, 401}
+        and _oauth_error(upstream) == "invalid_grant"
+    ):
         _delete_session_cookies(response)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -138,7 +163,7 @@ async def _refresh_debug_session(
     except (KeyError, TypeError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Auth service devolveu uma resposta de refresh inválida.",
+            detail="Keycloak devolveu uma resposta de refresh inválida.",
         ) from exc
 
     try:
@@ -148,7 +173,7 @@ async def _refresh_debug_session(
             raise
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Auth service devolveu um token renovado incompatível.",
+            detail="Keycloak devolveu um token renovado incompatível.",
         ) from exc
 
     _set_access_cookie(response, access_token, expires_in)
@@ -215,29 +240,31 @@ async def debug_login(
     response: Response,
 ) -> DebugSessionResponse:
     _require_enabled()
-    token_url = (
-        settings.debug_ui_auth_service_url.rstrip("/")
-        + "/v1/auth/token"
-    )
     try:
         async with httpx.AsyncClient(
             timeout=settings.debug_ui_request_timeout_seconds,
             follow_redirects=False,
         ) as client:
             upstream = await client.post(
-                token_url,
-                json={
-                    "email": payload.email,
+                settings.debug_ui_keycloak_token_url,
+                data={
+                    "grant_type": "password",
+                    "username": payload.email,
                     "password": payload.password.get_secret_value(),
+                    "scope": "openid ouros-identity",
                 },
+                auth=_debug_client_auth(),
             )
     except httpx.HTTPError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Auth service indisponível.",
+            detail="Keycloak indisponível.",
         ) from exc
 
-    if upstream.status_code == 401:
+    if (
+        upstream.status_code in {400, 401}
+        and _oauth_error(upstream) == "invalid_grant"
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Credenciais inválidas.",
@@ -269,7 +296,7 @@ async def debug_login(
     except (KeyError, TypeError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Auth service devolveu uma resposta inválida.",
+            detail="Keycloak devolveu uma resposta inválida.",
         ) from exc
 
     try:
@@ -279,7 +306,7 @@ async def debug_login(
             raise
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Auth service devolveu um token incompatível com o AI Server.",
+            detail="Keycloak devolveu um token incompatível com o AI Server.",
         ) from exc
 
     _set_access_cookie(response, access_token, expires_in)
