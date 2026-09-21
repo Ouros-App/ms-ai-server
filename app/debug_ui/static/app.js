@@ -24,7 +24,7 @@ marked.setOptions({ gfm: true, breaks: true });
 
 function storageKey() {
   if (!session?.user_id) return null;
-  return `${STORAGE_PREFIX}:${session.user_id}`;
+  return `${STORAGE_PREFIX}:${session.account_type}:${session.user_id}`;
 }
 
 function loadConversations() {
