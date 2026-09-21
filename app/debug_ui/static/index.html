@@ -34,7 +34,7 @@
   </section>
 
   <main id="app-shell" class="app-shell" hidden>
-    <aside class="sidebar">
+    <aside class="sidebar" aria-label="Conversas de debug">
       <div class="sidebar-brand">
         <span class="brand-mark small">◒</span>
         <div><strong>Ouros AI</strong><small>DEBUG</small></div>
@@ -65,13 +65,14 @@
       </div>
 
       <form id="composer" class="composer">
+        <label class="sr-only" for="message-input">Mensagem</label>
         <textarea id="message-input" rows="1" maxlength="8000" placeholder="Mensagem para o AI Server..." required></textarea>
         <button id="send-button" class="send-button" type="submit" aria-label="Enviar">↑</button>
       </form>
       <p class="composer-hint">Enter envia · Shift+Enter quebra linha</p>
     </section>
 
-    <aside id="debug-panel" class="debug-panel">
+    <aside id="debug-panel" class="debug-panel" aria-label="Painel de diagnóstico">
       <header class="debug-header">
         <div>
           <p class="eyebrow">REQUEST TRACE</p>
