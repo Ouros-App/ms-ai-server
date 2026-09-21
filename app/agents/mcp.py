@@ -401,6 +401,12 @@ class MCPToolProvider:
 
         if isinstance(result, list):
             for item in result:
+                if (
+                    isinstance(item, dict)
+                    and "type" in item
+                    and item.get("type") != "text"
+                ):
+                    continue
                 decoded = MCPToolProvider._decode_tool_result(item)
                 if decoded is not None:
                     return decoded
@@ -408,6 +414,7 @@ class MCPToolProvider:
                 item.get("text", "")
                 for item in result
                 if isinstance(item, dict)
+                and item.get("type") == "text"
                 and isinstance(item.get("text"), str)
             )
             return MCPToolProvider._decode_tool_result(text) if text else None
