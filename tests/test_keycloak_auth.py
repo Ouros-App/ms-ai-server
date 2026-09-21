@@ -79,6 +79,7 @@ class KeycloakAuthTests(unittest.IsolatedAsyncioTestCase):
             "database_id": 42,
             "account_type": "farm_owner",
             "realm_access": {"roles": ["farm_owner"]},
+            "exp": 4_102_444_800,
         }
         with patch("app.core.auth._decode_keycloak_token", return_value=claims):
             principal = await get_current_principal(self.credentials())
@@ -87,6 +88,7 @@ class KeycloakAuthTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(principal.user_id, "42")
         self.assertEqual(principal.user_type, "farm_owner")
         self.assertEqual(principal.access_token, "signed-keycloak-token")
+        self.assertEqual(principal.expires_at, 4_102_444_800.0)
 
     def test_business_identity_requires_matching_role_and_database_id(self) -> None:
         invalid_claims = (
