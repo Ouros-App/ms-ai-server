@@ -348,6 +348,68 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             {"farm_ids": [11], "data": {}},
         )
 
+    def test_remote_tool_error_is_traced_with_bounded_message(self) -> None:
+        """Surface MCP execution errors distinctly from malformed result payloads."""
+        result = ToolMessage(
+            content=[
+                {
+                    "type": "text",
+                    "text": "Error executing tool get_user_farm_data: undefined column gain",
+                }
+            ],
+            artifact=None,
+            tool_call_id="remote-error",
+            name="get_user_farm_data",
+            status="error",
+        )
+
+        with (
+            capture_debug_trace() as events,
+            self.assertRaises(MCPToolResultError),
+        ):
+            MCPToolProvider._require_decoded_result(
+                result,
+                tool_name="get_user_farm_data",
+            )
+
+        remote_errors = [
+            event
+            for event in events
+            if event["event"] == "mcp.tool_error"
+        ]
+        self.assertEqual(len(remote_errors), 1)
+        self.assertEqual(
+            remote_errors[0]["message"],
+            "Error executing tool get_user_farm_data: undefined column gain",
+        )
+        self.assertFalse(
+            any(event["event"] == "mcp.tool_result_invalid" for event in events)
+        )
+
+    def test_tool_message_error_text_is_bounded_and_has_fallback(self) -> None:
+        """Keep remote error diagnostics concise and useful."""
+        long_message = ToolMessage(
+            content="x" * 800,
+            tool_call_id="remote-error",
+            name="get_user_farm_data",
+            status="error",
+        )
+        self.assertEqual(
+            len(MCPToolProvider._tool_message_text(long_message)),
+            500,
+        )
+
+        empty_message = ToolMessage(
+            content=[],
+            tool_call_id="remote-error",
+            name="get_user_farm_data",
+            status="error",
+        )
+        self.assertEqual(
+            MCPToolProvider._tool_message_text(empty_message),
+            "MCP tool returned an unspecified error.",
+        )
+
     async def test_invalid_mcp_result_is_not_reported_as_authorization_denial(
         self,
     ) -> None:

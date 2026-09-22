@@ -278,6 +278,17 @@ class MCPToolProvider:
         tool_name: str,
     ) -> dict:
         """Decode and validate the contract for a structured MCP tool result."""
+        if isinstance(result, ToolMessage) and result.status == "error":
+            message = MCPToolProvider._tool_message_text(result)
+            trace_event(
+                "mcp.tool_error",
+                tool=tool_name,
+                message=message,
+            )
+            raise MCPToolResultError(
+                f"remote MCP tool {tool_name} returned an error"
+            )
+
         decoded = MCPToolProvider._decode_tool_result(result)
         if decoded is not None and MCPToolProvider._result_contract_is_valid(
             decoded,
@@ -293,6 +304,27 @@ class MCPToolProvider:
         raise MCPToolResultError(
             f"invalid structured result returned by MCP tool {tool_name}"
         )
+
+    @staticmethod
+    def _tool_message_text(result: ToolMessage) -> str:
+        """Return a bounded human-readable error summary from a ToolMessage."""
+        content = result.content
+        if isinstance(content, str):
+            text = content
+        elif isinstance(content, list):
+            parts = [
+                item.get("text", "")
+                for item in content
+                if isinstance(item, dict)
+                and item.get("type") == "text"
+                and isinstance(item.get("text"), str)
+            ]
+            text = " ".join(part.strip() for part in parts if part.strip())
+        else:
+            text = ""
+
+        compact = " ".join(text.split())
+        return compact[:500] if compact else "MCP tool returned an unspecified error."
 
     @staticmethod
     def _result_contract_is_valid(
