@@ -137,7 +137,7 @@ O histórico aceita `limit` entre 1 e 100, com padrão 20, e o cursor `before` p
 
 ```bash
 curl "http://localhost:8000/v1/chat/conversa-1/history?limit=20" \
-  -H "Authorization: Bearer <token-configurado>"
+  -H "Authorization: Bearer <jwt-do-usuario>"
 ```
 
 ## Observabilidade
@@ -153,7 +153,7 @@ scrape_configs:
     metrics_path: /metrics
     authorization:
       type: Bearer
-      credentials: <token-configurado>
+      credentials: <jwt-do-usuario>
     static_configs:
       - targets: ["ms-ai-server.discloud.app"]
 ```
