@@ -63,6 +63,15 @@ def _get_signing_key(token: str):
         return None
 
 
+def _has_audience(claims: dict, expected: str) -> bool:
+    audience = claims.get("aud")
+    if isinstance(audience, str):
+        return audience == expected
+    if isinstance(audience, list):
+        return expected in audience and all(isinstance(item, str) for item in audience)
+    return False
+
+
 def _decode_keycloak_token(token: str) -> dict | None:
     signing_key = _get_signing_key(token)
     if signing_key is None:
@@ -78,7 +87,14 @@ def _decode_keycloak_token(token: str) -> dict | None:
         )
     except InvalidTokenError:
         return None
-    return claims if isinstance(claims, dict) else None
+    if not isinstance(claims, dict):
+        return None
+    if not _has_audience(
+        claims,
+        settings.mcp_keycloak_token_exchange_client_id,
+    ):
+        return None
+    return claims
 
 
 def _keycloak_principal(claims: dict, token: str) -> Principal | None:
