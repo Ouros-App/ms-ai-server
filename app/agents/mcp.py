@@ -11,6 +11,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
+from app.core.token_exchange import MCPTokenExchangeError, exchange_mcp_access_token
 from app.debug_ui.trace import trace_event
 
 logger = logging.getLogger(__name__)
@@ -127,6 +128,8 @@ class MCPToolProvider:
                 return cached[0]
             self._prune_tools_cache(now)
 
+            delegated_token = await exchange_mcp_access_token(token)
+
             from langchain_mcp_adapters.client import MultiServerMCPClient
 
             client = MultiServerMCPClient(
@@ -134,7 +137,7 @@ class MCPToolProvider:
                     self.server_name: {
                         "transport": "http",
                         "url": self.url,
-                        "headers": {"Authorization": f"Bearer {token}"},
+                        "headers": {"Authorization": f"Bearer {delegated_token}"},
                     },
                 },
                 handle_tool_errors=True,
@@ -172,6 +175,18 @@ class MCPToolProvider:
 
         try:
             tools = await self._load_tools(token)
+        except MCPTokenExchangeError as error:
+            logger.warning(
+                "mcp_token_exchange_unavailable agent=%s error=%s",
+                agent_name,
+                type(error).__name__,
+            )
+            trace_event(
+                "mcp.token_exchange_failed",
+                agent=agent_name,
+                error=type(error).__name__,
+            )
+            return []
         except Exception as error:
             logger.exception("mcp_tools_load_failed agent=%s", agent_name)
             trace_event(

@@ -43,12 +43,20 @@ class KeycloakAuthTests(unittest.IsolatedAsyncioTestCase):
         jwks_client.get_signing_key_from_jwt.return_value = SimpleNamespace(
             key="public-key"
         )
-        claims = {"sub": "subject"}
+        claims = {
+            "sub": "subject",
+            "aud": ["ms-ai-server", "ms-ai-server-mcp-exchange"],
+        }
 
         with (
             patch.object(settings, "auth_jwks_url", "https://keys.example/jwks"),
             patch.object(settings, "auth_jwt_issuer", "https://issuer.example"),
             patch.object(settings, "auth_jwt_audience", "ms-ai-server"),
+            patch.object(
+                settings,
+                "mcp_keycloak_token_exchange_client_id",
+                "ms-ai-server-mcp-exchange",
+            ),
             patch("app.core.auth._get_jwks_client", return_value=jwks_client),
             patch("app.core.auth.decode", return_value=claims) as decoder,
         ):
@@ -59,6 +67,31 @@ class KeycloakAuthTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(decoder.call_args.kwargs["algorithms"], ["RS256"])
         self.assertEqual(decoder.call_args.kwargs["issuer"], "https://issuer.example")
         self.assertEqual(decoder.call_args.kwargs["audience"], "ms-ai-server")
+
+    def test_decode_rejects_token_without_exchange_requester_audience(self) -> None:
+        jwks_client = Mock()
+        jwks_client.get_jwk_set.return_value = object()
+        jwks_client.get_signing_key_from_jwt.return_value = SimpleNamespace(
+            key="public-key"
+        )
+        claims = {
+            "sub": "subject",
+            "aud": ["ms-ai-server"],
+        }
+
+        with (
+            patch.object(settings, "auth_jwks_url", "https://keys.example/jwks"),
+            patch.object(settings, "auth_jwt_issuer", "https://issuer.example"),
+            patch.object(settings, "auth_jwt_audience", "ms-ai-server"),
+            patch.object(
+                settings,
+                "mcp_keycloak_token_exchange_client_id",
+                "ms-ai-server-mcp-exchange",
+            ),
+            patch("app.core.auth._get_jwks_client", return_value=jwks_client),
+            patch("app.core.auth.decode", return_value=claims),
+        ):
+            self.assertIsNone(_decode_keycloak_token("signed-token"))
 
     async def test_jwks_connection_failure_is_service_unavailable(self) -> None:
         credentials = self.credentials()
