@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.infisical import load_infisical_secrets
@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     mcp_keycloak_token_exchange_client_id: str = "ms-ai-server-mcp-exchange"
     mcp_keycloak_token_exchange_client_secret: SecretStr | None = None
     mcp_keycloak_token_exchange_audience: str = "ms-mcp-server-ouros-knowledge"
-    mcp_keycloak_token_exchange_timeout_seconds: float = 8.0
+    mcp_keycloak_token_exchange_timeout_seconds: float = Field(8.0, gt=0)
     debug_ui_enabled: bool = False
     debug_ui_keycloak_token_url: str = (
         "https://ouros-keycloak.discloud.app/realms/ouros/protocol/openid-connect/token"
