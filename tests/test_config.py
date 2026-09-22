@@ -83,6 +83,18 @@ class ConfigTest(unittest.TestCase):
                 mcp_keycloak_token_exchange_audience="",
             )
 
+    def test_mcp_exchange_timeout_must_be_positive(self) -> None:
+        for timeout in (0, -1):
+            with (
+                self.subTest(timeout=timeout),
+                patch.dict(os.environ, {}, clear=True),
+                self.assertRaises(ValidationError),
+            ):
+                Settings(
+                    _env_file=None,
+                    mcp_keycloak_token_exchange_timeout_seconds=timeout,
+                )
+
     def test_debug_ui_requires_token_url_and_client_id(self) -> None:
         with (
             patch.dict(os.environ, {}, clear=True),
