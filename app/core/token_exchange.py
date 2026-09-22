@@ -14,19 +14,6 @@ class MCPTokenExchangeError(RuntimeError):
     """Raised when the backend cannot obtain a delegated MCP access token."""
 
 
-def _oauth_error(response: httpx.Response) -> str | None:
-    """Return only the OAuth error code, never the response body or tokens."""
-
-    try:
-        payload = response.json()
-    except ValueError:
-        return None
-    if not isinstance(payload, dict):
-        return None
-    value = payload.get("error")
-    return value if isinstance(value, str) and value else None
-
-
 async def _exchange_with_client(
     subject_token: str,
     client: httpx.AsyncClient,
@@ -57,9 +44,8 @@ async def _exchange_with_client(
 
     if response.status_code != 200:
         logger.warning(
-            "mcp_token_exchange_failed status=%s oauth_error=%s",
+            "mcp_token_exchange_failed status=%s",
             response.status_code,
-            _oauth_error(response),
         )
         raise MCPTokenExchangeError("Keycloak rejected the MCP token exchange")
 
