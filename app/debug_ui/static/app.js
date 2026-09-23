@@ -153,12 +153,24 @@ function renderDebug(data) {
       ).join("") || '<span class="chip">nenhum</span>'}</div>
     </section>`;
 
-  const agents = (data.specialist_results || []).map((item) => `
-    <article class="agent-card">
-      <strong>${escapeText(item.agent || "agent")}</strong>
-      <span class="chip ${item.status === "ok" ? "ok" : ""}">${escapeText(item.status || "?")}</span>
-      <pre class="debug-json">${escapeText(JSON.stringify(item, null, 2))}</pre>
-    </article>`).join("");
+  const agents = (data.specialist_results || []).map((item) => {
+    const missing = (item.missing_data || []).map((value) =>
+      `<span class="chip gold">${escapeText(value)}</span>`
+    ).join("");
+    return `
+      <article class="agent-card">
+        <div class="agent-card-head">
+          <strong>${escapeText(item.agent || "agent")}</strong>
+          <span class="chip ${item.status === "ok" ? "ok" : ""}">${escapeText(item.status || "?")}</span>
+        </div>
+        <div class="chips">
+          <span class="chip">${escapeText(item.fact_count || 0)} fatos</span>
+          <span class="chip">${escapeText(item.recommendation_count || 0)} recomendações</span>
+          <span class="chip">${escapeText(item.source_count || 0)} fontes</span>
+        </div>
+        ${missing ? `<div class="agent-missing"><small>Aguardando</small><div class="chips">${missing}</div></div>` : ""}
+      </article>`;
+  }).join("");
 
   const trace = (data.trace || []).map((event) => {
     const payload = { ...event };
@@ -180,9 +192,11 @@ function renderDebug(data) {
       <div class="chips">
         <span class="chip gold">${escapeText(data.duration_ms)} ms</span>
         <span class="chip">${escapeText(data.guardrail?.allowed === false ? "bloqueado" : "guardrail ok")}</span>
+        ${data.route_source ? `<span class="chip">${escapeText("rota: " + data.route_source)}</span>` : ""}
       </div>
     </section>
     ${chipSet("Rotas", data.routes, "gold")}
+    ${chipSet("Pendências", data.pending_routes, "")}
     ${chipSet("Agentes", data.agents, "")}
     ${chipSet("Tools", data.tools, "")}
     <section class="debug-section">
