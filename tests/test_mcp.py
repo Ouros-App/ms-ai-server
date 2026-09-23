@@ -450,10 +450,9 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             if event["event"] == "mcp.tool_error"
         ]
         self.assertEqual(len(remote_errors), 1)
-        self.assertEqual(
-            remote_errors[0]["message"],
-            "Error executing tool get_user_farm_data: undefined column gain",
-        )
+        self.assertGreater(remote_errors[0]["error_chars"], 0)
+        self.assertNotIn("message", remote_errors[0])
+        self.assertNotIn("undefined column gain", str(remote_errors[0]))
         self.assertFalse(
             any(event["event"] == "mcp.tool_result_invalid" for event in events)
         )
