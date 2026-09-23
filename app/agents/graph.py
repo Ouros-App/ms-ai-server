@@ -157,8 +157,8 @@ _DETERMINISTIC_ROUTE_PATTERNS = (
     (
         "faq",
         re.compile(
-            r"\b(?:aplicativo|app|dashboard|painel|calendario|vacina\w*|lote\w*|"
-            r"relatorio\w*)\b"
+            r"\b(?:aplicativo|app|dashboard|painel|relatorio\w*)\b|"
+            r"\b(?:cadastr|registr|editar|visualiz)\w*\s+(?:o\s+|um\s+)?lote\w*\b"
         ),
     ),
 )
