@@ -61,6 +61,7 @@ class AgentState(MessagesState):
     pending_routes: list[str]
     pending_missing_data: list[str]
     pending_by_route: dict[str, list[str]]
+    pending_personal_routes: list[str]
     agents: Annotated[list[str], _merge_agents]
     tools: Annotated[list[str], _merge_tools]
     input_guardrail: dict[str, object]
@@ -366,8 +367,16 @@ def _conversation_is_personal_request(
 ) -> bool:
     if _is_personal_data_request(agent_name, user_text):
         return True
+    pending_personal_routes = _inheritable_routes(
+        state.get("pending_personal_routes")
+    )
+    if agent_name in pending_personal_routes:
+        return True
     if agent_name not in _pending_by_route(state):
         return False
+
+    # Compatibility with checkpoints created before personal requirements
+    # were persisted explicitly with pending routes.
     previous_user_text = _previous_human_message(state)
     return bool(
         previous_user_text
@@ -604,6 +613,7 @@ def _route_update(routes: list[str], route_source: str) -> dict[str, object]:
         update["pending_routes"] = []
         update["pending_missing_data"] = []
         update["pending_by_route"] = {}
+        update["pending_personal_routes"] = []
     return update
 
 
