@@ -1,4 +1,5 @@
 from app.agents.diagnostics import (
+    pending_summary,
     specialist_result_summary,
     specialist_results_summary,
 )
@@ -60,3 +61,21 @@ def test_specialist_summary_drops_unrecognized_free_text_slots() -> None:
     assert summary["missing_data"] == ["farm"]
     assert "João" not in str(summary)
     assert "9123" not in str(summary)
+
+
+
+def test_pending_summary_normalizes_accents_and_bounds_route_values() -> None:
+    missing, by_route = pending_summary(
+        ["período de análise", "número de aves", "texto livre do modelo"],
+        {
+            "sustainability": ["mês", "fazenda do produtor João"],
+            "ranking": ["confirmação do usuário"],
+        },
+    )
+
+    assert missing == ["period", "number"]
+    assert by_route == {
+        "sustainability": ["period", "farm"],
+        "ranking": ["confirmation"],
+    }
+    assert "João" not in str(by_route)
