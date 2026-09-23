@@ -56,6 +56,7 @@ class AgentState(MessagesState):
     last_routes: list[str]
     pending_routes: list[str]
     pending_missing_data: list[str]
+    pending_by_route: dict[str, list[str]]
     agents: Annotated[list[str], _merge_agents]
     tools: Annotated[list[str], _merge_tools]
     input_guardrail: dict[str, object]
@@ -125,11 +126,6 @@ _PERSONAL_DATA_TOPIC_PATTERN = re.compile(
     r"pontua\w*|nivel\w*|selo\w*|desempenh\w*|perform\w*|"
     r"medicao|registro\w*)\b"
 )
-_PENDING_ANSWER_PATTERN = re.compile(
-    r"(?:\b\d+(?:[.,]\d+)?\b|"
-    r"\b(?:dia|dias|semana|semanas|mes|meses|ciclo|ciclos|periodo|"
-    r"fazenda|minha|meu|sim|nao|isso|essa|esse|aqui|la)\b)"
-)
 _PENDING_CANCEL_PATTERN = re.compile(
     r"\b(?:esquece|ignora|cancela|cancelar|outro\s+assunto|mudar\s+de\s+assunto|"
     r"muda\s+de\s+assunto)\b"
@@ -195,22 +191,52 @@ def _is_contextual_followup(message: object) -> bool:
     return bool(_FOLLOWUP_PATTERN.search(_normalize_route_text(content)))
 
 
-def _is_pending_followup(message: object, missing_data: object) -> bool:
-    """Detect compact answers to a structured question left by a specialist."""
+def _is_cancel_request(message: object) -> bool:
     content = getattr(message, "content", message)
-    if not isinstance(content, str) or not isinstance(missing_data, list):
+    if not isinstance(content, str):
         return False
-    if not any(isinstance(item, str) and item.strip() for item in missing_data):
-        return False
+    return bool(_PENDING_CANCEL_PATTERN.search(_normalize_route_text(content)))
 
+
+def _missing_slot_kinds(missing_data: object) -> set[str]:
+    kinds: set[str] = set()
+    for item in _string_list(missing_data):
+        text = _normalize_route_text(item)
+        if any(token in text for token in ("period", "janela", "dia", "semana", "mes")):
+            kinds.add("period")
+        if any(token in text for token in ("fazenda", "granja", "propriedade")):
+            kinds.add("farm")
+        if any(token in text for token in ("confirm", "sim ou nao", "sim/nao")):
+            kinds.add("confirmation")
+        if any(
+            token in text
+            for token in ("quantidade", "numero", "aves", "frangos", "capacidade", "valor")
+        ):
+            kinds.add("number")
+    return kinds
+
+
+def _is_pending_followup(message: object, missing_data: object) -> bool:
+    """Accept only compact replies compatible with the specialist's missing slots."""
+    content = getattr(message, "content", message)
+    if not isinstance(content, str):
+        return False
     text = _normalize_route_text(content).strip()
-    if not text or _PENDING_CANCEL_PATTERN.search(text):
+    if not text or len(text) > 180 or _is_cancel_request(message):
         return False
     if _is_contextual_followup(message):
         return True
-    if len(text) > 180:
-        return False
-    return bool(_PENDING_ANSWER_PATTERN.search(text))
+
+    kinds = _missing_slot_kinds(missing_data)
+    if "period" in kinds and _extract_period_days(content, missing_data) is not None:
+        return True
+    if "farm" in kinds and re.search(r"\b(?:fazenda|granja|minha|meu|aqui)\b", text):
+        return True
+    if "confirmation" in kinds and re.fullmatch(r"(?:sim|nao|pode|isso)", text):
+        return True
+    if "number" in kinds and re.fullmatch(r"\d+(?:[.,]\d+)?", text):
+        return True
+    return False
 
 
 def _inheritable_routes(routes: object) -> list[str]:
