@@ -29,6 +29,12 @@ MCP_TOOL_ALLOWLIST: dict[str, frozenset[str]] = {
 MCP_USER_SCOPED_TOOLS = frozenset(
     {"get_user_context", "get_user_farm_data", "get_consumption_summary"}
 )
+MCP_UNSCOPED_TOOLS = frozenset(
+    tool_name
+    for allowed in MCP_TOOL_ALLOWLIST.values()
+    for tool_name in allowed
+    if tool_name not in MCP_USER_SCOPED_TOOLS
+)
 MCP_TOOLS_CACHE_MAX_ENTRIES = 256
 _FORWARDED_ACCESS_TOKEN: ContextVar[str | None] = ContextVar(
     "mcp_forwarded_access_token",
