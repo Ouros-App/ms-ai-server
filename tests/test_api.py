@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
+from pydantic import SecretStr
 
 from app.agents.graph import build_graph
 from app.agents.model import get_chat_model
@@ -154,23 +155,47 @@ class ApiTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 404)
 
-    def test_root_health_and_metrics_work_for_authenticated_principal(self) -> None:
+    def test_root_and_health_are_public(self) -> None:
         self.assertEqual(
-            self.client.get("/", headers=self.auth_headers()).json(),
+            self.client.get("/").json(),
             {"message": "AI Server is running"},
         )
         self.assertEqual(
-            self.client.get("/health", headers=self.auth_headers()).json(),
+            self.client.get("/health").json(),
             {"status": "ok"},
         )
-        metrics = self.client.get("/metrics", headers=self.auth_headers())
-        self.assertEqual(metrics.status_code, 200)
-        self.assertIn("ai_server_http_requests_total", metrics.text)
+
+    def test_metrics_use_dedicated_scrape_token(self) -> None:
+        with patch.object(settings, "metrics_token", SecretStr("scrape-token")):
+            missing = self.client.get("/metrics")
+            wrong = self.client.get(
+                "/metrics",
+                headers={"Authorization": "Bearer wrong"},
+            )
+            allowed = self.client.get(
+                "/metrics",
+                headers={"Authorization": "Bearer scrape-token"},
+            )
+
+        self.assertEqual(missing.status_code, 401)
+        self.assertEqual(wrong.status_code, 401)
+        self.assertEqual(allowed.status_code, 200)
+        self.assertIn("ai_server_http_requests_total", allowed.text)
+        self.assertIn("ai_server_llm_input_tokens_total", allowed.text)
+
+    def test_metrics_fail_closed_when_scrape_token_is_not_configured(self) -> None:
+        with patch.object(settings, "metrics_token", None):
+            response = self.client.get("/metrics")
+
+        self.assertEqual(response.status_code, 503)
 
     def test_missing_bearer_is_rejected_by_real_auth_dependency(self) -> None:
         self.app.dependency_overrides.pop(get_current_principal)
         try:
-            response = self.client.get("/")
+            response = self.client.post(
+                "/v1/chat",
+                json={"thread_id": "unauthenticated", "message": "ranking"},
+            )
         finally:
             self.app.dependency_overrides[get_current_principal] = self.principal_override
 
