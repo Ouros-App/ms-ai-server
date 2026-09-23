@@ -31,6 +31,7 @@ from app.debug_ui.trace import trace_event
 logger = logging.getLogger(__name__)
 ROUTES = frozenset(AGENT_PROMPTS)
 _RESET_TOOLS = "__reset_tools__"
+_MAX_TOOL_RESULT_CHARS = 12_000
 
 
 def _merge_agents(current: list[str] | None, update: list[str] | None) -> list[str]:
@@ -451,7 +452,7 @@ async def _prefetch_consumption_summary(
     trace_event(
         "tool.result",
         tool="get_consumption_summary",
-        result=result,
+        result=_tool_result_trace(result),
         source="required_prefetch",
     )
     if not isinstance(result, dict) or result.get("authorized") is False:
@@ -1015,15 +1016,42 @@ def _normalize_specialist_result(response: object) -> dict[str, object]:
     }
 
 
+def _tool_result_trace(result: object) -> dict[str, object]:
+    """Describe tool output for debugging without logging business data."""
+    if isinstance(result, dict):
+        return {
+            "type": "dict",
+            "keys": sorted(str(key) for key in result)[:20],
+            "field_count": len(result),
+        }
+    if isinstance(result, list):
+        return {"type": "list", "item_count": len(result)}
+    return {"type": type(result).__name__}
+
+
 def _tool_result_content(result: object) -> str:
+    """Bound tool context so a large result cannot flood the model context."""
     if isinstance(result, (dict, list)):
-        return json.dumps(
+        text = json.dumps(
             result,
             ensure_ascii=False,
             separators=(",", ":"),
             default=str,
         )
-    return str(result)
+    else:
+        text = str(result)
+
+    if len(text) <= _MAX_TOOL_RESULT_CHARS:
+        return text
+    return json.dumps(
+        {
+            "status": "truncated",
+            "message": "Resultado maior que o limite de contexto da ferramenta.",
+            "preview": text[:_MAX_TOOL_RESULT_CHARS],
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
 
 
 async def _execute_tool_call(
@@ -1063,7 +1091,11 @@ async def _execute_tool_call(
             separators=(",", ":"),
         )
     else:
-        trace_event("tool.result", tool=selected_tool.name, result=result)
+        trace_event(
+            "tool.result",
+            tool=selected_tool.name,
+            result=_tool_result_trace(result),
+        )
         content = _tool_result_content(result)
 
     conversation.append(
