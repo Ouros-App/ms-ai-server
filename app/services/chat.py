@@ -11,6 +11,8 @@ from app.agents.guardrails import guard_input
 from app.agents.mcp import forward_mcp_access_token
 from app.core.config import settings
 from app.core.metrics import (
+    chat_finished,
+    chat_started,
     observe_chat_duration,
     observe_chat_result,
     observe_chat_routing,
@@ -208,15 +210,19 @@ async def invoke_graph(
 ) -> ChatResponse:
     """Validate ownership, execute the graph and return the product response."""
 
-    response, _diagnostics = await _invoke_graph(
-        graph,
-        payload,
-        principal_id,
-        thread_ownership,
-        principal_token,
-        debug=False,
-    )
-    return response
+    chat_started()
+    try:
+        response, _diagnostics = await _invoke_graph(
+            graph,
+            payload,
+            principal_id,
+            thread_ownership,
+            principal_token,
+            debug=False,
+        )
+        return response
+    finally:
+        chat_finished()
 
 
 async def invoke_graph_debug(
