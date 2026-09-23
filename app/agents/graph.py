@@ -9,6 +9,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.types import Send
 
+from app.agents.diagnostics import specialist_result_summary
 from app.agents.guardrails import guard_input, guard_output
 from app.agents.llms import profile_for
 from app.agents.mcp import MCPToolProvider
@@ -888,13 +889,13 @@ async def _execute_specialist(
         [*specialist_tools, *remaining_mcp_tools],
     )
     used_tools = list(dict.fromkeys([*prefetched_tools, *model_used_tools]))
+    result = _normalize_specialist_result(response)
     trace_event(
         "agent.response",
         agent=agent_name,
-        response=_response_content(response),
+        status=result.get("status"),
+        has_missing_data=bool(result.get("missing_data")),
     )
-
-    result = _normalize_specialist_result(response)
     if (
         prefetch_required
         and (
@@ -945,7 +946,7 @@ async def _run_agent(
         "agent.result",
         agent=agent_name,
         tools=used_tools,
-        result=result,
+        result=specialist_result_summary({"agent": agent_name, **result}),
     )
     return {
         "agents": [*state["agents"], agent_name],
