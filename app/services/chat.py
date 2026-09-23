@@ -6,7 +6,7 @@ from time import perf_counter
 from fastapi import HTTPException, status
 from langchain_core.messages import HumanMessage
 
-from app.agents.diagnostics import specialist_results_summary
+from app.agents.diagnostics import pending_summary, specialist_results_summary
 from app.agents.guardrails import guard_input
 from app.agents.mcp import forward_mcp_access_token
 from app.core.config import settings
@@ -155,6 +155,10 @@ async def _invoke_graph(
         pending_routes = result.get("pending_routes", [])
         pending_missing_data = result.get("pending_missing_data", [])
         pending_by_route = result.get("pending_by_route", {})
+        debug_pending_missing_data, debug_pending_by_route = pending_summary(
+            pending_missing_data,
+            pending_by_route,
+        )
         pending_personal_routes = result.get("pending_personal_routes", [])
         duration_ms = round((perf_counter() - started_at) * 1000, 1)
 
@@ -169,8 +173,8 @@ async def _invoke_graph(
             tools=tools,
             specialist_results=debug_specialist_results,
             pending_routes=pending_routes,
-            pending_missing_data=pending_missing_data,
-            pending_by_route=pending_by_route,
+            pending_missing_data=debug_pending_missing_data,
+            pending_by_route=debug_pending_by_route,
             pending_personal_routes=pending_personal_routes,
             duration_ms=duration_ms,
         )
@@ -192,8 +196,8 @@ async def _invoke_graph(
             "route_source": route_source,
             "specialist_results": debug_specialist_results,
             "pending_routes": pending_routes,
-            "pending_missing_data": pending_missing_data,
-            "pending_by_route": pending_by_route,
+            "pending_missing_data": debug_pending_missing_data,
+            "pending_by_route": debug_pending_by_route,
             "pending_personal_routes": pending_personal_routes,
             "guardrail": guardrail_state,
             "trace": trace,
