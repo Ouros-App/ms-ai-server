@@ -798,7 +798,7 @@ async def _execute_specialist(
     model,
     specialist_tools: list,
     mcp_provider: MCPToolProvider | None,
-) -> tuple[dict[str, object], list[str]]:
+) -> tuple[dict[str, object], list[str], bool]:
     mcp_tools = await _load_agent_mcp_tools(
         state,
         agent_name,
@@ -865,7 +865,7 @@ async def _execute_specialist(
         )
     ):
         result = _personal_data_error_result()
-    return result, used_tools
+    return result, used_tools, personal_request
 
 
 async def _run_agent(
@@ -881,6 +881,7 @@ async def _run_agent(
     user_text = getattr(latest_message, "content", "")
     input_guardrail = await _resolve_specialist_guardrail(state, user_text)
 
+    personal_request = False
     if input_guardrail and not input_guardrail["allowed"]:
         result, used_tools = _empty_specialist_result("unsupported"), []
     elif not isinstance(user_text, str):
@@ -890,7 +891,7 @@ async def _run_agent(
         if model is None:
             result, used_tools = _empty_specialist_result("error"), []
         else:
-            result, used_tools = await _execute_specialist(
+            result, used_tools, personal_request = await _execute_specialist(
                 state,
                 prompt,
                 agent_name,
@@ -911,7 +912,13 @@ async def _run_agent(
     return {
         "agents": [*state["agents"], agent_name],
         "tools": used_tools,
-        "specialist_results": [{"agent": agent_name, **result}],
+        "specialist_results": [
+            {
+                "agent": agent_name,
+                "_personal_data_required": personal_request,
+                **result,
+            }
+        ],
     }
 
 
