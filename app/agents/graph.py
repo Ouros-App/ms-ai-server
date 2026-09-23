@@ -9,7 +9,11 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.types import Send
 
-from app.agents.diagnostics import specialist_result_summary
+from app.agents.diagnostics import (
+    missing_slot_kinds,
+    pending_summary,
+    specialist_result_summary,
+)
 from app.agents.guardrails import guard_input, guard_output
 from app.agents.llms import profile_for
 from app.agents.mcp import MCPToolProvider
@@ -137,8 +141,9 @@ _PERSONAL_DATA_TOPIC_PATTERN = re.compile(
     r"medicao|registro\w*)\b"
 )
 _PENDING_CANCEL_PATTERN = re.compile(
-    r"\b(?:esquece|ignora|cancela|cancelar|outro\s+assunto|mudar\s+de\s+assunto|"
-    r"muda\s+de\s+assunto)\b"
+    r"^(?:esquece|ignora|cancela|cancelar|outro\s+assunto|mudar\s+de\s+assunto|"
+    r"muda\s+de\s+assunto)"
+    r"(?:\s+(?:isso|isto|tudo|essa|esse|o\s+pedido|a\s+pergunta))?[!.?\s]*$"
 )
 _PERIOD_PATTERN = re.compile(
     r"\b(?P<value>\d{1,3})\s*(?P<unit>dia|dias|semana|semanas|mes|meses)\b"
@@ -216,28 +221,15 @@ def _is_cancel_request(message: object) -> bool:
     content = getattr(message, "content", message)
     if not isinstance(content, str):
         return False
-    return bool(_PENDING_CANCEL_PATTERN.search(_normalize_route_text(content)))
+    return bool(
+        _PENDING_CANCEL_PATTERN.search(
+            _normalize_route_text(content).strip()
+        )
+    )
 
 
 def _missing_slot_kinds(missing_data: object) -> set[str]:
-    kinds: set[str] = set()
-    for item in _string_list(missing_data):
-        text = _normalize_route_text(item)
-        if any(
-            token in text
-            for token in ("period", "janela", "dia", "semana", "mes", "ciclo")
-        ):
-            kinds.add("period")
-        if any(token in text for token in ("fazenda", "granja", "propriedade")):
-            kinds.add("farm")
-        if any(token in text for token in ("confirm", "sim ou nao", "sim/nao")):
-            kinds.add("confirmation")
-        if any(
-            token in text
-            for token in ("quantidade", "numero", "aves", "frangos", "capacidade", "valor")
-        ):
-            kinds.add("number")
-    return kinds
+    return missing_slot_kinds(missing_data)
 
 
 def _is_pending_followup(message: object, missing_data: object) -> bool:
@@ -1336,11 +1328,15 @@ def collect_specialist_results(state: AgentState) -> dict:
         state.get("routes", []),
         pending_routes,
     )
+    debug_missing_data, debug_by_route = pending_summary(
+        pending_missing_data,
+        pending_by_route,
+    )
     trace_event(
         "conversation.pending",
         routes=pending_routes,
-        missing_data=pending_missing_data,
-        by_route=pending_by_route,
+        missing_data=debug_missing_data,
+        by_route=debug_by_route,
         personal_routes=pending_personal_routes,
     )
     return {
