@@ -950,23 +950,40 @@ def dispatch_agents(state: AgentState, agents: dict):
     return [Send(route, state) for route in selected]
 
 
-async def collect_specialist_results(state: AgentState) -> dict:
-    """Ponto de fan-in e persistencia das pendencias conversacionais."""
-    specialist_results = state.get("specialist_results", [])
+def _pending_result(result: object) -> tuple[str, list[str]] | None:
+    if not isinstance(result, dict) or result.get("status") != "needs_input":
+        return None
+    agent_name = result.get("agent")
+    missing = _string_list(result.get("missing_data", []))
+    if not isinstance(agent_name, str) or agent_name not in ROUTES or not missing:
+        return None
+    return agent_name, missing
+
+
+def _collect_pending_state(
+    specialist_results: list,
+) -> tuple[list[str], list[str]]:
     pending_routes: list[str] = []
     pending_missing_data: list[str] = []
     for result in specialist_results:
-        if not isinstance(result, dict) or result.get("status") != "needs_input":
+        pending = _pending_result(result)
+        if pending is None:
             continue
-        agent_name = result.get("agent")
-        missing = _string_list(result.get("missing_data", []))
-        if isinstance(agent_name, str) and agent_name in ROUTES and missing:
-            if agent_name not in pending_routes:
-                pending_routes.append(agent_name)
-            for item in missing:
-                if item not in pending_missing_data:
-                    pending_missing_data.append(item)
+        agent_name, missing = pending
+        if agent_name not in pending_routes:
+            pending_routes.append(agent_name)
+        pending_missing_data.extend(
+            item for item in missing if item not in pending_missing_data
+        )
+    return pending_routes, pending_missing_data
 
+
+async def collect_specialist_results(state: AgentState) -> dict:
+    """Persist only unresolved specialist requests as conversational state."""
+    specialist_results = state.get("specialist_results", [])
+    pending_routes, pending_missing_data = _collect_pending_state(
+        specialist_results
+    )
     logger.info(
         "specialists_collected count=%d agents=%s pending_routes=%s",
         len(specialist_results),
