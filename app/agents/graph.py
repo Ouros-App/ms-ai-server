@@ -4,7 +4,7 @@ import re
 import unicodedata
 from typing import Annotated
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.types import Send
 
@@ -335,14 +335,40 @@ def _find_tool(mcp_tools: list, name: str):
     )
 
 
+def _previous_human_message(state: AgentState) -> str | None:
+    messages = state.get("messages", [])
+    for message in reversed(messages[:-1]):
+        if isinstance(message, HumanMessage) and isinstance(message.content, str):
+            return message.content
+    return None
+
+
+def _conversation_is_personal_request(
+    state: AgentState,
+    agent_name: str,
+    user_text: str,
+) -> bool:
+    if _is_personal_data_request(agent_name, user_text):
+        return True
+    if agent_name not in _pending_by_route(state):
+        return False
+    previous_user_text = _previous_human_message(state)
+    return bool(
+        previous_user_text
+        and _is_personal_data_request(agent_name, previous_user_text)
+    )
+
+
 def _requires_consumption_prefetch(
     agent_name: str,
     user_text: str,
     pending_missing_data: object,
+    *,
+    personal_request: bool,
 ) -> bool:
     return (
         agent_name == "sustainability"
-        and _is_personal_data_request(agent_name, user_text)
+        and personal_request
         and _extract_period_days(user_text, pending_missing_data) is not None
     )
 
@@ -352,12 +378,15 @@ async def _prefetch_consumption_summary(
     user_text: str,
     mcp_tools: list,
     pending_missing_data: object,
+    *,
+    personal_request: bool,
 ) -> tuple[dict | None, list[str], dict[str, object] | None]:
     """Prefetch the least-privilege domain summary when a personal period is explicit."""
     if not _requires_consumption_prefetch(
         agent_name,
         user_text,
         pending_missing_data,
+        personal_request=personal_request,
     ):
         return None, [], None
 
@@ -731,10 +760,16 @@ async def _execute_specialist(
         mcp_provider,
     )
     pending_missing_data = _pending_missing_for_route(state, agent_name)
+    personal_request = _conversation_is_personal_request(
+        state,
+        agent_name,
+        user_text,
+    )
     prefetch_required = _requires_consumption_prefetch(
         agent_name,
         user_text,
         pending_missing_data,
+        personal_request=personal_request,
     )
     (
         prefetch_message,
@@ -745,6 +780,7 @@ async def _execute_specialist(
         user_text,
         mcp_tools,
         pending_missing_data,
+        personal_request=personal_request,
     )
 
     specialist_messages = _build_specialist_messages(
