@@ -210,6 +210,17 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             ["faq"],
         )
 
+
+    def test_identity_and_auth_messages_route_without_losing_context(self) -> None:
+        self.assertEqual(
+            _deterministic_routes(HumanMessage(content="quem eh vc?")),
+            ["faq"],
+        )
+        self.assertEqual(
+            _deterministic_routes(HumanMessage(content="minha senha nao funciona")),
+            ["support"],
+        )
+
     def test_personal_ranking_indicators_require_authenticated_prefetch(self) -> None:
         """Require farm data for personal ranking, score, level and badge queries."""
         from app.agents.graph import _requires_personal_farm_data
