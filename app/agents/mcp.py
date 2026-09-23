@@ -401,7 +401,6 @@ class MCPToolProvider:
             tool_name="get_user_context",
         )
         return {
-            "user_type": result.get("user_type"),
             "profile": result.get("profile", {}),
             "enterprises": result.get("enterprises", []),
             "farms": result.get("farms", []),
@@ -472,7 +471,6 @@ class MCPToolProvider:
         if not authorized_ids:
             logger.warning("mcp_consumption_scope_denied user_id=%s", user_id)
             return {
-                "user_type": result.get("user_type"),
                 "authorized": False,
                 "reason": "no_farm_scope",
                 "period_days": result.get("period_days"),
@@ -493,7 +491,6 @@ class MCPToolProvider:
                 }
             )
         return {
-            "user_type": result.get("user_type"),
             "authorized": True,
             "period_days": result.get("period_days"),
             "water_unit": result.get("water_unit"),
