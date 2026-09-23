@@ -324,6 +324,20 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         )
 
 
+    def test_cancel_command_can_name_pending_route(self) -> None:
+        state = {
+            "messages": [HumanMessage(content="Esquece o ranking")],
+            "pending_routes": ["ranking"],
+            "pending_missing_data": ["periodo de analise"],
+            "pending_by_route": {"ranking": ["periodo de analise"]},
+            "last_routes": ["ranking"],
+        }
+
+        self.assertEqual(
+            _resolve_local_routes(state),
+            (["fallback"], "cancelled"),
+        )
+
     def test_product_cancel_language_is_not_treated_as_task_cancellation(self) -> None:
         state = {
             "messages": [HumanMessage(content="Como cancelar uma notificacao?")],
