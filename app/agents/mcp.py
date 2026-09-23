@@ -19,21 +19,9 @@ logger = logging.getLogger(__name__)
 MCP_TOOL_ALLOWLIST: dict[str, frozenset[str]] = {
     "faq": frozenset({"search_knowledge", "get_user_context"}),
     "sustainability": frozenset(
-        {
-            "search_knowledge",
-            "get_user_context",
-            "get_user_farm_data",
-            "get_consumption_summary",
-        }
+        {"search_knowledge", "get_user_context", "get_consumption_summary"}
     ),
-    "ranking": frozenset(
-        {
-            "search_knowledge",
-            "get_user_context",
-            "get_user_farm_data",
-            "postgres_status",
-        }
-    ),
+    "ranking": frozenset({"search_knowledge", "get_user_context"}),
     "support": frozenset({"search_knowledge", "get_user_context"}),
     "fallback": frozenset({"search_knowledge"}),
 }
