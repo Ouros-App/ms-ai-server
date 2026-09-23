@@ -138,6 +138,7 @@ async def _invoke_graph(
         specialist_results = result.get("specialist_results", [])
         pending_routes = result.get("pending_routes", [])
         pending_missing_data = result.get("pending_missing_data", [])
+        pending_by_route = result.get("pending_by_route", {})
         duration_ms = round((perf_counter() - started_at) * 1000, 1)
 
         observe_chat_result("success", agents, tools)
@@ -149,6 +150,7 @@ async def _invoke_graph(
             specialist_results=specialist_results,
             pending_routes=pending_routes,
             pending_missing_data=pending_missing_data,
+            pending_by_route=pending_by_route,
             duration_ms=duration_ms,
         )
         logger.info(
@@ -169,6 +171,7 @@ async def _invoke_graph(
             "specialist_results": specialist_results,
             "pending_routes": pending_routes,
             "pending_missing_data": pending_missing_data,
+            "pending_by_route": pending_by_route,
             "guardrail": guardrail_state,
             "trace": trace,
             "duration_ms": duration_ms,
