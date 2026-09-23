@@ -92,12 +92,6 @@ _HISTORY_PATTERN = re.compile(
     r"|\b(?:o que|qual).{0,60}\b(?:perguntei|falamos|disse)\b"
     r"|\b(?:historico|conversa anterior|mensagens anteriores|lembra)\b"
 )
-_UNSUPPORTED_CLAIM_PATTERNS = (
-    re.compile(
-        r"\b(?:co2|emissoes?|area plantada|safra|auditorias?|certificacoes?)\b",
-        re.IGNORECASE,
-    ),
-)
 _INTERNAL_ID_PATTERNS = (
     re.compile(
         r"\b(?:farm[_ ]?id|fazenda|granja)\s*(?:\(\s*)?(?:(?:de|com)\s+)?"
@@ -329,7 +323,7 @@ def memory_is_allowed(memory: str) -> bool:
 
 
 def guard_output(content: object, sensitive_token: str = "") -> str:
-    """Aplica redacao deterministica de PII, segredos e claims nao confirmados."""
+    """Apply deterministic privacy and secret redaction without duplicating product truth."""
     if not isinstance(content, str):
         return SAFE_REFUSAL
     text = content.strip()
@@ -344,8 +338,6 @@ def guard_output(content: object, sensitive_token: str = "") -> str:
         return SAFE_REFUSAL
     if any(pattern.search(text) for pattern in _INTERNAL_ID_PATTERNS):
         return NO_DATA_REFUSAL
-    if any(pattern.search(text) for pattern in _UNSUPPORTED_CLAIM_PATTERNS):
-        return OUT_OF_SCOPE_REFUSAL
     if len(text) > MAX_RESPONSE_LENGTH:
         return f"{text[:MAX_RESPONSE_LENGTH].rstrip()}..."
     return text
