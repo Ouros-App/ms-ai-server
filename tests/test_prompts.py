@@ -38,6 +38,12 @@ class PromptTest(unittest.TestCase):
         self.assertIn("aves entregues", SUSTAINABILITY_AGENT_PROMPT)
         self.assertIn("Nao use capacidade", SUSTAINABILITY_AGENT_PROMPT)
 
+    def test_router_prefers_minimal_routes_for_overlapping_words(self) -> None:
+        self.assertIn("menor conjunto suficiente", ROUTER_PROMPT)
+        self.assertIn("prefira faq", ROUTER_PROMPT)
+        self.assertIn("prefira support", ROUTER_PROMPT)
+        self.assertIn("resultados independentes", ROUTER_PROMPT)
+
     def test_product_rules_are_loaded_from_authorized_knowledge(self) -> None:
         self.assertIn("base de conhecimento", COMMON_AGENT_RULES)
         self.assertIn("search_knowledge", RANKING_AGENT_PROMPT)
