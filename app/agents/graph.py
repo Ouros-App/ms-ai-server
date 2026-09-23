@@ -224,7 +224,7 @@ def _inheritable_routes(routes: object) -> list[str]:
     ][:4]
 
 
-def _requires_personal_farm_data(agent_name: str, user_text: str) -> bool:
+def _is_personal_data_request(agent_name: str, user_text: str) -> bool:
     """Identify requests that must use authenticated farm data before the LLM."""
     if agent_name not in {"sustainability", "ranking"}:
         return False
@@ -312,7 +312,7 @@ def _requires_consumption_prefetch(
 ) -> bool:
     return (
         agent_name == "sustainability"
-        and _requires_personal_farm_data(agent_name, user_text)
+        and _is_personal_data_request(agent_name, user_text)
         and _extract_period_days(user_text, pending_missing_data) is not None
     )
 
