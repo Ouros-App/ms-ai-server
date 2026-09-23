@@ -177,6 +177,8 @@ FALLBACK_RESPONSE = (
     "Qual desses assuntos voce precisa?"
 )
 
+CANCELLED_RESPONSE = "Certo. O que voce quer fazer agora no Midas?"
+
 DEFAULT_AGENT_RESPONSE = "A IA ainda nao foi configurada. Defina os agentes, prompts e tools do projeto."
 
 AGENT_PROMPTS: dict[str, str] = {
