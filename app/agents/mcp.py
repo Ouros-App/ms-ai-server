@@ -454,7 +454,6 @@ class MCPToolProvider:
             "data": data,
         }
 
-
     @staticmethod
     def _filter_consumption_summary(
         result: object,
@@ -479,6 +478,8 @@ class MCPToolProvider:
                 "authorized": False,
                 "reason": "no_farm_scope",
                 "period_days": result.get("period_days"),
+                "water_unit": result.get("water_unit"),
+                "energy_unit": result.get("energy_unit"),
                 "summaries": [],
             }
 
@@ -492,6 +493,8 @@ class MCPToolProvider:
             "user_id": user_id,
             "authorized": True,
             "period_days": result.get("period_days"),
+            "water_unit": result.get("water_unit"),
+            "energy_unit": result.get("energy_unit"),
             "summaries": summaries,
         }
 
