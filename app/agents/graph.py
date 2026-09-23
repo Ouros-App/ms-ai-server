@@ -138,6 +138,7 @@ _PERIOD_PATTERN = re.compile(
     r"\b(?P<value>\d{1,3})\s*(?P<unit>dia|dias|semana|semanas|mes|meses)\b"
 )
 _BARE_PERIOD_PATTERN = re.compile(r"^\s*(?P<value>\d{1,3})\s*$")
+_CYCLE_PATTERN = re.compile(r"\b\d{1,3}\s*ciclos?\b")
 _GREETING_ROUTE_PATTERN = re.compile(
     r"^(?:oi|ola|bom\s+dia|boa\s+tarde|boa\s+noite|ajuda)[!.?\s]*$"
 )
@@ -212,7 +213,10 @@ def _missing_slot_kinds(missing_data: object) -> set[str]:
     kinds: set[str] = set()
     for item in _string_list(missing_data):
         text = _normalize_route_text(item)
-        if any(token in text for token in ("period", "janela", "dia", "semana", "mes")):
+        if any(
+            token in text
+            for token in ("period", "janela", "dia", "semana", "mes", "ciclo")
+        ):
             kinds.add("period")
         if any(token in text for token in ("fazenda", "granja", "propriedade")):
             kinds.add("farm")
@@ -238,7 +242,10 @@ def _is_pending_followup(message: object, missing_data: object) -> bool:
         return True
 
     kinds = _missing_slot_kinds(missing_data)
-    if "period" in kinds and _extract_period_days(content, missing_data) is not None:
+    if "period" in kinds and (
+        _extract_period_days(content, missing_data) is not None
+        or _CYCLE_PATTERN.search(text)
+    ):
         return True
     if "farm" in kinds and re.search(r"\b(?:fazenda|granja|minha|meu|aqui)\b", text):
         return True
