@@ -236,26 +236,29 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                     _requires_personal_farm_data("ranking", message)
                 )
 
-    async def test_personal_farm_query_prefetches_authenticated_data(self) -> None:
-        """Fetch personal farm data before the specialist can decide to skip tools."""
-        farm_tool = Mock()
-        farm_tool.name = "get_user_farm_data"
-        farm_tool.ainvoke = AsyncMock(
+    async def test_personal_consumption_query_prefetches_domain_summary(self) -> None:
+        """Fetch only the scoped aggregate needed for an explicit personal period."""
+        summary_tool = Mock()
+        summary_tool.name = "get_consumption_summary"
+        summary_tool.ainvoke = AsyncMock(
             return_value={
+                "user_type": "farm_owner",
+                "user_id": 42,
                 "authorized": True,
-                "data": {
-                    "water_registries": [
-                        {
-                            "registration_date": "2026-09-20",
-                            "start_hydrometer": 100,
-                            "end_hydrometer": 180,
-                        }
-                    ]
-                },
+                "period_days": 30,
+                "water_unit": "hydrometer_reading_delta",
+                "energy_unit": "kWh",
+                "summaries": [
+                    {
+                        "id_farm": 11,
+                        "water_meter_delta": 80,
+                        "energy_consumption_kwh": 120,
+                    }
+                ],
             }
         )
         provider = Mock()
-        provider.tools_for = AsyncMock(return_value=[farm_tool])
+        provider.tools_for = AsyncMock(return_value=[summary_tool])
 
         model = Mock()
         model.ainvoke = AsyncMock(
@@ -277,15 +280,15 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                     user_id="42",
                     thread_id="personal-data-thread",
                     message=(
-                        "Como minha fazenda vem performando no quesito consumo de agua?"
+                        "Como foi o consumo de agua da minha fazenda nos ultimos 30 dias?"
                     ),
                 ),
                 "42",
                 principal_token="signed-user-token",
             )
 
-        farm_tool.ainvoke.assert_awaited_once_with({"limit": 20})
-        self.assertIn("get_user_farm_data", response.tools)
+        summary_tool.ainvoke.assert_awaited_once_with({"period_days": 30})
+        self.assertIn("get_consumption_summary", response.tools)
         specialist_messages = model.ainvoke.await_args_list[0].args[0]
         system_context = "\n".join(
             str(message.get("content", ""))
@@ -293,25 +296,28 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             if isinstance(message, dict)
         )
         self.assertIn("Dados pessoais autenticados", system_context)
-        self.assertIn("water_registries", system_context)
+        self.assertIn("water_meter_delta", system_context)
 
     async def test_personal_query_does_not_request_manual_data_without_farm_scope(
         self,
     ) -> None:
         """Treat missing authenticated farm scope as backend state, not user input."""
-        farm_tool = Mock()
-        farm_tool.name = "get_user_farm_data"
-        farm_tool.ainvoke = AsyncMock(
+        summary_tool = Mock()
+        summary_tool.name = "get_consumption_summary"
+        summary_tool.ainvoke = AsyncMock(
             return_value={
                 "user_type": "farm_owner",
                 "user_id": 42,
                 "authorized": False,
                 "reason": "no_farm_scope",
-                "data": {},
+                "period_days": 30,
+                "water_unit": "hydrometer_reading_delta",
+                "energy_unit": "kWh",
+                "summaries": [],
             }
         )
         provider = Mock()
-        provider.tools_for = AsyncMock(return_value=[farm_tool])
+        provider.tools_for = AsyncMock(return_value=[summary_tool])
 
         model = Mock()
         model.ainvoke = AsyncMock(
@@ -333,7 +339,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                 ChatRequest(
                     user_id="42",
                     thread_id="no-farm-scope-thread",
-                    message="Como esta o consumo de agua da minha fazenda?",
+                    message="Como esta o consumo de agua da minha fazenda nos ultimos 30 dias?",
                 ),
                 "42",
                 principal_token="signed-user-token",
