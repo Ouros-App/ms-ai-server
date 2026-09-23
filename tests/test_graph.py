@@ -18,6 +18,8 @@ from app.agents.graph import (
     _merge_tools,
     _resolve_local_routes,
     _route_update,
+    _tool_result_content,
+    _tool_result_trace,
     build_graph,
     default_agent,
     route_request,
@@ -752,6 +754,18 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.content, '{"status":"ok"}')
         self.assertEqual(tools, [])
         model.ainvoke.assert_awaited_once()
+
+    def test_tool_results_are_bounded_and_trace_safe(self) -> None:
+        payload = {"secret_business_value": "x" * 13_000}
+
+        trace = _tool_result_trace(payload)
+        model_content = _tool_result_content(payload)
+
+        self.assertEqual(trace["type"], "dict")
+        self.assertIn("secret_business_value", trace["keys"])
+        self.assertNotIn("x" * 100, str(trace))
+        self.assertIn('"status":"truncated"', model_content)
+        self.assertLess(len(model_content), 12_500)
 
     async def test_tool_timeout_is_returned_to_model_without_hanging_request(self) -> None:
         async def slow_tool(_args):
