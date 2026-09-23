@@ -1,6 +1,7 @@
+import asyncio
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from app.core.metrics import (
     _cached_input_tokens,
@@ -51,6 +52,35 @@ class MetricsTest(unittest.IsolatedAsyncioTestCase):
             ),
             35,
         )
+
+    async def test_observed_llm_invoke_records_cancellation_and_closes_gauge(self) -> None:
+        model = SimpleNamespace(
+            ainvoke=AsyncMock(side_effect=asyncio.CancelledError())
+        )
+        request_counter = SimpleNamespace(inc=unittest.mock.Mock())
+        duration_histogram = SimpleNamespace(observe=unittest.mock.Mock())
+
+        with (
+            patch(
+                "app.core.metrics.LLM_REQUESTS.labels",
+                return_value=request_counter,
+            ) as requests,
+            patch(
+                "app.core.metrics.LLM_DURATION.labels",
+                return_value=duration_histogram,
+            ) as duration,
+            patch("app.core.metrics.LLM_IN_FLIGHT.inc") as in_flight_inc,
+            patch("app.core.metrics.LLM_IN_FLIGHT.dec") as in_flight_dec,
+            self.assertRaises(asyncio.CancelledError),
+        ):
+            await observed_llm_ainvoke(model, [], "fast")
+
+        requests.assert_called_once_with("fast", "unknown", "cancelled")
+        duration.assert_called_once_with("fast", "unknown")
+        request_counter.inc.assert_called_once_with()
+        duration_histogram.observe.assert_called_once()
+        in_flight_inc.assert_called_once_with()
+        in_flight_dec.assert_called_once_with()
 
     async def test_observed_llm_invoke_returns_response_without_prompt_logging(self) -> None:
         response = SimpleNamespace(
