@@ -144,8 +144,10 @@ _DETERMINISTIC_ROUTE_PATTERNS = (
     (
         "support",
         re.compile(
-            r"\b(?:erro|falha|sincron\w*|offline|login|senha|acesso|autentic\w*|"
-            r"notifica\w*)\b"
+            r"\b(?:erro|falha|sincron\w*|offline|login|senha|autentic\w*|"
+            r"notifica\w*)\b|"
+            r"\b(?:nao\s+consigo|problema|falha)\s+(?:de\s+)?acess\w*\b|"
+            r"\bacess\w*\s+(?:a\s+)?(?:conta|login|sessao)\b"
         ),
     ),
     (
