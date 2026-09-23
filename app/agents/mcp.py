@@ -427,14 +427,13 @@ class MCPToolProvider:
             result,
             tool_name="get_user_context",
         )
-        filtered = MCPToolProvider._without_internal_ids(
+        return MCPToolProvider._without_internal_ids(
             {
                 "profile": result.get("profile", {}),
                 "enterprises": result.get("enterprises", []),
                 "farms": result.get("farms", []),
             }
         )
-        return filtered if isinstance(filtered, dict) else {}
 
     @staticmethod
     def _filter_farm_data(
