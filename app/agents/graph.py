@@ -54,6 +54,8 @@ class AgentState(MessagesState):
     route: str
     routes: list[str]
     last_routes: list[str]
+    pending_routes: list[str]
+    pending_missing_data: list[str]
     agents: Annotated[list[str], _merge_agents]
     tools: Annotated[list[str], _merge_tools]
     input_guardrail: dict[str, object]
@@ -123,6 +125,15 @@ _PERSONAL_DATA_TOPIC_PATTERN = re.compile(
     r"pontua\w*|nivel\w*|selo\w*|desempenh\w*|perform\w*|"
     r"medicao|registro\w*)\b"
 )
+_PENDING_ANSWER_PATTERN = re.compile(
+    r"(?:\b\d+(?:[.,]\d+)?\b|"
+    r"\b(?:dia|dias|semana|semanas|mes|meses|ciclo|ciclos|periodo|"
+    r"fazenda|minha|meu|sim|nao|isso|essa|esse|aqui|la)\b)"
+)
+_PENDING_CANCEL_PATTERN = re.compile(
+    r"\b(?:esquece|ignora|cancela|cancelar|outro\s+assunto|mudar\s+de\s+assunto|"
+    r"muda\s+de\s+assunto)\b"
+)
 
 
 _DETERMINISTIC_ROUTE_PATTERNS = (
@@ -172,6 +183,24 @@ def _is_contextual_followup(message: object) -> bool:
     if not isinstance(content, str):
         return False
     return bool(_FOLLOWUP_PATTERN.search(_normalize_route_text(content)))
+
+
+def _is_pending_followup(message: object, missing_data: object) -> bool:
+    """Detect compact answers to a structured question left by a specialist."""
+    content = getattr(message, "content", message)
+    if not isinstance(content, str) or not isinstance(missing_data, list):
+        return False
+    if not any(isinstance(item, str) and item.strip() for item in missing_data):
+        return False
+
+    text = _normalize_route_text(content).strip()
+    if not text or _PENDING_CANCEL_PATTERN.search(text):
+        return False
+    if _is_contextual_followup(message):
+        return True
+    if len(text) > 180:
+        return False
+    return bool(_PENDING_ANSWER_PATTERN.search(text))
 
 
 def _inheritable_routes(routes: object) -> list[str]:
@@ -291,18 +320,35 @@ async def _prefetch_personal_farm_data(
 
 
 async def route_request(state: AgentState) -> dict:
-    """Preserva rota explicita ou seleciona intencoes por regras e modelo."""
+    """Preserva rota explicita ou seleciona intencoes por regras, pendencias e modelo."""
     input_guardrail = state.get("input_guardrail")
+    route_source = "guardrail"
     if input_guardrail and not input_guardrail.get("allowed", True):
         routes = ["default"]
     else:
         requested_route = state.get("route")
         if requested_route:
             routes = [requested_route]
+            route_source = "explicit"
         else:
             latest_message = state.get("messages", [])[-1:]
             routes = _deterministic_routes(latest_message[0]) if latest_message else None
             route_source = "deterministic" if routes is not None else None
+
+            pending_routes = _inheritable_routes(state.get("pending_routes"))
+            pending_missing_data = state.get("pending_missing_data")
+            if (
+                routes is None
+                and latest_message
+                and pending_routes
+                and _is_pending_followup(
+                    latest_message[0],
+                    pending_missing_data,
+                )
+            ):
+                routes = pending_routes
+                route_source = "pending"
+
             if (
                 routes is None
                 and latest_message
@@ -312,15 +358,38 @@ async def route_request(state: AgentState) -> dict:
                 if inherited_routes:
                     routes = inherited_routes
                     route_source = "context"
+
             if routes is None:
                 model = get_chat_model(profile_for("router"))
                 if model is None:
                     routes = ["default"]
                     route_source = "no_model"
                 else:
+                    router_messages = [
+                        {"role": "system", "content": ROUTER_PROMPT},
+                    ]
+                    if pending_routes:
+                        pending_items = [
+                            item.strip()
+                            for item in (pending_missing_data or [])
+                            if isinstance(item, str) and item.strip()
+                        ]
+                        router_messages.append(
+                            {
+                                "role": "system",
+                                "content": (
+                                    "Ha uma pendencia estruturada do turno anterior. "
+                                    f"Rotas pendentes: {pending_routes}. "
+                                    f"Dados aguardados: {pending_items}. "
+                                    "Se a nova mensagem preencher ou esclarecer esses dados, "
+                                    "mantenha a rota pendente. Se o usuario trocar claramente "
+                                    "de assunto, escolha a nova intencao."
+                                ),
+                            }
+                        )
                     try:
                         response = await model.ainvoke([
-                            {"role": "system", "content": ROUTER_PROMPT},
+                            *router_messages,
                             *state.get("messages", [])[-6:],
                         ])
                         routes = _extract_routes(response)
@@ -329,13 +398,14 @@ async def route_request(state: AgentState) -> dict:
                         logger.exception("agent_router_failed")
                         routes = ["fallback"]
                         route_source = "router_error"
-            logger.info(
-                "agent_routes_selected source=%s routes=%s",
-                route_source,
-                routes,
-            )
 
-    trace_event("router.selected", routes=routes)
+        logger.info(
+            "agent_routes_selected source=%s routes=%s",
+            route_source,
+            routes,
+        )
+
+    trace_event("router.selected", routes=routes, source=route_source)
     update = {
         "route": routes[0],
         "routes": routes,
@@ -346,6 +416,9 @@ async def route_request(state: AgentState) -> dict:
     inheritable_routes = _inheritable_routes(routes)
     if inheritable_routes:
         update["last_routes"] = inheritable_routes
+    if routes in (["fallback"], ["default"]):
+        update["pending_routes"] = []
+        update["pending_missing_data"] = []
     return update
 
 
@@ -429,6 +502,22 @@ async def _run_agent(
                 {"role": "system", "content": prompt + SPECIALIST_JSON_RULES},
                 *state["messages"],
             ]
+            pending_routes = _inheritable_routes(state.get("pending_routes"))
+            pending_missing_data = _string_list(state.get("pending_missing_data", []))
+            if agent_name in pending_routes and pending_missing_data:
+                specialist_messages.insert(
+                    1,
+                    {
+                        "role": "system",
+                        "content": (
+                            "Este turno continua uma pergunta objetiva feita anteriormente. "
+                            f"Dados ainda aguardados naquele turno: {pending_missing_data}. "
+                            "Use todo o historico para combinar a resposta curta atual com "
+                            "os valores ja fornecidos. Considere um item resolvido quando o "
+                            "usuario ja o informou e nao repita a mesma pergunta."
+                        ),
+                    },
+                )
             personal_data_required = _requires_personal_farm_data(
                 agent_name,
                 user_text,
@@ -663,13 +752,37 @@ def dispatch_agents(state: AgentState, agents: dict):
 
 
 async def collect_specialist_results(state: AgentState) -> dict:
-    """Ponto de fan-in para garantir uma unica sintese final."""
+    """Ponto de fan-in e persistencia das pendencias conversacionais."""
+    specialist_results = state.get("specialist_results", [])
+    pending_routes: list[str] = []
+    pending_missing_data: list[str] = []
+    for result in specialist_results:
+        if not isinstance(result, dict) or result.get("status") != "needs_input":
+            continue
+        agent_name = result.get("agent")
+        missing = _string_list(result.get("missing_data", []))
+        if isinstance(agent_name, str) and agent_name in ROUTES and missing:
+            if agent_name not in pending_routes:
+                pending_routes.append(agent_name)
+            for item in missing:
+                if item not in pending_missing_data:
+                    pending_missing_data.append(item)
+
     logger.info(
-        "specialists_collected count=%d agents=%s",
-        len(state.get("specialist_results", [])),
+        "specialists_collected count=%d agents=%s pending_routes=%s",
+        len(specialist_results),
         state.get("routes", []),
+        pending_routes,
     )
-    return {}
+    trace_event(
+        "conversation.pending",
+        routes=pending_routes,
+        missing_data=pending_missing_data,
+    )
+    return {
+        "pending_routes": pending_routes,
+        "pending_missing_data": pending_missing_data,
+    }
 
 
 def build_graph(
