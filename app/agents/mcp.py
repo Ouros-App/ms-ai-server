@@ -473,7 +473,6 @@ class MCPToolProvider:
             logger.warning("mcp_consumption_scope_denied user_id=%s", user_id)
             return {
                 "user_type": result.get("user_type"),
-                "user_id": user_id,
                 "authorized": False,
                 "reason": "no_farm_scope",
                 "period_days": result.get("period_days"),
@@ -482,14 +481,19 @@ class MCPToolProvider:
                 "summaries": [],
             }
 
-        summaries = [
-            row
-            for row in result.get("summaries", [])
-            if isinstance(row, dict) and row.get("id_farm") in authorized_ids
-        ]
+        summaries = []
+        for row in result.get("summaries", []):
+            if not isinstance(row, dict) or row.get("id_farm") not in authorized_ids:
+                continue
+            summaries.append(
+                {
+                    key: value
+                    for key, value in row.items()
+                    if key != "id_farm"
+                }
+            )
         return {
             "user_type": result.get("user_type"),
-            "user_id": user_id,
             "authorized": True,
             "period_days": result.get("period_days"),
             "water_unit": result.get("water_unit"),
