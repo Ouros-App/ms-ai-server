@@ -256,8 +256,10 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["energy_unit"], "kWh")
         self.assertEqual(
             result["summaries"],
-            [{"id_farm": 11, "water_meter_delta": 80}],
+            [{"water_meter_delta": 80}],
         )
+        self.assertNotIn("user_id", result)
+        self.assertNotIn("id_farm", result["summaries"][0])
         call = remote_tool.ainvoke.await_args.args[0]
         self.assertEqual(call["args"], {"period_days": 30})
         self.assertNotIn("farm_id", call["args"])
