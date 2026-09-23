@@ -14,6 +14,7 @@ from app.agents.mcp import MCPToolProvider
 from app.agents.model import get_chat_model
 from app.agents.prompts import (
     AGENT_PROMPTS,
+    CANCELLED_RESPONSE,
     DEFAULT_AGENT_RESPONSE,
     FALLBACK_RESPONSE,
     ROUTER_PROMPT,
@@ -571,6 +572,8 @@ async def default_agent(state: AgentState) -> dict:
     input_guardrail = state.get("input_guardrail")
     if input_guardrail and not input_guardrail["allowed"]:
         content = input_guardrail["message"]
+    elif state.get("route_source") == "cancelled":
+        content = CANCELLED_RESPONSE
     elif state.get("routes") == ["fallback"]:
         content = FALLBACK_RESPONSE
     elif not state.get("specialist_results"):
