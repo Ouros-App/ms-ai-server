@@ -1,3 +1,4 @@
+import unicodedata
 from typing import Any
 
 
@@ -13,24 +14,53 @@ _MISSING_SLOT_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
-def _bounded_missing_data(value: object) -> list[str]:
-    """Expose only coarse slot kinds, never model-generated free text."""
-    if not isinstance(value, list):
-        return []
+def _normalize_slot_text(value: str) -> str:
+    decomposed = unicodedata.normalize("NFD", value.lower())
+    stripped = "".join(
+        character
+        for character in decomposed
+        if unicodedata.category(character) != "Mn"
+    )
+    return " ".join(stripped.split()).strip()
 
-    slot_kinds: list[str] = []
+
+def missing_slot_kinds(value: object) -> set[str]:
+    """Classify model-provided missing-data text into bounded slot categories."""
+    if not isinstance(value, list):
+        return set()
+
+    kinds: set[str] = set()
     for item in value:
         if not isinstance(item, str):
             continue
-        normalized = " ".join(item.lower().split()).strip()
+        normalized = _normalize_slot_text(item)
         for slot_kind, markers in _MISSING_SLOT_PATTERNS:
             if any(marker in normalized for marker in markers):
-                if slot_kind not in slot_kinds:
-                    slot_kinds.append(slot_kind)
-                break
-        if len(slot_kinds) >= 3:
-            break
-    return slot_kinds
+                kinds.add(slot_kind)
+    return kinds
+
+
+def _bounded_missing_data(value: object) -> list[str]:
+    """Expose only coarse slot kinds, never model-generated free text."""
+    kinds = missing_slot_kinds(value)
+    return [
+        slot_kind
+        for slot_kind, _markers in _MISSING_SLOT_PATTERNS
+        if slot_kind in kinds
+    ]
+
+
+def pending_summary(
+    missing_data: object,
+    by_route: object,
+) -> tuple[list[str], dict[str, list[str]]]:
+    """Bound pending-state diagnostics while preserving internal routing state."""
+    bounded_by_route: dict[str, list[str]] = {}
+    if isinstance(by_route, dict):
+        for route, values in list(by_route.items())[:4]:
+            if isinstance(route, str):
+                bounded_by_route[route] = _bounded_missing_data(values)
+    return _bounded_missing_data(missing_data), bounded_by_route
 
 
 def specialist_result_summary(result: object) -> dict[str, Any]:
