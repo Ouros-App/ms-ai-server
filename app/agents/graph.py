@@ -435,7 +435,7 @@ async def _prefetch_consumption_summary(
     trace_event(
         "tool.call",
         tool="get_consumption_summary",
-        args=args,
+        args=_tool_args_trace(args),
         source="required_prefetch",
     )
     try:
@@ -719,7 +719,11 @@ async def default_agent(state: AgentState) -> dict:
             )
             content = _response_content(response)
 
-    trace_event("synthesis.response", response=content)
+    trace_event(
+        "synthesis.response",
+        response_type=type(content).__name__,
+        response_chars=len(content) if isinstance(content, str) else 0,
+    )
     return {
         "agents": [*state["agents"], "default"],
         "tools": state.get("tools", []),
@@ -1017,6 +1021,16 @@ def _normalize_specialist_result(response: object) -> dict[str, object]:
     }
 
 
+def _tool_args_trace(arguments: object) -> dict[str, object]:
+    """Describe tool arguments without copying user or business values into traces."""
+    if not isinstance(arguments, dict):
+        return {"type": type(arguments).__name__}
+    return {
+        "keys": sorted(str(key) for key in arguments)[:20],
+        "arg_count": len(arguments),
+    }
+
+
 def _tool_result_trace(result: object) -> dict[str, object]:
     """Describe tool output for debugging without logging business data."""
     if isinstance(result, dict):
@@ -1068,7 +1082,11 @@ async def _execute_tool_call(
     if selected_tool.name not in used_tools:
         used_tools.append(selected_tool.name)
     tool_args = call.get("args", {})
-    trace_event("tool.call", tool=selected_tool.name, args=tool_args)
+    trace_event(
+        "tool.call",
+        tool=selected_tool.name,
+        args=_tool_args_trace(tool_args),
+    )
 
     try:
         async with asyncio.timeout(settings.mcp_tool_timeout_seconds):
