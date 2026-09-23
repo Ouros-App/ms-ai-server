@@ -135,6 +135,7 @@ async def _invoke_graph(
         tools = result.get("tools", [])
         agents = result.get("agents", [])
         routes = result.get("routes", [])
+        route_source = result.get("route_source")
         specialist_results = result.get("specialist_results", [])
         pending_routes = result.get("pending_routes", [])
         pending_missing_data = result.get("pending_missing_data", [])
@@ -146,6 +147,7 @@ async def _invoke_graph(
         trace_event(
             "graph.completed",
             routes=routes,
+            route_source=route_source,
             agents=agents,
             tools=tools,
             specialist_results=specialist_results,
@@ -170,6 +172,7 @@ async def _invoke_graph(
         )
         return response, {
             "routes": routes,
+            "route_source": route_source,
             "specialist_results": specialist_results,
             "pending_routes": pending_routes,
             "pending_missing_data": pending_missing_data,
