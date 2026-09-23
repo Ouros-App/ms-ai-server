@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from app.agents.llms import FAST_LLM
 from app.agents.model import get_chat_model
+from app.core.metrics import observed_llm_ainvoke
 
 logger = logging.getLogger(__name__)
 
@@ -292,9 +293,16 @@ async def guard_input(
         return InputGuardrailResult(True, "APROVADO", "", sanitized, pii_map)
 
     try:
-        response = await classifier.ainvoke([
-            {"role": "system", "content": _CLASSIFIER_PROMPT.format(message=sanitized)},
-        ])
+        response = await observed_llm_ainvoke(
+            classifier,
+            [
+                {
+                    "role": "system",
+                    "content": _CLASSIFIER_PROMPT.format(message=sanitized),
+                },
+            ],
+            FAST_LLM,
+        )
         category = _extract_category(response)
     except Exception:
         logger.debug("Falha no classificador de entrada", exc_info=True)
@@ -352,9 +360,16 @@ async def review_output(content: object, sensitive_token: str = "", model=None) 
     if reviewer is None:
         return safe_text
     try:
-        response = await reviewer.ainvoke([
-            {"role": "system", "content": _OUTPUT_REVIEW_PROMPT.format(response=safe_text)},
-        ])
+        response = await observed_llm_ainvoke(
+            reviewer,
+            [
+                {
+                    "role": "system",
+                    "content": _OUTPUT_REVIEW_PROMPT.format(response=safe_text),
+                },
+            ],
+            FAST_LLM,
+        )
         reviewed = getattr(response, "content", response)
         if isinstance(reviewed, str) and "RESPOSTA:" in reviewed:
             reviewed = reviewed.split("RESPOSTA:", 1)[1].strip()
