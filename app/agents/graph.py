@@ -323,94 +323,81 @@ async def _prefetch_personal_farm_data(
     )
 
 
-async def route_request(state: AgentState) -> dict:
-    """Preserva rota explicita ou seleciona intencoes por regras, pendencias e modelo."""
-    input_guardrail = state.get("input_guardrail")
-    route_source = "guardrail"
-    if input_guardrail and not input_guardrail.get("allowed", True):
-        routes = ["default"]
-    else:
-        requested_route = state.get("route")
-        if requested_route:
-            routes = [requested_route]
-            route_source = "explicit"
-        else:
-            latest_message = state.get("messages", [])[-1:]
-            routes = _deterministic_routes(latest_message[0]) if latest_message else None
-            route_source = "deterministic" if routes is not None else None
+def _latest_message(state: AgentState) -> object | None:
+    messages = state.get("messages", [])
+    return messages[-1] if messages else None
 
-            pending_routes = _inheritable_routes(state.get("pending_routes"))
-            pending_missing_data = state.get("pending_missing_data")
-            if (
-                routes is None
-                and latest_message
-                and pending_routes
-                and _is_pending_followup(
-                    latest_message[0],
-                    pending_missing_data,
-                )
-            ):
-                routes = pending_routes
-                route_source = "pending"
 
-            if (
-                routes is None
-                and latest_message
-                and _is_contextual_followup(latest_message[0])
-            ):
-                inherited_routes = _inheritable_routes(state.get("last_routes"))
-                if inherited_routes:
-                    routes = inherited_routes
-                    route_source = "context"
+def _pending_router_message(
+    pending_routes: list[str],
+    pending_missing_data: object,
+) -> dict[str, str] | None:
+    if not pending_routes:
+        return None
+    pending_items = _string_list(pending_missing_data)
+    return {
+        "role": "system",
+        "content": (
+            "Ha uma pendencia estruturada do turno anterior. "
+            f"Rotas pendentes: {pending_routes}. "
+            f"Dados aguardados: {pending_items}. "
+            "Se a nova mensagem preencher ou esclarecer esses dados, "
+            "mantenha a rota pendente. Se o usuario trocar claramente "
+            "de assunto, escolha a nova intencao."
+        ),
+    }
 
-            if routes is None:
-                model = get_chat_model(profile_for("router"))
-                if model is None:
-                    routes = ["default"]
-                    route_source = "no_model"
-                else:
-                    router_messages = [
-                        {"role": "system", "content": ROUTER_PROMPT},
-                    ]
-                    if pending_routes:
-                        pending_items = [
-                            item.strip()
-                            for item in (pending_missing_data or [])
-                            if isinstance(item, str) and item.strip()
-                        ]
-                        router_messages.append(
-                            {
-                                "role": "system",
-                                "content": (
-                                    "Ha uma pendencia estruturada do turno anterior. "
-                                    f"Rotas pendentes: {pending_routes}. "
-                                    f"Dados aguardados: {pending_items}. "
-                                    "Se a nova mensagem preencher ou esclarecer esses dados, "
-                                    "mantenha a rota pendente. Se o usuario trocar claramente "
-                                    "de assunto, escolha a nova intencao."
-                                ),
-                            }
-                        )
-                    try:
-                        response = await model.ainvoke([
-                            *router_messages,
-                            *state.get("messages", [])[-6:],
-                        ])
-                        routes = _extract_routes(response)
-                        route_source = "model"
-                    except Exception:
-                        logger.exception("agent_router_failed")
-                        routes = ["fallback"]
-                        route_source = "router_error"
 
-        logger.info(
-            "agent_routes_selected source=%s routes=%s",
-            route_source,
-            routes,
-        )
+def _resolve_local_routes(state: AgentState) -> tuple[list[str] | None, str | None]:
+    latest_message = _latest_message(state)
+    if latest_message is None:
+        return None, None
 
-    trace_event("router.selected", routes=routes, source=route_source)
-    update = {
+    deterministic = _deterministic_routes(latest_message)
+    if deterministic is not None:
+        return deterministic, "deterministic"
+
+    pending_routes = _inheritable_routes(state.get("pending_routes"))
+    if pending_routes and _is_pending_followup(
+        latest_message,
+        state.get("pending_missing_data"),
+    ):
+        return pending_routes, "pending"
+
+    inherited_routes = _inheritable_routes(state.get("last_routes"))
+    if inherited_routes and _is_contextual_followup(latest_message):
+        return inherited_routes, "context"
+    return None, None
+
+
+async def _resolve_model_routes(state: AgentState) -> tuple[list[str], str]:
+    model = get_chat_model(profile_for("router"))
+    if model is None:
+        return ["default"], "no_model"
+
+    router_messages: list[dict[str, str] | object] = [
+        {"role": "system", "content": ROUTER_PROMPT},
+    ]
+    pending_message = _pending_router_message(
+        _inheritable_routes(state.get("pending_routes")),
+        state.get("pending_missing_data"),
+    )
+    if pending_message is not None:
+        router_messages.append(pending_message)
+
+    try:
+        response = await model.ainvoke([
+            *router_messages,
+            *state.get("messages", [])[-6:],
+        ])
+        return _extract_routes(response), "model"
+    except Exception:
+        logger.exception("agent_router_failed")
+        return ["fallback"], "router_error"
+
+
+def _route_update(routes: list[str]) -> dict[str, object]:
+    update: dict[str, object] = {
         "route": routes[0],
         "routes": routes,
         "agents": ["router"],
@@ -424,6 +411,27 @@ async def route_request(state: AgentState) -> dict:
         update["pending_routes"] = []
         update["pending_missing_data"] = []
     return update
+
+
+async def route_request(state: AgentState) -> dict:
+    """Resolve routing with explicit, deterministic, contextual and model layers."""
+    input_guardrail = state.get("input_guardrail")
+    if input_guardrail and not input_guardrail.get("allowed", True):
+        routes, route_source = ["default"], "guardrail"
+    elif state.get("route"):
+        routes, route_source = [state["route"]], "explicit"
+    else:
+        routes, route_source = _resolve_local_routes(state)
+        if routes is None:
+            routes, route_source = await _resolve_model_routes(state)
+
+    logger.info(
+        "agent_routes_selected source=%s routes=%s",
+        route_source,
+        routes,
+    )
+    trace_event("router.selected", routes=routes, source=route_source)
+    return _route_update(routes)
 
 
 async def default_agent(state: AgentState) -> dict:
