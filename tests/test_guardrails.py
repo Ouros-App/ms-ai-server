@@ -6,7 +6,6 @@ from langchain_core.messages import AIMessage
 from app.agents.guardrails import (
     MAX_RESPONSE_LENGTH,
     NO_DATA_REFUSAL,
-    OUT_OF_SCOPE_REFUSAL,
     SAFE_REFUSAL,
     guard_input,
     guard_output,
