@@ -597,7 +597,27 @@ async def _resolve_model_routes(state: AgentState) -> tuple[list[str], str]:
         return ["fallback"], "router_error"
 
 
-def _route_update(routes: list[str], route_source: str) -> dict[str, object]:
+def _route_starts_new_task(
+    state: AgentState | None,
+    routes: list[str],
+    route_source: str,
+) -> bool:
+    if state is None or route_source not in {"deterministic", "model", "explicit"}:
+        return False
+    previous_routes = set(_pending_by_route(state))
+    selected_routes = set(_inheritable_routes(routes))
+    return bool(
+        previous_routes
+        and selected_routes
+        and previous_routes.isdisjoint(selected_routes)
+    )
+
+
+def _route_update(
+    routes: list[str],
+    route_source: str,
+    state: AgentState | None = None,
+) -> dict[str, object]:
     update: dict[str, object] = {
         "route": routes[0],
         "route_source": route_source,
@@ -609,7 +629,12 @@ def _route_update(routes: list[str], route_source: str) -> dict[str, object]:
     inheritable_routes = _inheritable_routes(routes)
     if inheritable_routes:
         update["last_routes"] = inheritable_routes
-    if route_source == "cancelled":
+
+    if route_source == "cancelled" or _route_starts_new_task(
+        state,
+        routes,
+        route_source,
+    ):
         update["pending_routes"] = []
         update["pending_missing_data"] = []
         update["pending_by_route"] = {}
@@ -635,7 +660,7 @@ async def route_request(state: AgentState) -> dict:
         routes,
     )
     trace_event("router.selected", routes=routes, source=route_source)
-    return _route_update(routes, route_source)
+    return _route_update(routes, route_source, state)
 
 
 async def default_agent(state: AgentState) -> dict:
