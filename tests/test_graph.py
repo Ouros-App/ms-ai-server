@@ -79,6 +79,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             [],
             None,
             "user",
+            "fast",
             [reset_tool],
         )
 
@@ -811,7 +812,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         model.bind_tools.return_value = tool_enabled_model
         model.ainvoke = AsyncMock(return_value=AIMessage(content="resposta final"))
 
-        response, tools = await _invoke_model(model, [], MemoryStore(), "user")
+        response, tools = await _invoke_model(model, [], MemoryStore(), "user", "fast")
 
         self.assertEqual(response.content, "resposta final")
         self.assertEqual(tools, ["recall_user_memories"])
@@ -826,7 +827,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         model.bind_tools.return_value = tool_enabled_model
         model.ainvoke = AsyncMock(return_value=AIMessage(content='{"status":"ok"}'))
 
-        response, tools = await _invoke_model(model, [], None, "42", [mcp_tool])
+        response, tools = await _invoke_model(model, [], None, "42", "fast", [mcp_tool])
 
         self.assertEqual(response.content, '{"status":"ok"}')
         self.assertEqual(tools, [])
@@ -888,6 +889,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                 [],
                 None,
                 "42",
+                "fast",
                 [mcp_tool],
             )
 
@@ -915,7 +917,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         model = Mock()
         model.bind_tools.return_value = bound_model
 
-        response, tools = await _invoke_model(model, [], None, "42", [mcp_tool])
+        response, tools = await _invoke_model(model, [], None, "42", "fast", [mcp_tool])
 
         self.assertEqual(tools, ["get_user_context"])
         self.assertIn('"status":"error"', response.content)
@@ -942,7 +944,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         model = Mock()
         model.bind_tools.return_value = bound_model
 
-        response, tools = await _invoke_model(model, [], None, "42", [mcp_tool])
+        response, tools = await _invoke_model(model, [], None, "42", "fast", [mcp_tool])
 
         self.assertEqual(response.content, '{"status":"ok"}')
         self.assertEqual(tools, ["get_user_context"])
