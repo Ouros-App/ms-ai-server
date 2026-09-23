@@ -303,7 +303,7 @@ class MCPToolProvider:
             trace_event(
                 "mcp.tool_error",
                 tool=tool_name,
-                message=message,
+                error_chars=len(message),
             )
             raise MCPToolResultError(
                 f"remote MCP tool {tool_name} returned an error"
