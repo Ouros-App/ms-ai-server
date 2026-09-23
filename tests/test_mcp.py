@@ -136,7 +136,15 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             patch("langchain_mcp_adapters.client.MultiServerMCPClient", FakeClient),
         ):
             tools = await provider.tools_for("faq", "42")
-            self.assertEqual(await tools[0].ainvoke({}), payload)
+            self.assertEqual(
+                await tools[0].ainvoke({}),
+                {
+                    "user_type": "farm_owner",
+                    "profile": {"name": "Produtor"},
+                    "farms": [{"name": "Fazenda", "state": "SP"}],
+                    "enterprises": [],
+                },
+            )
 
         call = remote_context.ainvoke.await_args.args[0]
         self.assertEqual(call["type"], "tool_call")
