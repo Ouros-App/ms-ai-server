@@ -59,9 +59,14 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
                 captured["calls"] += 1
                 return [
                     SimpleNamespace(
+                        name="get_user_context",
+                        description="Contexto seguro",
+                        ainvoke=AsyncMock(),
+                    ),
+                    SimpleNamespace(
                         name="get_user_farm_data",
-                        description="Dados da fazenda",
-                        ainvoke=AsyncMock(return_value={"farm_ids": [], "data": {}}),
+                        description="Dados brutos",
+                        ainvoke=AsyncMock(),
                     ),
                     SimpleNamespace(
                         name="search_knowledge",
@@ -81,9 +86,13 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             [tool.name for tool in ranking],
-            ["get_user_farm_data", "search_knowledge"],
+            ["get_user_context", "search_knowledge"],
         )
-        self.assertEqual([tool.name for tool in faq], ["search_knowledge"])
+        self.assertEqual(
+            [tool.name for tool in faq],
+            ["get_user_context", "search_knowledge"],
+        )
+        self.assertNotIn("get_user_farm_data", [tool.name for tool in ranking])
         self.assertEqual(captured["calls"], 1)
         self.assertEqual(
             captured["connections"]["midas"]["headers"]["Authorization"],
@@ -98,7 +107,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             "user_type": "farm_owner",
             "user_id": 42,
             "profile": {"name": "Produtor"},
-            "farms": [{"id": 11, "name": "Fazenda"}],
+            "farms": [{"name": "Fazenda", "state": "SP"}],
             "enterprises": [],
         }
         remote_context = SimpleNamespace(
@@ -177,14 +186,10 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
                 return [remote_tool]
 
         provider = MCPToolProvider(url="http://mcp.test/mcp")
-        with (
-            forward_mcp_access_token("signed-keycloak-token"),
-            patch("langchain_mcp_adapters.client.MultiServerMCPClient", FakeClient),
-        ):
-            tools = await provider.tools_for("ranking", "42")
-            result = await tools[0].ainvoke({"limit": 20})
+        tool = provider._bind_user_tool(remote_tool, 42)
+        result = await tool.ainvoke({"limit": 20})
 
-        self.assertNotIn("farm_id", tools[0].args_schema.model_fields)
+        self.assertNotIn("farm_id", tool.args_schema.model_fields)
         self.assertTrue(result["authorized"])
         self.assertEqual(result["data"]["farms"], [{"id": 11}])
         self.assertEqual(
