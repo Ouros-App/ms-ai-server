@@ -143,7 +143,9 @@ _PERSONAL_DATA_TOPIC_PATTERN = re.compile(
 _PENDING_CANCEL_PATTERN = re.compile(
     r"^(?:esquece|ignora|cancela|cancelar|outro\s+assunto|mudar\s+de\s+assunto|"
     r"muda\s+de\s+assunto)"
-    r"(?:\s+(?:isso|isto|tudo|essa|esse|o\s+pedido|a\s+pergunta))?[!.?\s]*$"
+    r"(?:\s+(?:isso|isto|tudo|essa|esse|o\s+pedido|a\s+pergunta|"
+    r"(?:o|a)?\s*(?:ranking|sustentabilidade|consumo|agua|energia|suporte|faq)))?"
+    r"[!.?\s]*$"
 )
 _PERIOD_PATTERN = re.compile(
     r"\b(?P<value>\d{1,3})\s*(?P<unit>dia|dias|semana|semanas|mes|meses)\b"
@@ -567,19 +569,17 @@ def _resolve_local_routes(state: AgentState) -> tuple[list[str] | None, str | No
     if quick_source is not None:
         return ["default"], quick_source
 
+    pending_by_route = _pending_by_route(state)
+    if pending_by_route and _is_cancel_request(latest_message):
+        return ["fallback"], "cancelled"
+
     deterministic = _deterministic_routes(latest_message)
     if deterministic is not None:
         return deterministic, "deterministic"
 
-    if (
-        not _has_deterministic_route_match(latest_message)
-        and _is_cancel_request(latest_message)
-    ):
-        return ["fallback"], "cancelled"
-
     pending_matches = _matching_pending_routes(
         latest_message,
-        _pending_by_route(state),
+        pending_by_route,
     )
     if pending_matches:
         return pending_matches, "pending"
