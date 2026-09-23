@@ -125,6 +125,91 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             ["router", "sustainability", "default"],
         )
 
+    async def test_structured_pending_answer_keeps_specialist_route(self) -> None:
+        """A compact answer to requested data must continue the active task."""
+
+        async def sustainability(state):
+            latest = state["messages"][-1].content
+            needs_period = "30 dias" not in latest.lower()
+            return {
+                "agents": [*state["agents"], "sustainability"],
+                "specialist_results": [
+                    {
+                        "agent": "sustainability",
+                        "status": "needs_input" if needs_period else "ok",
+                        "facts": [] if needs_period else ["periodo recebido"],
+                        "recommendations": [],
+                        "missing_data": ["periodo de analise"] if needs_period else [],
+                        "sources": [],
+                    }
+                ],
+            }
+
+        async def synth(state):
+            needs_input = any(
+                result.get("status") == "needs_input"
+                for result in state.get("specialist_results", [])
+            )
+            return {
+                "agents": [*state["agents"], "default"],
+                "messages": [
+                    AIMessage(
+                        content="Qual periodo?" if needs_input else "Periodo aplicado."
+                    )
+                ],
+            }
+
+        graph = build_graph(
+            InMemorySaver(),
+            agents={"default": synth, "sustainability": sustainability},
+        )
+        first = await invoke_graph(
+            graph,
+            ChatRequest(
+                user_id="user",
+                thread_id="pending-thread",
+                message="Quero analisar meu consumo de agua",
+            ),
+            "user",
+        )
+        first_snapshot = await graph.aget_state(
+            {"configurable": {"thread_id": "pending-thread"}}
+        )
+        second = await invoke_graph(
+            graph,
+            ChatRequest(
+                user_id="user",
+                thread_id="pending-thread",
+                message="30 dias na minha fazenda",
+            ),
+            "user",
+        )
+        second_snapshot = await graph.aget_state(
+            {"configurable": {"thread_id": "pending-thread"}}
+        )
+
+        self.assertEqual(first.agents, ["router", "sustainability", "default"])
+        self.assertEqual(
+            first_snapshot.values["pending_routes"],
+            ["sustainability"],
+        )
+        self.assertEqual(second.agents, ["router", "sustainability", "default"])
+        self.assertEqual(second.message, "Periodo aplicado.")
+        self.assertEqual(second_snapshot.values["pending_routes"], [])
+        self.assertEqual(second_snapshot.values["pending_missing_data"], [])
+
+    def test_lot_mentions_only_route_to_faq_when_the_intent_is_app_usage(self) -> None:
+        self.assertEqual(
+            _deterministic_routes(
+                HumanMessage(content="Quanto gasta de agua um lote com 5 mil frangos?")
+            ),
+            ["sustainability"],
+        )
+        self.assertEqual(
+            _deterministic_routes(HumanMessage(content="Como cadastrar um lote?")),
+            ["faq"],
+        )
+
     def test_personal_ranking_indicators_require_authenticated_prefetch(self) -> None:
         """Require farm data for personal ranking, score, level and badge queries."""
         from app.agents.graph import _requires_personal_farm_data
