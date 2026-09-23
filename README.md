@@ -90,12 +90,16 @@ continua tendo precedência sobre a pendência.
 
 As tools de memória e MCP ficam disponíveis somente para especialistas. O cliente
 MCP usa Streamable HTTP, troca o JWT validado por um token delegado de backend,
-aplica uma allowlist por especialista e faz filtragem adicional dos resultados
+aplica uma allowlist mínima por especialista e faz filtragem adicional dos resultados
 escopados em `app/agents/mcp.py`. O sintetizador não recebe nenhuma dessas tools.
-Sustentabilidade pode usar `get_consumption_summary(period_days)` sem expor
-`farm_id`, `user_id` ou SQL arbitrário ao modelo; ranking consulta a base de
-conhecimento para regras mutáveis em vez de manter ligas e fórmulas duplicadas no
-system prompt.
+Sustentabilidade usa preferencialmente `get_consumption_summary(period_days)`: quando
+uma consulta pessoal contém um período explícito, o backend extrai essa janela e faz
+o prefetch determinístico do resumo antes do modelo, evitando carregar registros
+brutos desnecessários. `farm_id`, `user_id` e SQL arbitrário não viram argumentos
+controlados pelo modelo. Ranking consulta a base de conhecimento para regras mutáveis
+e não recebe dados brutos que não consigam provar posição/classificação. Resultados
+de tools são serializados como JSON e falhas são degradadas para um erro seguro, sem
+vazar exceções ou derrubar toda a conversa.
 
 ## Execução
 
