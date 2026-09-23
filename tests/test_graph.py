@@ -11,6 +11,7 @@ from app.agents.graph import (
     _collect_pending_state,
     _conversation_is_personal_request,
     _deterministic_routes,
+    _execute_tool_call,
     _extract_period_days,
     _extract_route,
     _invoke_model,
@@ -49,6 +50,23 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(_merge_tools(["get_user_context"], []), ["get_user_context"])
         self.assertEqual(_merge_tools(["old"], [_RESET_TOOLS]), [])
         self.assertEqual(_merge_tools(["old"], [_RESET_TOOLS, "new"]), ["new"])
+
+    async def test_unknown_tool_call_gets_a_matching_error_tool_message(self) -> None:
+        conversation = []
+        used_tools: list[str] = []
+
+        await _execute_tool_call(
+            {"name": "not_allowed", "id": "call-1", "args": {}},
+            {},
+            conversation,
+            used_tools,
+        )
+
+        self.assertEqual(used_tools, [])
+        self.assertEqual(len(conversation), 1)
+        self.assertIsInstance(conversation[0], ToolMessage)
+        self.assertEqual(conversation[0].tool_call_id, "call-1")
+        self.assertIn("Ferramenta nao disponivel", conversation[0].content)
 
     async def test_invoke_model_rejects_reset_sentinel_as_tool_name(self) -> None:
         model = Mock()
@@ -305,6 +323,21 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             (["fallback"], "cancelled"),
         )
 
+
+    def test_product_cancel_language_is_not_treated_as_task_cancellation(self) -> None:
+        state = {
+            "messages": [HumanMessage(content="Como cancelar uma notificacao?")],
+            "pending_routes": ["sustainability"],
+            "pending_missing_data": ["periodo de analise"],
+            "pending_by_route": {"sustainability": ["periodo de analise"]},
+            "last_routes": ["sustainability"],
+        }
+
+        routes, source = _resolve_local_routes(state)
+
+        self.assertNotEqual(source, "cancelled")
+        self.assertNotEqual(routes, ["fallback"])
+
     def test_pending_data_remains_isolated_by_route(self) -> None:
         routes, missing, by_route, personal_routes = _collect_pending_state(
             [
@@ -361,6 +394,10 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(_extract_period_days("30 dias na minha fazenda"), 30)
         self.assertEqual(_extract_period_days("ultima semana"), 7)
         self.assertEqual(_extract_period_days("ultimo mes"), 30)
+        self.assertEqual(
+            _extract_period_days("ultimos 30 dias ate hoje"),
+            30,
+        )
         self.assertEqual(
             _extract_period_days("30", ["periodo de analise"]),
             30,
