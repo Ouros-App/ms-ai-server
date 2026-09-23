@@ -16,7 +16,7 @@ from app.agents.diagnostics import (
 )
 from app.agents.guardrails import guard_input, guard_output
 from app.agents.llms import profile_for
-from app.agents.mcp import MCPToolProvider
+from app.agents.mcp import MCP_UNSCOPED_TOOLS, MCPToolProvider
 from app.agents.model import get_chat_model
 from app.agents.prompts import (
     AGENT_PROMPTS,
@@ -31,7 +31,11 @@ from app.agents.prompts import (
 )
 from app.agents.tools import build_memory_tools
 from app.core.config import settings
-from app.core.metrics import observed_llm_ainvoke
+from app.core.metrics import (
+    mcp_call_started,
+    observe_mcp_call,
+    observed_llm_ainvoke,
+)
 from app.debug_ui.trace import trace_event
 
 logger = logging.getLogger(__name__)
@@ -1119,9 +1123,23 @@ async def _execute_tool_call(
         args=_tool_args_trace(tool_args),
     )
 
+    instrument_unscoped_mcp = selected_tool.name in MCP_UNSCOPED_TOOLS
+    mcp_started_at = perf_counter() if instrument_unscoped_mcp else None
+    if instrument_unscoped_mcp:
+        mcp_call_started()
+    mcp_outcome = "error"
+
     try:
         async with asyncio.timeout(settings.mcp_tool_timeout_seconds):
             result = await selected_tool.ainvoke(tool_args)
+        mcp_outcome = (
+            "error"
+            if isinstance(result, ToolMessage) and result.status == "error"
+            else "success"
+        )
+    except asyncio.CancelledError:
+        mcp_outcome = "cancelled"
+        raise
     except Exception as error:  # noqa: BLE001 - remote tools must degrade safely
         logger.warning(
             "agent_tool_failed tool=%s error=%s",
@@ -1147,6 +1165,13 @@ async def _execute_tool_call(
             result=_tool_result_trace(result),
         )
         content = _tool_result_content(result)
+    finally:
+        if instrument_unscoped_mcp and mcp_started_at is not None:
+            observe_mcp_call(
+                selected_tool.name,
+                mcp_outcome,
+                perf_counter() - mcp_started_at,
+            )
 
     conversation.append(
         ToolMessage(
