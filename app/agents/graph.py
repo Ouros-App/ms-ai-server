@@ -1271,7 +1271,7 @@ def _collect_pending_state(
     )
 
 
-async def collect_specialist_results(state: AgentState) -> dict:
+def collect_specialist_results(state: AgentState) -> dict:
     """Persist unresolved requests by specialist route for the next turn."""
     specialist_results = state.get("specialist_results", [])
     (
