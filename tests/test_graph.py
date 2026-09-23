@@ -2,12 +2,13 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi import HTTPException
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app.agents.graph import (
     _RESET_TOOLS,
     _deterministic_routes,
+    _extract_period_days,
     _extract_route,
     _invoke_model,
     _merge_tools,
@@ -197,6 +198,17 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second.message, "Periodo aplicado.")
         self.assertEqual(second_snapshot.values["pending_routes"], [])
         self.assertEqual(second_snapshot.values["pending_missing_data"], [])
+
+    def test_period_parser_handles_natural_followups_without_guessing(self) -> None:
+        self.assertEqual(_extract_period_days("30 dias na minha fazenda"), 30)
+        self.assertEqual(_extract_period_days("ultima semana"), 7)
+        self.assertEqual(_extract_period_days("ultimo mes"), 30)
+        self.assertEqual(
+            _extract_period_days("30", ["periodo de analise"]),
+            30,
+        )
+        self.assertIsNone(_extract_period_days("30"))
+        self.assertIsNone(_extract_period_days("13 meses"))
 
     def test_lot_mentions_only_route_to_faq_when_the_intent_is_app_usage(self) -> None:
         self.assertEqual(
@@ -580,6 +592,33 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.content, '{"status":"ok"}')
         self.assertEqual(tools, [])
         model.ainvoke.assert_awaited_once()
+
+    async def test_tool_failure_is_returned_to_model_without_crashing_graph(self) -> None:
+        mcp_tool = Mock(name="get_user_context")
+        mcp_tool.name = "get_user_context"
+        mcp_tool.ainvoke = AsyncMock(side_effect=RuntimeError("database secret detail"))
+        tool_call = {"name": mcp_tool.name, "args": {}, "id": "mcp-call"}
+
+        bound_model = Mock()
+        bound_model.ainvoke = AsyncMock(
+            side_effect=[
+                AIMessage(content="", tool_calls=[tool_call]),
+                AIMessage(content='{"status":"error","facts":[],"recommendations":[],"missing_data":[],"sources":[]}'),
+            ],
+        )
+        model = Mock()
+        model.bind_tools.return_value = bound_model
+
+        response, tools = await _invoke_model(model, [], None, "42", [mcp_tool])
+
+        self.assertEqual(tools, ["get_user_context"])
+        self.assertIn('"status":"error"', response.content)
+        second_messages = bound_model.ainvoke.await_args_list[1].args[0]
+        tool_message = next(
+            message for message in second_messages if isinstance(message, ToolMessage)
+        )
+        self.assertIn("temporariamente indisponivel", tool_message.content)
+        self.assertNotIn("database secret detail", tool_message.content)
 
     async def test_invoke_model_executes_external_mcp_tool(self) -> None:
         mcp_tool = Mock(name="get_user_context")
