@@ -79,7 +79,10 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             ranking = await provider.tools_for("ranking", "42")
             faq = await provider.tools_for("faq", "42")
 
-        self.assertEqual([tool.name for tool in ranking], ["get_user_farm_data"])
+        self.assertEqual(
+            [tool.name for tool in ranking],
+            ["get_user_farm_data", "search_knowledge"],
+        )
         self.assertEqual([tool.name for tool in faq], ["search_knowledge"])
         self.assertEqual(captured["calls"], 1)
         self.assertEqual(
@@ -192,6 +195,56 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(call["type"], "tool_call")
         self.assertEqual(call["name"], "get_user_farm_data")
         self.assertEqual(call["args"], {"limit": 20})
+
+    async def test_consumption_summary_keeps_scope_and_only_exposes_period(self) -> None:
+        payload = {
+            "user_type": "farm_owner",
+            "user_id": 42,
+            "farm_ids": [11],
+            "period_days": 30,
+            "summaries": [
+                {"id_farm": 11, "water_meter_delta": 80},
+                {"id_farm": 99, "water_meter_delta": 999},
+            ],
+        }
+        remote_tool = SimpleNamespace(
+            name="get_consumption_summary",
+            description="Resumo de consumo",
+            ainvoke=AsyncMock(
+                return_value=ToolMessage(
+                    content=[{"type": "text", "text": "ignored"}],
+                    artifact={"structured_content": payload},
+                    tool_call_id="remote-call",
+                    name="get_consumption_summary",
+                )
+            ),
+        )
+
+        class FakeClient:
+            def __init__(self, connections, **kwargs):
+                pass
+
+            async def get_tools(self, server_name):
+                return [remote_tool]
+
+        provider = MCPToolProvider(url="http://mcp.test/mcp")
+        with (
+            forward_mcp_access_token("signed-keycloak-token"),
+            patch("langchain_mcp_adapters.client.MultiServerMCPClient", FakeClient),
+        ):
+            tools = await provider.tools_for("sustainability", "42")
+            result = await tools[0].ainvoke({"period_days": 30})
+
+        self.assertEqual(set(tools[0].args_schema.model_fields), {"period_days"})
+        self.assertTrue(result["authorized"])
+        self.assertEqual(
+            result["summaries"],
+            [{"id_farm": 11, "water_meter_delta": 80}],
+        )
+        call = remote_tool.ainvoke.await_args.args[0]
+        self.assertEqual(call["args"], {"period_days": 30})
+        self.assertNotIn("farm_id", call["args"])
+        self.assertNotIn("user_id", call["args"])
 
     def test_decode_tool_result_supports_adapter_artifact_shapes(self) -> None:
         """Decode the common content-and-artifact shapes emitted by the adapter."""
