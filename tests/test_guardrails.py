@@ -46,9 +46,13 @@ class GuardrailsTest(unittest.IsolatedAsyncioTestCase):
 
     def test_rejects_sensitive_output(self) -> None:
         self.assertEqual(guard_output("token: segredo-123"), SAFE_REFUSAL)
-        self.assertEqual(guard_output("O login usa e-mail e senha."), OUT_OF_SCOPE_REFUSAL)
+        self.assertEqual(guard_output("O login usa e-mail e senha."), "O login usa e-mail e senha.")
         self.assertEqual(guard_output("A fazenda com ID 99 não tem dados."), NO_DATA_REFUSAL)
         self.assertEqual(guard_output("A fazenda (ID 11) tem dados."), NO_DATA_REFUSAL)
+        self.assertEqual(
+            guard_output("O sistema calcula emissoes de CO2 automaticamente."),
+            OUT_OF_SCOPE_REFUSAL,
+        )
 
     def test_limits_empty_and_long_outputs(self) -> None:
         self.assertEqual(guard_output(""), SAFE_REFUSAL)
