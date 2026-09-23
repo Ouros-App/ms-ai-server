@@ -1,6 +1,10 @@
 import unittest
 
-from app.core.metrics import _safe_route_source, observe_chat_result, observe_chat_routing
+from app.core.metrics import (
+    _safe_route_source,
+    observe_chat_result,
+    observe_chat_routing,
+)
 
 
 class MetricsTest(unittest.TestCase):
@@ -10,7 +14,6 @@ class MetricsTest(unittest.TestCase):
             ["router", "faq"],
             ["recall_user_memories"],
         )
-
 
     def test_chat_routing_bounds_route_source_labels(self) -> None:
         observe_chat_routing(
