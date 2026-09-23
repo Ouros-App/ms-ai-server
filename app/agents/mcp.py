@@ -427,10 +427,24 @@ class MCPToolProvider:
             result,
             tool_name="get_user_context",
         )
+        profile = result.get("profile")
+        public_profile = {}
+        if isinstance(profile, dict) and isinstance(profile.get("name"), str):
+            public_profile["name"] = profile["name"]
+
+        enterprises = result.get("enterprises")
+        public_enterprises = []
+        if isinstance(enterprises, list):
+            public_enterprises = [
+                {"name": item["name"]}
+                for item in enterprises
+                if isinstance(item, dict) and isinstance(item.get("name"), str)
+            ]
+
         return MCPToolProvider._without_internal_ids(
             {
-                "profile": result.get("profile", {}),
-                "enterprises": result.get("enterprises", []),
+                "profile": public_profile,
+                "enterprises": public_enterprises,
                 "farms": result.get("farms", []),
             }
         )
