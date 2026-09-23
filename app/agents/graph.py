@@ -319,13 +319,6 @@ def _extract_period_days(
 ) -> int | None:
     """Extract a bounded period while avoiding guesses outside a pending period slot."""
     text = _normalize_route_text(user_text).strip()
-    if "hoje" in text:
-        return 1
-    if re.search(r"\b(?:ultima|ultimo)\s+semana\b", text):
-        return 7
-    if re.search(r"\b(?:ultimo|ultima)\s+mes\b", text):
-        return 30
-
     match = _PERIOD_PATTERN.search(text)
     if match is not None:
         value = int(match.group("value"))
@@ -339,6 +332,13 @@ def _extract_period_days(
         }[match.group("unit")]
         period_days = value * multiplier
         return period_days if 1 <= period_days <= 366 else None
+
+    if re.search(r"\bhoje\b", text):
+        return 1
+    if re.search(r"\b(?:ultima|ultimo)\s+semana\b", text):
+        return 7
+    if re.search(r"\b(?:ultimo|ultima)\s+mes\b", text):
+        return 30
 
     missing_items = _string_list(pending_missing_data)
     waiting_for_period = any(
@@ -443,7 +443,8 @@ async def _prefetch_consumption_summary(
         source="required_prefetch",
     )
     try:
-        result = await summary_tool.ainvoke(args)
+        async with asyncio.timeout(settings.mcp_tool_timeout_seconds):
+            result = await summary_tool.ainvoke(args)
     except Exception as error:
         logger.exception("mcp_consumption_prefetch_failed agent=%s", agent_name)
         trace_event(
@@ -553,13 +554,21 @@ def _quick_route_source(message: object) -> str | None:
     return None
 
 
+def _has_deterministic_route_match(message: object) -> bool:
+    content = getattr(message, "content", message)
+    if not isinstance(content, str):
+        return False
+    text = _normalize_route_text(content)
+    return any(
+        pattern.search(text)
+        for _, pattern in _DETERMINISTIC_ROUTE_PATTERNS
+    )
+
+
 def _resolve_local_routes(state: AgentState) -> tuple[list[str] | None, str | None]:
     latest_message = _latest_message(state)
     if latest_message is None:
         return None, None
-
-    if _is_cancel_request(latest_message):
-        return ["fallback"], "cancelled"
 
     quick_source = _quick_route_source(latest_message)
     if quick_source is not None:
@@ -568,6 +577,12 @@ def _resolve_local_routes(state: AgentState) -> tuple[list[str] | None, str | No
     deterministic = _deterministic_routes(latest_message)
     if deterministic is not None:
         return deterministic, "deterministic"
+
+    if (
+        not _has_deterministic_route_match(latest_message)
+        and _is_cancel_request(latest_message)
+    ):
+        return ["fallback"], "cancelled"
 
     pending_matches = _matching_pending_routes(
         latest_message,
@@ -1081,6 +1096,16 @@ async def _execute_tool_call(
 ) -> None:
     selected_tool = tool_map.get(call.get("name"))
     if selected_tool is None:
+        trace_event("tool.rejected", reason="unknown_tool")
+        conversation.append(
+            ToolMessage(
+                content=json.dumps(
+                    {"status": "error", "message": "Ferramenta nao disponivel."},
+                    separators=(",", ":"),
+                ),
+                tool_call_id=call.get("id", f"tool-call-{len(conversation)}"),
+            ),
+        )
         return
 
     if selected_tool.name not in used_tools:
