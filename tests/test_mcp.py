@@ -202,6 +202,8 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             "user_id": 42,
             "farm_ids": [11],
             "period_days": 30,
+            "water_unit": "hydrometer_reading_delta",
+            "energy_unit": "kWh",
             "summaries": [
                 {"id_farm": 11, "water_meter_delta": 80},
                 {"id_farm": 99, "water_meter_delta": 999},
@@ -237,6 +239,8 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(set(tools[0].args_schema.model_fields), {"period_days"})
         self.assertTrue(result["authorized"])
+        self.assertEqual(result["water_unit"], "hydrometer_reading_delta")
+        self.assertEqual(result["energy_unit"], "kWh")
         self.assertEqual(
             result["summaries"],
             [{"id_farm": 11, "water_meter_delta": 80}],
