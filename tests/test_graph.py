@@ -618,6 +618,24 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             ["ranking", "sustainability"],
         )
 
+    def test_overlapping_intents_use_semantic_router_unless_explicitly_compound(self) -> None:
+        self.assertIsNone(
+            _deterministic_routes(
+                HumanMessage(content="Meu ranking deu erro")
+            )
+        )
+        self.assertIsNone(
+            _deterministic_routes(
+                HumanMessage(content="Onde vejo meu consumo no app?")
+            )
+        )
+        self.assertEqual(
+            _deterministic_routes(
+                HumanMessage(content="Quero ver meu ranking e reduzir meu consumo")
+            ),
+            ["ranking", "sustainability"],
+        )
+
     async def test_deterministic_route_works_without_router_model(self) -> None:
         """Mantém a rota clara mesmo sem modelo disponível para o roteador."""
         with patch("app.agents.graph.get_chat_model", return_value=None):
