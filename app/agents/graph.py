@@ -17,6 +17,8 @@ from app.agents.prompts import (
     CANCELLED_RESPONSE,
     DEFAULT_AGENT_RESPONSE,
     FALLBACK_RESPONSE,
+    GREETING_RESPONSE,
+    IDENTITY_RESPONSE,
     ROUTER_PROMPT,
     SPECIALIST_JSON_RULES,
     SYSTEM_PROMPT,
@@ -136,6 +138,12 @@ _PERIOD_PATTERN = re.compile(
     r"\b(?P<value>\d{1,3})\s*(?P<unit>dia|dias|semana|semanas|mes|meses)\b"
 )
 _BARE_PERIOD_PATTERN = re.compile(r"^\s*(?P<value>\d{1,3})\s*$")
+_GREETING_ROUTE_PATTERN = re.compile(
+    r"^(?:oi|ola|bom\s+dia|boa\s+tarde|boa\s+noite|ajuda)[!.?\s]*$"
+)
+_IDENTITY_ROUTE_PATTERN = re.compile(
+    r"^(?:quem\s+(?:e|eh)\s+(?:voce|vc)|o\s+que\s+(?:voce|vc)\s+faz)[!.?\s]*$"
+)
 
 
 _DETERMINISTIC_ROUTE_PATTERNS = (
@@ -508,17 +516,33 @@ def _matching_pending_routes(
     ][:4]
 
 
+def _quick_route_source(message: object) -> str | None:
+    content = getattr(message, "content", message)
+    if not isinstance(content, str):
+        return None
+    text = _normalize_route_text(content).strip()
+    if _GREETING_ROUTE_PATTERN.fullmatch(text):
+        return "greeting"
+    if _IDENTITY_ROUTE_PATTERN.fullmatch(text):
+        return "identity"
+    return None
+
+
 def _resolve_local_routes(state: AgentState) -> tuple[list[str] | None, str | None]:
     latest_message = _latest_message(state)
     if latest_message is None:
         return None, None
 
+    if _is_cancel_request(latest_message):
+        return ["fallback"], "cancelled"
+
+    quick_source = _quick_route_source(latest_message)
+    if quick_source is not None:
+        return ["default"], quick_source
+
     deterministic = _deterministic_routes(latest_message)
     if deterministic is not None:
         return deterministic, "deterministic"
-
-    if _is_cancel_request(latest_message):
-        return ["fallback"], "cancelled"
 
     pending_matches = _matching_pending_routes(
         latest_message,
@@ -603,6 +627,10 @@ async def default_agent(state: AgentState) -> dict:
         content = input_guardrail["message"]
     elif state.get("route_source") == "cancelled":
         content = CANCELLED_RESPONSE
+    elif state.get("route_source") == "greeting":
+        content = GREETING_RESPONSE
+    elif state.get("route_source") == "identity":
+        content = IDENTITY_RESPONSE
     elif state.get("routes") == ["fallback"]:
         content = FALLBACK_RESPONSE
     elif not state.get("specialist_results"):
