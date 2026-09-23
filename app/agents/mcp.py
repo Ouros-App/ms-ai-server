@@ -19,15 +19,27 @@ logger = logging.getLogger(__name__)
 MCP_TOOL_ALLOWLIST: dict[str, frozenset[str]] = {
     "faq": frozenset({"search_knowledge", "get_user_context"}),
     "sustainability": frozenset(
-        {"search_knowledge", "get_user_context", "get_user_farm_data"}
+        {
+            "search_knowledge",
+            "get_user_context",
+            "get_user_farm_data",
+            "get_consumption_summary",
+        }
     ),
     "ranking": frozenset(
-        {"get_user_context", "get_user_farm_data", "postgres_status"}
+        {
+            "search_knowledge",
+            "get_user_context",
+            "get_user_farm_data",
+            "postgres_status",
+        }
     ),
     "support": frozenset({"search_knowledge", "get_user_context"}),
     "fallback": frozenset({"search_knowledge"}),
 }
-MCP_USER_SCOPED_TOOLS = frozenset({"get_user_context", "get_user_farm_data"})
+MCP_USER_SCOPED_TOOLS = frozenset(
+    {"get_user_context", "get_user_farm_data", "get_consumption_summary"}
+)
 MCP_TOOLS_CACHE_MAX_ENTRIES = 256
 _FORWARDED_ACCESS_TOKEN: ContextVar[str | None] = ContextVar(
     "mcp_forwarded_access_token",
@@ -60,6 +72,15 @@ class _FarmDataArguments(BaseModel):
         ge=1,
         le=100,
         description="Quantidade maxima de registros por conjunto de dados.",
+    )
+
+
+class _ConsumptionSummaryArguments(BaseModel):
+    period_days: int = Field(
+        default=30,
+        ge=1,
+        le=366,
+        description="Janela de consulta em dias, entre 1 e 366.",
     )
 
 
@@ -237,7 +258,7 @@ class MCPToolProvider:
                 )
 
             args_schema = _NoArguments
-        else:
+        elif tool.name == "get_user_farm_data":
 
             async def invoke(limit: int = 20) -> object:
                 result = await self._invoke_remote_tool(
@@ -247,6 +268,20 @@ class MCPToolProvider:
                 return self._filter_farm_data(result, user_id)
 
             args_schema = _FarmDataArguments
+        elif tool.name == "get_consumption_summary":
+
+            async def invoke(period_days: int = 30) -> object:
+                result = await self._invoke_remote_tool(
+                    tool,
+                    {"period_days": period_days},
+                )
+                return self._filter_consumption_summary(result, user_id)
+
+            args_schema = _ConsumptionSummaryArguments
+        else:
+            raise ValueError(f"unsupported user-scoped MCP tool: {tool.name}")
+
+        if tool.name in MCP_USER_SCOPED_TOOLS:
             description = (
                 f"{description} A identidade e as fazendas autorizadas sao resolvidas "
                 "pelo backend a partir do JWT. Nunca solicite farm_id, user_id ou "
@@ -355,6 +390,22 @@ class MCPToolProvider:
                 and isinstance(result.get("enterprises"), list)
             )
 
+        if tool_name == "get_consumption_summary":
+            farm_ids = result.get("farm_ids")
+            return (
+                isinstance(result.get("user_type"), str)
+                and isinstance(result.get("user_id"), int)
+                and not isinstance(result.get("user_id"), bool)
+                and isinstance(result.get("period_days"), int)
+                and not isinstance(result.get("period_days"), bool)
+                and isinstance(farm_ids, list)
+                and all(
+                    isinstance(farm_id, int) and not isinstance(farm_id, bool)
+                    for farm_id in farm_ids
+                )
+                and isinstance(result.get("summaries"), list)
+            )
+
         return isinstance(result, dict)
 
     @staticmethod
@@ -401,6 +452,47 @@ class MCPToolProvider:
             "user_id": user_id,
             "authorized": True,
             "data": data,
+        }
+
+
+    @staticmethod
+    def _filter_consumption_summary(
+        result: object,
+        user_id: int,
+    ) -> dict:
+        """Defense-in-depth filter for scoped aggregate consumption results."""
+
+        result = MCPToolProvider._require_decoded_result(
+            result,
+            tool_name="get_consumption_summary",
+        )
+        authorized_ids = [
+            item
+            for item in result.get("farm_ids", [])
+            if isinstance(item, int) and not isinstance(item, bool)
+        ]
+        if not authorized_ids:
+            logger.warning("mcp_consumption_scope_denied user_id=%s", user_id)
+            return {
+                "user_type": result.get("user_type"),
+                "user_id": user_id,
+                "authorized": False,
+                "reason": "no_farm_scope",
+                "period_days": result.get("period_days"),
+                "summaries": [],
+            }
+
+        summaries = [
+            row
+            for row in result.get("summaries", [])
+            if isinstance(row, dict) and row.get("id_farm") in authorized_ids
+        ]
+        return {
+            "user_type": result.get("user_type"),
+            "user_id": user_id,
+            "authorized": True,
+            "period_days": result.get("period_days"),
+            "summaries": summaries,
         }
 
     @staticmethod
