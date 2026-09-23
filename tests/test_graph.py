@@ -611,11 +611,10 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             _deterministic_routes(HumanMessage(content="Falhou a sincronizacao offline")),
             ["support"],
         )
-        self.assertEqual(
+        self.assertIsNone(
             _deterministic_routes(
                 HumanMessage(content="Quero ver meu ranking e reduzir o consumo de agua")
-            ),
-            ["ranking", "sustainability"],
+            )
         )
 
     def test_overlapping_intents_use_semantic_router_unless_explicitly_compound(self) -> None:
@@ -629,12 +628,35 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                 HumanMessage(content="Onde vejo meu consumo no app?")
             )
         )
-        self.assertEqual(
+        self.assertIsNone(
             _deterministic_routes(
                 HumanMessage(content="Quero ver meu ranking e reduzir meu consumo")
-            ),
-            ["ranking", "sustainability"],
+            )
         )
+
+    async def test_semantic_router_can_choose_multiple_agents_for_real_multi_intent(self) -> None:
+        model = Mock()
+        model.ainvoke = AsyncMock(
+            return_value=AIMessage(
+                content='{"routes":["ranking","sustainability"]}'
+            ),
+        )
+
+        with patch("app.agents.graph.get_chat_model", return_value=model):
+            result = await route_request(
+                {
+                    "route": "",
+                    "messages": [
+                        HumanMessage(
+                            content="Quero ver meu ranking e reduzir meu consumo de agua"
+                        )
+                    ],
+                }
+            )
+
+        self.assertEqual(result["routes"], ["ranking", "sustainability"])
+        self.assertEqual(result["route_source"], "model")
+        model.ainvoke.assert_awaited_once()
 
     async def test_deterministic_route_works_without_router_model(self) -> None:
         """Mantém a rota clara mesmo sem modelo disponível para o roteador."""
