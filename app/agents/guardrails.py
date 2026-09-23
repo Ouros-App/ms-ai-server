@@ -72,7 +72,10 @@ _REQUESTED_USER_ID_PATTERN = re.compile(
     r"\b(?:user_?id|usuario(?:\s+de)?\s+id|id\s+do\s+usuario|usuario)"
     r"\s*(?:=|:|e|eh|de)?\s*[\"']?(\d+)\b"
 )
-_GREETING_PATTERN = re.compile(r"^(oi|ola|bom dia|boa tarde|boa noite|ajuda)[!. ]*$")
+_GREETING_PATTERN = re.compile(r"^(oi|ola|bom dia|boa tarde|boa noite|ajuda)[!.? ]*$")
+_ASSISTANT_IDENTITY_PATTERN = re.compile(
+    r"^(?:quem\s+(?:e|eh)\s+(?:voce|vc)|o\s+que\s+(?:voce|vc)\s+faz)[!.? ]*$"
+)
 _FOLLOW_UP_PATTERN = re.compile(r"^(sim|nao|isso|esse|essa|pode|continue|entendi|e depois)\b")
 _PERSONAL_PROJECT_PATTERN = re.compile(
     r"\b(?:minha|minhas|meu|meus)\b.{0,50}\b(?:fazenda|granja|consumo|gasto|dados|meta|historico)\b"
@@ -223,6 +226,8 @@ def input_block_reason(
             return "identity"
     if _GREETING_PATTERN.fullmatch(normalized):
         return None
+    if _ASSISTANT_IDENTITY_PATTERN.fullmatch(normalized):
+        return None
     if _PERSONAL_PROJECT_PATTERN.search(normalized):
         return None
     if _HISTORY_PATTERN.search(normalized):
@@ -272,9 +277,12 @@ async def guard_input(
     if reason == "scope":
         logger.info("guardrail_blocked category=FORA_DO_ESCOPO")
         return InputGuardrailResult(False, "FORA_DO_ESCOPO", OUT_OF_SCOPE_REFUSAL, sanitized, pii_map)
-    if _GREETING_PATTERN.fullmatch(_normalize(sanitized.strip())):
-        return InputGuardrailResult(True, "APROVADO", "", sanitized, pii_map)
     normalized_sanitized = _normalize(sanitized.strip())
+    if (
+        _GREETING_PATTERN.fullmatch(normalized_sanitized)
+        or _ASSISTANT_IDENTITY_PATTERN.fullmatch(normalized_sanitized)
+    ):
+        return InputGuardrailResult(True, "APROVADO", "", sanitized, pii_map)
     if (
         (_PERSONAL_PROJECT_PATTERN.search(normalized_sanitized)
          or _CLEAR_PROJECT_REQUEST_PATTERN.search(normalized_sanitized))
