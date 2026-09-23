@@ -665,8 +665,18 @@ async def default_agent(state: AgentState) -> dict:
                 state["specialist_results"],
                 key=lambda result: route_order.get(str(result.get("agent")), len(route_order)),
             )
+            public_specialist_results = [
+                {
+                    key: value
+                    for key, value in result.items()
+                    if not key.startswith("_")
+                }
+                for result in specialist_results
+            ]
             context = json.dumps(
-                specialist_results, ensure_ascii=False, separators=(",", ":")
+                public_specialist_results,
+                ensure_ascii=False,
+                separators=(",", ":"),
             )
             response = await model.ainvoke(
                 [
