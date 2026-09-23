@@ -44,8 +44,8 @@ async def metrics(request: Request) -> Response:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Metricas nao configuradas.",
         )
-    expected = f"Bearer {configured.get_secret_value()}"
-    supplied = request.headers.get("Authorization", "")
+    expected = f"Bearer {configured.get_secret_value()}".encode()
+    supplied = request.headers.get("Authorization", "").encode()
     if not compare_digest(supplied, expected):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
