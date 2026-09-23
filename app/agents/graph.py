@@ -770,10 +770,25 @@ def _empty_specialist_result(status: str) -> dict[str, object]:
     }
 
 
-def _string_list(value: object) -> list[str]:
+def _string_list(
+    value: object,
+    *,
+    max_items: int = 8,
+    max_chars: int = 500,
+) -> list[str]:
     if not isinstance(value, list):
         return []
-    return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+    items: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        normalized = " ".join(item.split()).strip()
+        if not normalized or normalized in items:
+            continue
+        items.append(normalized[:max_chars])
+        if len(items) >= max_items:
+            break
+    return items
 
 
 def _normalize_specialist_result(response: object) -> dict[str, object]:
@@ -783,10 +798,21 @@ def _normalize_specialist_result(response: object) -> dict[str, object]:
     status = payload.get("status")
     return {
         "status": status if status in {"ok", "needs_input", "unsupported", "error"} else "error",
-        "facts": _string_list(payload.get("facts", [])),
-        "recommendations": _string_list(payload.get("recommendations", [])),
-        "missing_data": _string_list(payload.get("missing_data", [])),
-        "sources": _string_list(payload.get("sources", [])),
+        "facts": _string_list(payload.get("facts", []), max_items=8),
+        "recommendations": _string_list(
+            payload.get("recommendations", []),
+            max_items=5,
+        ),
+        "missing_data": _string_list(
+            payload.get("missing_data", []),
+            max_items=3,
+            max_chars=200,
+        ),
+        "sources": _string_list(
+            payload.get("sources", []),
+            max_items=5,
+            max_chars=200,
+        ),
     }
 
 
