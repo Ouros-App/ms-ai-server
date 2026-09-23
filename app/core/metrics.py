@@ -1,3 +1,4 @@
+import asyncio
 from time import perf_counter
 
 from prometheus_client import Counter, Gauge, Histogram
@@ -64,12 +65,12 @@ LLM_IN_FLIGHT = Gauge(
 )
 LLM_INPUT_TOKENS = Counter(
     "ai_server_llm_input_tokens",
-    "Tokens de entrada reportados pelos provedores de LLM.",
+    "Tokens de entrada reportados pelos provedores de LLM, incluindo os servidos por cache.",
     ("profile", "model"),
 )
 LLM_CACHED_INPUT_TOKENS = Counter(
     "ai_server_llm_cached_input_tokens",
-    "Tokens de entrada servidos por cache, quando reportados pelo provedor.",
+    "Subconjunto dos tokens de entrada servido por cache, quando reportado.",
     ("profile", "model"),
 )
 LLM_OUTPUT_TOKENS = Counter(
@@ -245,6 +246,11 @@ async def observed_llm_ainvoke(model, messages: list, profile: str):
     LLM_IN_FLIGHT.inc()
     try:
         response = await model.ainvoke(messages)
+    except asyncio.CancelledError:
+        duration = perf_counter() - started_at
+        LLM_REQUESTS.labels(safe_profile, "unknown", "cancelled").inc()
+        LLM_DURATION.labels(safe_profile, "unknown").observe(duration)
+        raise
     except Exception:
         duration = perf_counter() - started_at
         LLM_REQUESTS.labels(safe_profile, "unknown", "error").inc()
