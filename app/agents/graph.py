@@ -790,6 +790,64 @@ def _normalize_specialist_result(response: object) -> dict[str, object]:
     }
 
 
+def _tool_result_content(result: object) -> str:
+    if isinstance(result, (dict, list)):
+        return json.dumps(
+            result,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            default=str,
+        )
+    return str(result)
+
+
+async def _execute_tool_call(
+    call: dict,
+    tool_map: dict,
+    conversation: list,
+    used_tools: list[str],
+) -> None:
+    selected_tool = tool_map.get(call.get("name"))
+    if selected_tool is None:
+        return
+
+    if selected_tool.name not in used_tools:
+        used_tools.append(selected_tool.name)
+    tool_args = call.get("args", {})
+    trace_event("tool.call", tool=selected_tool.name, args=tool_args)
+
+    try:
+        result = await selected_tool.ainvoke(tool_args)
+    except Exception as error:
+        logger.warning(
+            "agent_tool_failed tool=%s error=%s",
+            selected_tool.name,
+            type(error).__name__,
+        )
+        trace_event(
+            "tool.error",
+            tool=selected_tool.name,
+            error=type(error).__name__,
+        )
+        content = json.dumps(
+            {
+                "status": "error",
+                "message": "Ferramenta temporariamente indisponivel.",
+            },
+            separators=(",", ":"),
+        )
+    else:
+        trace_event("tool.result", tool=selected_tool.name, result=result)
+        content = _tool_result_content(result)
+
+    conversation.append(
+        ToolMessage(
+            content=content,
+            tool_call_id=call.get("id", f"tool-call-{len(conversation)}"),
+        ),
+    )
+
+
 async def _invoke_model(
     model,
     messages: list,
@@ -797,7 +855,7 @@ async def _invoke_model(
     user_id: str,
     specialist_tools: list | None = None,
 ):
-    """Executa o modelo com a allowlist de tools do especialista."""
+    """Execute the model with bounded, allowlisted tools and safe tool failures."""
     tools = list(specialist_tools or [])
     if memory_store is not None:
         tools.extend(build_memory_tools(memory_store, user_id))
@@ -816,34 +874,18 @@ async def _invoke_model(
         except Exception:
             logger.exception("agent_tool_model_failed")
             return await model.ainvoke(conversation), used_tools
+
         tool_calls = getattr(response, "tool_calls", [])
         if not tool_calls:
             return response, used_tools
 
         conversation.append(response)
         for call in tool_calls:
-            selected_tool = tool_map.get(call.get("name"))
-            if selected_tool is None:
-                continue
-            if selected_tool.name not in used_tools:
-                used_tools.append(selected_tool.name)
-            tool_args = call.get("args", {})
-            trace_event(
-                "tool.call",
-                tool=selected_tool.name,
-                args=tool_args,
-            )
-            result = await selected_tool.ainvoke(tool_args)
-            trace_event(
-                "tool.result",
-                tool=selected_tool.name,
-                result=result,
-            )
-            conversation.append(
-                ToolMessage(
-                    content=str(result),
-                    tool_call_id=call.get("id", f"tool-call-{len(conversation)}"),
-                ),
+            await _execute_tool_call(
+                call,
+                tool_map,
+                conversation,
+                used_tools,
             )
 
     return await model.ainvoke(conversation), used_tools
