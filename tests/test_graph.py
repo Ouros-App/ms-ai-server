@@ -18,6 +18,7 @@ from app.agents.graph import (
     _merge_tools,
     _resolve_local_routes,
     _route_update,
+    _tool_args_trace,
     _tool_result_content,
     _tool_result_trace,
     build_graph,
@@ -753,6 +754,19 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.content, '{"status":"ok"}')
         self.assertEqual(tools, [])
         model.ainvoke.assert_awaited_once()
+
+    def test_tool_argument_trace_keeps_shape_not_values(self) -> None:
+        trace = _tool_args_trace(
+            {
+                "query": "conteudo sensivel da fazenda",
+                "period_days": 30,
+            }
+        )
+
+        self.assertEqual(trace["arg_count"], 2)
+        self.assertEqual(trace["keys"], ["period_days", "query"])
+        self.assertNotIn("conteudo sensivel", str(trace))
+        self.assertNotIn("30", str(trace))
 
     def test_tool_results_are_bounded_and_trace_safe(self) -> None:
         payload = {"secret_business_value": "x" * 13_000}
