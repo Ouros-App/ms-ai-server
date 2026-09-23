@@ -398,7 +398,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             if event["event"] == "mcp.tool_result_invalid"
         ]
         self.assertEqual(len(invalid), 1)
-        self.assertEqual(invalid[0]["tool"], "get_user_farm_data")
+        self.assertEqual(invalid[0]["tool"], "get_user_context")
         self.assertEqual(invalid[0]["result_type"], "dict")
 
     def test_decoder_skips_unsupported_blocks_before_valid_text(self) -> None:
@@ -487,14 +487,14 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
     ) -> None:
         """Treat undecodable MCP output as integration failure, not scope denial."""
         remote_tool = SimpleNamespace(
-            name="get_user_farm_data",
-            description="Dados",
+            name="get_user_context",
+            description="Contexto",
             ainvoke=AsyncMock(
                 return_value=ToolMessage(
                     content=[{"type": "text", "text": "not-json"}],
                     artifact=None,
                     tool_call_id="remote-call",
-                    name="get_user_farm_data",
+                    name="get_user_context",
                 )
             ),
         )
@@ -512,9 +512,9 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             forward_mcp_access_token("signed-keycloak-token"),
             patch("langchain_mcp_adapters.client.MultiServerMCPClient", FakeClient),
         ):
-            tools = await provider.tools_for("sustainability", "42")
+            tools = await provider.tools_for("faq", "42")
             with self.assertRaises(MCPToolResultError):
-                await tools[0].ainvoke({"limit": 20})
+                await tools[0].ainvoke({})
 
         invalid = [
             event
