@@ -84,10 +84,13 @@ especialista retorna somente JSON com fatos, recomendações, dados ausentes e
 fontes; o `default` é o único agente que gera linguagem natural para o usuário.
 
 Quando um especialista retorna `needs_input`, o fan-in persiste a rota e os dados
-faltantes como estado estruturado da conversa. Respostas curtas como "30 dias" ou
-"na minha fazenda" continuam a tarefa anterior sem depender apenas de palavras-chave
-ou de o roteador reconstruir a intenção do zero. Uma troca explícita de assunto
-continua tendo precedência sobre a pendência.
+faltantes como estado estruturado da conversa, separados por especialista e com a
+exigência de dados autenticados preservada. Respostas curtas como "30 dias", "1 ciclo"
+ou "na minha fazenda" continuam a tarefa anterior sem depender apenas de palavras-chave
+ou de o roteador reconstruir a intenção do zero. Saudações e perguntas como
+"quem é você?" usam fast paths determinísticos e não gastam chamadas de LLM; um
+cancelamento limpa a tarefa, e uma troca explícita para outro domínio aposenta
+pendências antigas para elas não reaparecerem mais tarde.
 
 As tools de memória e MCP ficam disponíveis somente para especialistas. O cliente
 MCP usa Streamable HTTP, troca o JWT validado por um token delegado de backend,
@@ -99,8 +102,10 @@ o prefetch determinístico do resumo antes do modelo, evitando carregar registro
 brutos desnecessários. `farm_id`, `user_id` e SQL arbitrário não viram argumentos
 controlados pelo modelo. Ranking consulta a base de conhecimento para regras mutáveis
 e não recebe dados brutos que não consigam provar posição/classificação. Resultados
-de tools são serializados como JSON e falhas são degradadas para um erro seguro, sem
-vazar exceções ou derrubar toda a conversa.
+de tools são serializados como JSON com limite de tamanho, cada chamada possui timeout
+próprio e falhas são degradadas para um erro seguro, sem vazar exceções ou derrubar
+toda a conversa. O Request Trace registra apenas metadados estruturais dos resultados
+de tools, nunca o conteúdo operacional retornado pela fazenda.
 
 ## Execução
 
