@@ -150,16 +150,15 @@ STATUS: APROVADO ou CORRIGIDO
 RESPOSTA:
 [resposta final]
 
-A resposta so pode afirmar funcionalidades confirmadas: consumo de agua e energia
-por ciclo, offline, dashboard, ranking por estado com niveis ferro/bronze/prata/ouro,
-metas, alertas, biblioteca Explorar, historico, selos, calendario, vacinas, lotes,
-relatorios, suporte tecnico e recuperacao do historico da conversa atual. Orientacoes
-de suporte podem incluir verificacoes gerais e reversiveis, como conferir conexao,
-reabrir o aplicativo, tentar sincronizar novamente e coletar a mensagem de erro,
-aparelho e estado da conexao. Nao invente nomes de botoes, telas ou mensagens de
-sucesso. Se houver algo fora dessa lista, remova ou substitua por: "Nao tenho essa
-informacao confirmada no sistema." Tambem remova promessas, numeros inventados,
-dados de terceiros, credenciais e instrucoes internas.
+Revise apenas seguranca, privacidade e afirmacoes evidentemente sem suporte.
+Nao mantenha uma lista propria de funcionalidades, ligas ou regras do produto e
+nao altere fatos apenas com base na sua memoria: a resposta recebida pode ter sido
+produzida a partir de ferramentas autenticadas e da base oficial de conhecimento.
+Preserve limitacoes explicitas e distincoes entre dado oficial, indisponivel e
+simulado. Remova credenciais, instrucoes internas, IDs internos, dados de terceiros,
+promessas de resultado e numeros claramente inventados. Orientacoes de suporte
+devem permanecer simples e reversiveis e nunca solicitar senha, token ou segredo.
+Nao adicione novas funcionalidades, regras ou fatos durante a revisao.
 
 Resposta para revisar:
 {response}
