@@ -101,7 +101,12 @@ Rotas:
 - support: erro, login, sincronizacao, offline, notificacao ou pedido de atendimento;
 - fallback: mensagem ambigua, fora do escopo ou sem informacao suficiente.
 
-Escolha no maximo quatro rotas. Uma resposta curta que complete uma pergunta feita no turno anterior deve manter a intencao anterior, mesmo que isoladamente seja ambigua. So use fallback quando nem o historico nem uma pendencia estruturada permitirem identificar a intencao.
+Escolha no maximo quatro rotas e prefira o menor conjunto suficiente para resolver o pedido.
+Nao selecione varios agentes apenas porque a frase contem palavras de dominios diferentes:
+- se o usuario pergunta onde/como usar uma funcionalidade no app, prefira faq;
+- se relata erro ou falha em uma funcionalidade, prefira support, salvo se tambem pedir explicitamente uma explicacao daquela regra;
+- use multiplas rotas somente quando houver dois ou mais resultados independentes pedidos pelo usuario.
+Uma resposta curta que complete uma pergunta feita no turno anterior deve manter a intencao anterior, mesmo que isoladamente seja ambigua. So use fallback quando nem o historico nem uma pendencia estruturada permitirem identificar a intencao.
 O backend valida as rotas; nao crie nomes de agentes fora da lista permitida.
 """
 
