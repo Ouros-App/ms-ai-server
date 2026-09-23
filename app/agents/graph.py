@@ -150,6 +150,9 @@ _GREETING_ROUTE_PATTERN = re.compile(
 _IDENTITY_ROUTE_PATTERN = re.compile(
     r"^(?:quem\s+(?:e|eh)\s+(?:voce|vc)|o\s+que\s+(?:voce|vc)\s+faz)[!.?\s]*$"
 )
+_MULTI_INTENT_PATTERN = re.compile(
+    r"(?:\b(?:e|tambem|alem\s+disso)\b|[;\n])"
+)
 
 
 _DETERMINISTIC_ROUTE_PATTERNS = (
@@ -187,16 +190,21 @@ _DETERMINISTIC_ROUTE_PATTERNS = (
 
 
 def _deterministic_routes(message: object) -> list[str] | None:
-    """Retorna todas as intencoes claras encontradas na mensagem mais recente."""
+    """Resolve only unambiguous local intents; collisions go to the semantic router."""
     content = getattr(message, "content", message)
     if not isinstance(content, str):
         return None
     text = _normalize_route_text(content)
-    routes = []
-    for route, pattern in _DETERMINISTIC_ROUTE_PATTERNS:
-        if pattern.search(text):
-            routes.append(route)
-    return routes or None
+    routes = [
+        route
+        for route, pattern in _DETERMINISTIC_ROUTE_PATTERNS
+        if pattern.search(text)
+    ]
+    if len(routes) <= 1:
+        return routes or None
+    if _MULTI_INTENT_PATTERN.search(text):
+        return routes[:4]
+    return None
 
 
 def _is_contextual_followup(message: object) -> bool:
