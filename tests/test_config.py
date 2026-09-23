@@ -95,6 +95,12 @@ class ConfigTest(unittest.TestCase):
                     mcp_keycloak_token_exchange_timeout_seconds=timeout,
                 )
 
+    def test_mcp_tool_timeout_is_bounded(self) -> None:
+        with self.assertRaises(ValueError):
+            Settings(_env_file=None, mcp_tool_timeout_seconds=0)
+        with self.assertRaises(ValueError):
+            Settings(_env_file=None, mcp_tool_timeout_seconds=31)
+
     def test_debug_ui_requires_token_url_and_client_id(self) -> None:
         with (
             patch.dict(os.environ, {}, clear=True),
