@@ -7,11 +7,15 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from app.agents.graph import (
     _RESET_TOOLS,
+    _collect_pending_state,
+    _conversation_is_personal_request,
     _deterministic_routes,
     _extract_period_days,
     _extract_route,
     _invoke_model,
+    _is_pending_followup,
     _merge_tools,
+    _resolve_local_routes,
     build_graph,
     default_agent,
     route_request,
@@ -199,6 +203,80 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second_snapshot.values["pending_routes"], [])
         self.assertEqual(second_snapshot.values["pending_missing_data"], [])
 
+    def test_pending_reply_must_match_the_requested_slot(self) -> None:
+        self.assertTrue(
+            _is_pending_followup(
+                HumanMessage(content="30 dias"),
+                ["periodo de analise"],
+            )
+        )
+        self.assertFalse(
+            _is_pending_followup(
+                HumanMessage(content="Quero cadastrar 2 propriedades"),
+                ["periodo de analise"],
+            )
+        )
+
+    def test_cancel_does_not_revive_previous_route(self) -> None:
+        state = {
+            "messages": [HumanMessage(content="Esquece isso")],
+            "pending_routes": ["sustainability"],
+            "pending_missing_data": ["periodo de analise"],
+            "pending_by_route": {"sustainability": ["periodo de analise"]},
+            "last_routes": ["sustainability"],
+        }
+
+        self.assertEqual(
+            _resolve_local_routes(state),
+            (["fallback"], "cancelled"),
+        )
+
+    def test_pending_data_remains_isolated_by_route(self) -> None:
+        routes, missing, by_route = _collect_pending_state(
+            [
+                {
+                    "agent": "sustainability",
+                    "status": "needs_input",
+                    "missing_data": ["periodo de analise"],
+                },
+                {
+                    "agent": "ranking",
+                    "status": "needs_input",
+                    "missing_data": ["estado do ranking"],
+                },
+            ]
+        )
+
+        self.assertEqual(routes, ["sustainability", "ranking"])
+        self.assertEqual(
+            by_route,
+            {
+                "sustainability": ["periodo de analise"],
+                "ranking": ["estado do ranking"],
+            },
+        )
+        self.assertEqual(missing, ["periodo de analise", "estado do ranking"])
+
+    def test_personal_requirement_survives_a_bare_period_followup(self) -> None:
+        state = {
+            "messages": [
+                HumanMessage(content="Como esta o consumo da minha fazenda?"),
+                AIMessage(content="Qual periodo?"),
+                HumanMessage(content="30"),
+            ],
+            "pending_routes": ["sustainability"],
+            "pending_missing_data": ["periodo de analise"],
+            "pending_by_route": {"sustainability": ["periodo de analise"]},
+        }
+
+        self.assertTrue(
+            _conversation_is_personal_request(
+                state,
+                "sustainability",
+                "30",
+            )
+        )
+
     def test_period_parser_handles_natural_followups_without_guessing(self) -> None:
         self.assertEqual(_extract_period_days("30 dias na minha fazenda"), 30)
         self.assertEqual(_extract_period_days("ultima semana"), 7)
@@ -231,6 +309,10 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             _deterministic_routes(HumanMessage(content="minha senha nao funciona")),
             ["support"],
+        )
+        self.assertEqual(
+            _deterministic_routes(HumanMessage(content="Como acesso meu ranking?")),
+            ["ranking"],
         )
 
     def test_personal_ranking_indicators_are_detected_as_personal_data(self) -> None:
