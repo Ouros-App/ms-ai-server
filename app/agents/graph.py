@@ -1058,26 +1058,32 @@ def _pending_result(result: object) -> tuple[str, list[str]] | None:
 
 def _collect_pending_state(
     specialist_results: list,
-) -> tuple[list[str], list[str]]:
-    pending_routes: list[str] = []
-    pending_missing_data: list[str] = []
+) -> tuple[list[str], list[str], dict[str, list[str]]]:
+    pending_by_route: dict[str, list[str]] = {}
     for result in specialist_results:
         pending = _pending_result(result)
         if pending is None:
             continue
         agent_name, missing = pending
-        if agent_name not in pending_routes:
-            pending_routes.append(agent_name)
-        pending_missing_data.extend(
-            item for item in missing if item not in pending_missing_data
+        pending_by_route[agent_name] = list(
+            dict.fromkeys([*pending_by_route.get(agent_name, []), *missing])
         )
-    return pending_routes, pending_missing_data
+
+    pending_routes = list(pending_by_route)
+    pending_missing_data = list(
+        dict.fromkeys(
+            item
+            for missing in pending_by_route.values()
+            for item in missing
+        )
+    )
+    return pending_routes, pending_missing_data, pending_by_route
 
 
 async def collect_specialist_results(state: AgentState) -> dict:
-    """Persist only unresolved specialist requests as conversational state."""
+    """Persist unresolved requests by specialist route for the next turn."""
     specialist_results = state.get("specialist_results", [])
-    pending_routes, pending_missing_data = _collect_pending_state(
+    pending_routes, pending_missing_data, pending_by_route = _collect_pending_state(
         specialist_results
     )
     logger.info(
@@ -1090,10 +1096,12 @@ async def collect_specialist_results(state: AgentState) -> dict:
         "conversation.pending",
         routes=pending_routes,
         missing_data=pending_missing_data,
+        by_route=pending_by_route,
     )
     return {
         "pending_routes": pending_routes,
         "pending_missing_data": pending_missing_data,
+        "pending_by_route": pending_by_route,
     }
 
 
