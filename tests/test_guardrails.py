@@ -83,6 +83,18 @@ class GuardrailsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.category, "IDENTIDADE_INCOMPATIVEL")
         model.ainvoke.assert_not_awaited()
 
+    async def test_allows_midas_identity_question_without_semantic_classifier(self) -> None:
+        model = Mock()
+        model.ainvoke = AsyncMock(
+            return_value=AIMessage(content="CATEGORIA: FORA_DO_ESCOPO"),
+        )
+
+        result = await guard_input("quem eh vc?", model=model)
+
+        self.assertTrue(result.allowed)
+        self.assertEqual(result.category, "APROVADO")
+        model.ainvoke.assert_not_awaited()
+
     async def test_allows_greeting_without_semantic_classifier(self) -> None:
         model = Mock()
         model.ainvoke = AsyncMock(
