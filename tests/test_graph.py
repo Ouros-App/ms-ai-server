@@ -325,6 +325,20 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         )
 
 
+    def test_cancel_question_is_not_treated_as_task_cancellation(self) -> None:
+        state = {
+            "messages": [HumanMessage(content="Como cancelar meu cadastro?")],
+            "pending_routes": ["sustainability"],
+            "pending_missing_data": ["periodo de analise"],
+            "pending_by_route": {"sustainability": ["periodo de analise"]},
+            "last_routes": ["sustainability"],
+        }
+
+        routes, source = _resolve_local_routes(state)
+
+        self.assertNotEqual(source, "cancelled")
+        self.assertNotEqual(routes, ["fallback"])
+
     def test_product_cancel_language_is_not_treated_as_task_cancellation(self) -> None:
         state = {
             "messages": [HumanMessage(content="Como cancelar uma notificacao?")],
