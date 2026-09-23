@@ -150,11 +150,6 @@ _GREETING_ROUTE_PATTERN = re.compile(
 _IDENTITY_ROUTE_PATTERN = re.compile(
     r"^(?:quem\s+(?:e|eh)\s+(?:voce|vc)|o\s+que\s+(?:voce|vc)\s+faz)[!.?\s]*$"
 )
-_MULTI_INTENT_PATTERN = re.compile(
-    r"(?:\b(?:e|tambem|alem\s+disso)\b|[;\n])"
-)
-
-
 _DETERMINISTIC_ROUTE_PATTERNS = (
     (
         "support",
@@ -202,8 +197,9 @@ def _deterministic_routes(message: object) -> list[str] | None:
     ]
     if len(routes) <= 1:
         return routes or None
-    if _MULTI_INTENT_PATTERN.search(text):
-        return routes[:4]
+
+    # Multiple keyword domains are semantically ambiguous. Let the router decide
+    # whether this is one dominant intent or a genuine multi-agent request.
     return None
 
 
