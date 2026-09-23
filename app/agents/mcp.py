@@ -240,10 +240,7 @@ class MCPToolProvider:
 
             async def invoke() -> object:
                 result = await self._invoke_remote_tool(tool, {})
-                return self._require_decoded_result(
-                    result,
-                    tool_name="get_user_context",
-                )
+                return self._filter_user_context(result)
 
             args_schema = _NoArguments
         elif tool.name == "get_user_farm_data":
@@ -395,6 +392,20 @@ class MCPToolProvider:
             )
 
         return isinstance(result, dict)
+
+    @staticmethod
+    def _filter_user_context(result: object) -> dict:
+        """Hide backend identity fields before context reaches the model."""
+        result = MCPToolProvider._require_decoded_result(
+            result,
+            tool_name="get_user_context",
+        )
+        return {
+            "user_type": result.get("user_type"),
+            "profile": result.get("profile", {}),
+            "enterprises": result.get("enterprises", []),
+            "farms": result.get("farms", []),
+        }
 
     @staticmethod
     def _filter_farm_data(
