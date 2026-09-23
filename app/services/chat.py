@@ -10,7 +10,7 @@ from app.agents.diagnostics import specialist_results_summary
 from app.agents.guardrails import guard_input
 from app.agents.mcp import forward_mcp_access_token
 from app.core.config import settings
-from app.core.metrics import observe_chat_result
+from app.core.metrics import observe_chat_result, observe_chat_routing
 from app.debug_ui.trace import capture_debug_trace, trace_event
 from app.schemas.chat import ChatRequest, ChatResponse
 
@@ -146,6 +146,7 @@ async def _invoke_graph(
         duration_ms = round((perf_counter() - started_at) * 1000, 1)
 
         observe_chat_result("success", agents, tools)
+        observe_chat_routing(routes, route_source, pending_routes)
         trace_event(
             "graph.completed",
             routes=routes,
