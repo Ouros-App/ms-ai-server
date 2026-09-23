@@ -178,6 +178,11 @@ FALLBACK_RESPONSE = (
 )
 
 CANCELLED_RESPONSE = "Certo. O que voce quer fazer agora no Midas?"
+GREETING_RESPONSE = "Oi! Como posso te ajudar no Midas?"
+IDENTITY_RESPONSE = (
+    "Sou o Midas, assistente do Ouros. Posso ajudar com o uso do aplicativo, "
+    "consumo e sustentabilidade, ranking e suporte tecnico."
+)
 
 DEFAULT_AGENT_RESPONSE = "A IA ainda nao foi configurada. Defina os agentes, prompts e tools do projeto."
 
