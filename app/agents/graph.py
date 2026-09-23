@@ -592,7 +592,7 @@ def _route_update(routes: list[str], route_source: str) -> dict[str, object]:
     inheritable_routes = _inheritable_routes(routes)
     if inheritable_routes:
         update["last_routes"] = inheritable_routes
-    if routes in (["fallback"], ["default"]):
+    if route_source == "cancelled":
         update["pending_routes"] = []
         update["pending_missing_data"] = []
         update["pending_by_route"] = {}
