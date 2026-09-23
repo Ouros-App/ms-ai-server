@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from app.core.metrics import (
     _cached_input_tokens,
@@ -57,8 +57,8 @@ class MetricsTest(unittest.IsolatedAsyncioTestCase):
         model = SimpleNamespace(
             ainvoke=AsyncMock(side_effect=asyncio.CancelledError())
         )
-        request_counter = SimpleNamespace(inc=unittest.mock.Mock())
-        duration_histogram = SimpleNamespace(observe=unittest.mock.Mock())
+        request_counter = SimpleNamespace(inc=Mock())
+        duration_histogram = SimpleNamespace(observe=Mock())
 
         with (
             patch(
