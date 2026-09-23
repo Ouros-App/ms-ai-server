@@ -106,7 +106,14 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         payload = {
             "user_type": "farm_owner",
             "user_id": 42,
-            "profile": {"id": 42, "name": "Produtor", "id_user": 42},
+            "profile": {
+                "id": 42,
+                "name": "Produtor",
+                "id_user": 42,
+                "email": "private@example.com",
+                "telephone": "5511999999999",
+                "document_number": "00000000000",
+            },
             "farms": [
                 {
                     "id": 11,
@@ -116,7 +123,14 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
                     "address": {"id": 99, "city": "Campinas"},
                 }
             ],
-            "enterprises": [{"id": 7, "name": "Empresa"}],
+            "enterprises": [
+                {
+                    "id": 7,
+                    "name": "Empresa",
+                    "email": "billing@example.com",
+                    "telephone": "5511888888888",
+                }
+            ],
         }
         remote_context = SimpleNamespace(
             name="get_user_context",
@@ -164,6 +178,11 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(call["name"], "get_user_context")
         self.assertEqual(call["args"], {})
         self.assertNotIn("user_id", call["args"])
+        self.assertNotIn("private@example.com", str(result))
+        self.assertNotIn("5511999999999", str(result))
+        self.assertNotIn("00000000000", str(result))
+        self.assertNotIn("billing@example.com", str(result))
+        self.assertNotIn("5511888888888", str(result))
 
     async def test_farm_data_tool_decodes_structured_artifact_and_filters_scope(
         self,
