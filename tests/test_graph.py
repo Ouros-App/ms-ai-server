@@ -16,6 +16,7 @@ from app.agents.graph import (
     _is_pending_followup,
     _merge_tools,
     _resolve_local_routes,
+    _route_update,
     build_graph,
     default_agent,
     route_request,
@@ -243,6 +244,15 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                 ["periodo de analise"],
             )
         )
+
+    def test_quick_turns_preserve_pending_state_but_cancel_clears_it(self) -> None:
+        greeting_update = _route_update(["default"], "greeting")
+        cancelled_update = _route_update(["fallback"], "cancelled")
+
+        self.assertNotIn("pending_by_route", greeting_update)
+        self.assertEqual(cancelled_update["pending_routes"], [])
+        self.assertEqual(cancelled_update["pending_missing_data"], [])
+        self.assertEqual(cancelled_update["pending_by_route"], {})
 
     def test_cancel_does_not_revive_previous_route(self) -> None:
         state = {
