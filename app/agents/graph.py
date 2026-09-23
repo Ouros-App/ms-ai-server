@@ -136,8 +136,11 @@ _PERSONAL_DATA_TOPIC_PATTERN = re.compile(
     r"medicao|registro\w*)\b"
 )
 _PENDING_CANCEL_PATTERN = re.compile(
-    r"\b(?:esquece|ignora|cancela|cancelar|outro\s+assunto|mudar\s+de\s+assunto|"
-    r"muda\s+de\s+assunto)\b"
+    r"^(?:esquece|ignora|cancela|cancelar|outro\s+assunto|mudar\s+de\s+assunto|"
+    r"muda\s+de\s+assunto)"
+    r"(?:\s+(?:isso|isto|tudo|essa|esse|o\s+pedido|a\s+pergunta|"
+    r"(?:o|a)?\s*(?:ranking|sustentabilidade|consumo|agua|energia|suporte|faq)))?"
+    r"[!.?\s]*$"
 )
 _PERIOD_PATTERN = re.compile(
     r"\b(?P<value>\d{1,3})\s*(?P<unit>dia|dias|semana|semanas|mes|meses)\b"
@@ -215,7 +218,11 @@ def _is_cancel_request(message: object) -> bool:
     content = getattr(message, "content", message)
     if not isinstance(content, str):
         return False
-    return bool(_PENDING_CANCEL_PATTERN.search(_normalize_route_text(content)))
+    return bool(
+        _PENDING_CANCEL_PATTERN.search(
+            _normalize_route_text(content).strip()
+        )
+    )
 
 
 def _missing_slot_kinds(missing_data: object) -> set[str]:
@@ -574,19 +581,17 @@ def _resolve_local_routes(state: AgentState) -> tuple[list[str] | None, str | No
     if quick_source is not None:
         return ["default"], quick_source
 
+    pending_by_route = _pending_by_route(state)
+    if pending_by_route and _is_cancel_request(latest_message):
+        return ["fallback"], "cancelled"
+
     deterministic = _deterministic_routes(latest_message)
     if deterministic is not None:
         return deterministic, "deterministic"
 
-    if (
-        not _has_deterministic_route_match(latest_message)
-        and _is_cancel_request(latest_message)
-    ):
-        return ["fallback"], "cancelled"
-
     pending_matches = _matching_pending_routes(
         latest_message,
-        _pending_by_route(state),
+        pending_by_route,
     )
     if pending_matches:
         return pending_matches, "pending"
