@@ -21,6 +21,7 @@ services:
       AUTH_JWT_ISSUER: ${AUTH_JWT_ISSUER:-https://ouros-keycloak.discloud.app/realms/ouros}
       AUTH_JWT_AUDIENCE: ${AUTH_JWT_AUDIENCE:-ms-ai-server}
       MCP_URL: ${MCP_URL:-https://ms-midas-mcp.discloud.app/mcp/}
+      MCP_TOOL_TIMEOUT_SECONDS: ${MCP_TOOL_TIMEOUT_SECONDS:-10}
       MCP_RESOURCE_URL: ${MCP_RESOURCE_URL:-}
       MCP_TOOLS_CACHE_TTL_SECONDS: ${MCP_TOOLS_CACHE_TTL_SECONDS:-300}
       DEBUG_UI_ENABLED: ${DEBUG_UI_ENABLED:-false}
