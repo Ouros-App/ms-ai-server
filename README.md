@@ -176,10 +176,14 @@ Além de HTTP, roteamento, agentes e tools, o serviço mede:
 - tempo e resultado das chamadas do AI Server ao Knowledge MCP;
 - tarefas conversacionais pendentes e origem da decisão de rota.
 
-Os contadores de tokens representam uso técnico. O AI Server **não calcula dólares**:
-a precificação fica no serviço de Telemetry para que mudanças de tabela de preço não
-alterem a instrumentação e para distinguir modelos cobrados por token de modelos NIM
-precificados por infraestrutura.
+Os contadores de tokens representam uso técnico. `input_tokens` já inclui o
+subconjunto servido por cache quando o provedor informa cache. Portanto o Telemetry
+precifica `input_tokens - cached_input_tokens` pela tarifa normal e
+`cached_input_tokens` pela tarifa de cache, sem dupla contagem.
+
+O AI Server **não calcula dólares**: a precificação fica no serviço de Telemetry para
+que mudanças de tabela de preço não alterem a instrumentação e para distinguir modelos
+cobrados por token de modelos NIM precificados por infraestrutura.
 
 Nenhuma métrica usa `user_id`, `farm_id`, `thread_id`, request ID ou conteúdo
 do prompt como label.
