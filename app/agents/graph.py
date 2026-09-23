@@ -134,6 +134,10 @@ _PENDING_CANCEL_PATTERN = re.compile(
     r"\b(?:esquece|ignora|cancela|cancelar|outro\s+assunto|mudar\s+de\s+assunto|"
     r"muda\s+de\s+assunto)\b"
 )
+_PERIOD_PATTERN = re.compile(
+    r"\b(?P<value>\d{1,3})\s*(?P<unit>dia|dias|semana|semanas|mes|meses)\b"
+)
+_BARE_PERIOD_PATTERN = re.compile(r"^\s*(?P<value>\d{1,3})\s*$")
 
 
 _DETERMINISTIC_ROUTE_PATTERNS = (
@@ -254,45 +258,92 @@ def _personal_data_system_message(result: object | None, *, unavailable: bool = 
     return {"role": "system", "content": content}
 
 
-async def _prefetch_personal_farm_data(
+def _extract_period_days(
+    user_text: str,
+    pending_missing_data: object = None,
+) -> int | None:
+    """Extract a bounded period while avoiding guesses outside a pending period slot."""
+    text = _normalize_route_text(user_text).strip()
+    if "hoje" in text:
+        return 1
+    if re.search(r"\b(?:ultima|ultimo)\s+semana\b", text):
+        return 7
+    if re.search(r"\b(?:ultimo|ultima)\s+mes\b", text):
+        return 30
+
+    match = _PERIOD_PATTERN.search(text)
+    if match is not None:
+        value = int(match.group("value"))
+        multiplier = {
+            "dia": 1,
+            "dias": 1,
+            "semana": 7,
+            "semanas": 7,
+            "mes": 30,
+            "meses": 30,
+        }[match.group("unit")]
+        period_days = value * multiplier
+        return period_days if 1 <= period_days <= 366 else None
+
+    missing_items = _string_list(pending_missing_data)
+    waiting_for_period = any(
+        "period" in _normalize_route_text(item)
+        or "janela" in _normalize_route_text(item)
+        for item in missing_items
+    )
+    bare_match = _BARE_PERIOD_PATTERN.fullmatch(text)
+    if waiting_for_period and bare_match is not None:
+        period_days = int(bare_match.group("value"))
+        return period_days if 1 <= period_days <= 366 else None
+    return None
+
+
+def _find_tool(mcp_tools: list, name: str):
+    return next(
+        (tool for tool in mcp_tools if getattr(tool, "name", None) == name),
+        None,
+    )
+
+
+async def _prefetch_consumption_summary(
     agent_name: str,
     user_text: str,
     mcp_tools: list,
+    pending_missing_data: object,
 ) -> tuple[dict | None, list[str], dict[str, object] | None]:
-    """Run get_user_farm_data deterministically when the request is personal."""
+    """Prefetch the least-privilege domain summary when a personal period is explicit."""
+    if agent_name != "sustainability":
+        return None, [], None
     if not _requires_personal_farm_data(agent_name, user_text):
         return None, [], None
 
-    farm_tool = next(
-        (
-            tool
-            for tool in mcp_tools
-            if getattr(tool, "name", None) == "get_user_farm_data"
-        ),
-        None,
-    )
-    if farm_tool is None:
+    period_days = _extract_period_days(user_text, pending_missing_data)
+    if period_days is None:
+        return None, [], None
+
+    summary_tool = _find_tool(mcp_tools, "get_consumption_summary")
+    if summary_tool is None:
         trace_event(
             "mcp.personal_data_unavailable",
             agent=agent_name,
-            reason="tool_not_available",
+            reason="consumption_summary_not_available",
         )
         return _personal_data_system_message(None, unavailable=True), [], None
 
-    args = {"limit": 20}
+    args = {"period_days": period_days}
     trace_event(
         "tool.call",
-        tool="get_user_farm_data",
+        tool="get_consumption_summary",
         args=args,
         source="required_prefetch",
     )
     try:
-        result = await farm_tool.ainvoke(args)
+        result = await summary_tool.ainvoke(args)
     except Exception as error:
-        logger.exception("mcp_personal_data_prefetch_failed agent=%s", agent_name)
+        logger.exception("mcp_consumption_prefetch_failed agent=%s", agent_name)
         trace_event(
             "tool.error",
-            tool="get_user_farm_data",
+            tool="get_consumption_summary",
             source="required_prefetch",
             error=type(error).__name__,
         )
@@ -300,26 +351,30 @@ async def _prefetch_personal_farm_data(
 
     trace_event(
         "tool.result",
-        tool="get_user_farm_data",
+        tool="get_consumption_summary",
         result=result,
         source="required_prefetch",
     )
-    if isinstance(result, dict) and result.get("authorized") is False:
+    if not isinstance(result, dict) or result.get("authorized") is False:
         trace_event(
             "mcp.personal_data_unavailable",
             agent=agent_name,
-            reason=str(result.get("reason") or "no_farm_scope"),
+            reason=str(
+                result.get("reason", "invalid_summary")
+                if isinstance(result, dict)
+                else "invalid_summary"
+            ),
         )
         return (
             _personal_data_system_message(None, unavailable=True),
-            ["get_user_farm_data"],
-            result,
+            ["get_consumption_summary"],
+            result if isinstance(result, dict) else None,
         )
 
     return (
         _personal_data_system_message(result),
-        ["get_user_farm_data"],
-        result if isinstance(result, dict) else None,
+        ["get_consumption_summary"],
+        result,
     )
 
 
