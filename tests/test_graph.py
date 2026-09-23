@@ -233,9 +233,9 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             ["support"],
         )
 
-    def test_personal_ranking_indicators_require_authenticated_prefetch(self) -> None:
-        """Require farm data for personal ranking, score, level and badge queries."""
-        from app.agents.graph import _requires_personal_farm_data
+    def test_personal_ranking_indicators_are_detected_as_personal_data(self) -> None:
+        """Detect personal ranking, score, level and badge queries without choosing storage."""
+        from app.agents.graph import _is_personal_data_request
 
         for message in (
             "Qual e o meu ranking?",
@@ -245,7 +245,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         ):
             with self.subTest(message=message):
                 self.assertTrue(
-                    _requires_personal_farm_data("ranking", message)
+                    _is_personal_data_request("ranking", message)
                 )
 
     async def test_personal_consumption_query_prefetches_domain_summary(self) -> None:
