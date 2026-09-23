@@ -292,21 +292,24 @@ class MCPToolProvider:
         }
         started_at = perf_counter()
         mcp_call_started()
+        outcome = "error"
         try:
             result = await tool.ainvoke(tool_call)
-        except Exception:
+            outcome = (
+                "error"
+                if isinstance(result, ToolMessage) and result.status == "error"
+                else "success"
+            )
+            return result
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            raise
+        finally:
             observe_mcp_call(
                 tool.name,
-                "error",
+                outcome,
                 perf_counter() - started_at,
             )
-            raise
-        observe_mcp_call(
-            tool.name,
-            "success",
-            perf_counter() - started_at,
-        )
-        return result
 
     @staticmethod
     def _require_decoded_result(
