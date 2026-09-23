@@ -26,3 +26,10 @@ class PromptTest(unittest.TestCase):
     def test_prompts_never_request_internal_identity_fields(self) -> None:
         self.assertIn("Nunca peca `farm_id`", COMMON_AGENT_RULES)
         self.assertIn("Nunca peca identificadores internos", SYSTEM_PROMPT)
+
+
+    def test_product_rules_are_loaded_from_authorized_knowledge(self) -> None:
+        self.assertIn("base de conhecimento", COMMON_AGENT_RULES)
+        self.assertIn("search_knowledge", RANKING_AGENT_PROMPT)
+        self.assertNotIn("biblioteca Explorar", COMMON_AGENT_RULES)
+        self.assertNotIn("niveis ferro, bronze, prata e ouro", RANKING_AGENT_PROMPT)
