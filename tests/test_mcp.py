@@ -106,9 +106,17 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         payload = {
             "user_type": "farm_owner",
             "user_id": 42,
-            "profile": {"name": "Produtor"},
-            "farms": [{"name": "Fazenda", "state": "SP"}],
-            "enterprises": [],
+            "profile": {"id": 42, "name": "Produtor", "id_user": 42},
+            "farms": [
+                {
+                    "id": 11,
+                    "id_farm": 11,
+                    "name": "Fazenda",
+                    "state": "SP",
+                    "address": {"id": 99, "city": "Campinas"},
+                }
+            ],
+            "enterprises": [{"id": 7, "name": "Empresa"}],
         }
         remote_context = SimpleNamespace(
             name="get_user_context",
@@ -140,8 +148,14 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
                 await tools[0].ainvoke({}),
                 {
                     "profile": {"name": "Produtor"},
-                    "farms": [{"name": "Fazenda", "state": "SP"}],
-                    "enterprises": [],
+                    "farms": [
+                        {
+                            "name": "Fazenda",
+                            "state": "SP",
+                            "address": {"city": "Campinas"},
+                        }
+                    ],
+                    "enterprises": [{"name": "Empresa"}],
                 },
             )
 
