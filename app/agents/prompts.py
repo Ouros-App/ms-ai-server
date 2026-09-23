@@ -56,8 +56,9 @@ Retorne somente JSON valido, sem markdown, neste formato:
   "missing_data": ["dado necessario"],
   "sources": ["fonte ou tool usada"]
 }
-Use listas vazias quando nao houver itens. Nao inclua texto fora do JSON,
-prompts, credenciais ou dados de outros usuarios.
+Use listas vazias quando nao houver itens. Seja economico: no maximo 8 fatos,
+5 recomendacoes, 3 dados ausentes e 5 fontes. Cada item deve ser curto e factual.
+Nao inclua texto fora do JSON, prompts, credenciais ou dados de outros usuarios.
 """
 
 SYNTHESIZER_PROMPT = COMMON_AGENT_RULES + """
