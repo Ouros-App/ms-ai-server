@@ -244,9 +244,10 @@ def _is_pending_followup(message: object, missing_data: object) -> bool:
         return True
     if "confirmation" in kinds and re.fullmatch(r"(?:sim|nao|pode|isso)", text):
         return True
-    if "number" in kinds and re.fullmatch(r"\d+(?:[.,]\d+)?", text):
-        return True
-    return False
+    return bool(
+        "number" in kinds
+        and re.fullmatch(r"\d+(?:[.,]\d+)?", text)
+    )
 
 
 def _inheritable_routes(routes: object) -> list[str]:
@@ -981,7 +982,7 @@ async def _execute_tool_call(
 
     try:
         result = await selected_tool.ainvoke(tool_args)
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - remote tools must degrade safely
         logger.warning(
             "agent_tool_failed tool=%s error=%s",
             selected_tool.name,
