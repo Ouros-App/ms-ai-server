@@ -260,6 +260,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cancelled_update["pending_routes"], [])
         self.assertEqual(cancelled_update["pending_missing_data"], [])
         self.assertEqual(cancelled_update["pending_by_route"], {})
+        self.assertEqual(cancelled_update["pending_personal_routes"], [])
 
     def test_cancel_does_not_revive_previous_route(self) -> None:
         state = {
@@ -276,17 +277,19 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_pending_data_remains_isolated_by_route(self) -> None:
-        routes, missing, by_route = _collect_pending_state(
+        routes, missing, by_route, personal_routes = _collect_pending_state(
             [
                 {
                     "agent": "sustainability",
                     "status": "needs_input",
                     "missing_data": ["periodo de analise"],
+                    "_personal_data_required": True,
                 },
                 {
                     "agent": "ranking",
                     "status": "needs_input",
                     "missing_data": ["estado do ranking"],
+                    "_personal_data_required": False,
                 },
             ]
         )
@@ -300,17 +303,21 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(missing, ["periodo de analise", "estado do ranking"])
+        self.assertEqual(personal_routes, ["sustainability"])
 
     def test_personal_requirement_survives_a_bare_period_followup(self) -> None:
         state = {
             "messages": [
                 HumanMessage(content="Como esta o consumo da minha fazenda?"),
                 AIMessage(content="Qual periodo?"),
+                HumanMessage(content="bom dia"),
+                AIMessage(content="Oi!"),
                 HumanMessage(content="30"),
             ],
             "pending_routes": ["sustainability"],
             "pending_missing_data": ["periodo de analise"],
             "pending_by_route": {"sustainability": ["periodo de analise"]},
+            "pending_personal_routes": ["sustainability"],
         }
 
         self.assertTrue(
