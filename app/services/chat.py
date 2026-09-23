@@ -34,7 +34,7 @@ async def _invoke_graph(
         trace_event(
             "request.started",
             thread_id=payload.thread_id,
-            principal_id=principal_id,
+            authenticated=True,
         )
 
         if thread_ownership is not None and not await thread_ownership.claim(
@@ -53,7 +53,7 @@ async def _invoke_graph(
         trace_event(
             "thread.loaded",
             has_history=has_history,
-            owner_id=owner_id,
+            owner_bound=bool(owner_id),
         )
         if thread_ownership is None and owner_id and owner_id != principal_id:
             trace_event("thread.denied", reason="snapshot_owner_mismatch")
