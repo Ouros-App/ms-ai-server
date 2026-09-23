@@ -51,7 +51,7 @@ class GuardrailsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(guard_output("A fazenda (ID 11) tem dados."), NO_DATA_REFUSAL)
         self.assertEqual(
             guard_output("O sistema calcula emissoes de CO2 automaticamente."),
-            OUT_OF_SCOPE_REFUSAL,
+            "O sistema calcula emissoes de CO2 automaticamente.",
         )
 
     def test_limits_empty_and_long_outputs(self) -> None:
@@ -123,6 +123,10 @@ class GuardrailsTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(result.allowed)
         self.assertEqual(result.category, "FORA_DO_ESCOPO")
+
+    def test_output_guardrail_does_not_duplicate_mutable_product_rules(self) -> None:
+        text = "Uma funcionalidade futura pode mencionar CO2 se a fonte oficial confirmar."
+        self.assertEqual(guard_output(text), text)
 
     async def test_output_reviewer_extracts_and_rechecks_response(self) -> None:
         model = Mock()
