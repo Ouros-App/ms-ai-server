@@ -657,7 +657,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                 ChatRequest(
                     user_id="user",
                     thread_id="fallback-thread",
-                    message="ajuda",
+                    message="Sou produtor e preciso de orientacao.",
                 ),
                 "user",
             )
