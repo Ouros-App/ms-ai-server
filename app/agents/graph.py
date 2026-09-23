@@ -305,6 +305,18 @@ def _find_tool(mcp_tools: list, name: str):
     )
 
 
+def _requires_consumption_prefetch(
+    agent_name: str,
+    user_text: str,
+    pending_missing_data: object,
+) -> bool:
+    return (
+        agent_name == "sustainability"
+        and _requires_personal_farm_data(agent_name, user_text)
+        and _extract_period_days(user_text, pending_missing_data) is not None
+    )
+
+
 async def _prefetch_consumption_summary(
     agent_name: str,
     user_text: str,
@@ -312,14 +324,15 @@ async def _prefetch_consumption_summary(
     pending_missing_data: object,
 ) -> tuple[dict | None, list[str], dict[str, object] | None]:
     """Prefetch the least-privilege domain summary when a personal period is explicit."""
-    if agent_name != "sustainability":
-        return None, [], None
-    if not _requires_personal_farm_data(agent_name, user_text):
+    if not _requires_consumption_prefetch(
+        agent_name,
+        user_text,
+        pending_missing_data,
+    ):
         return None, [], None
 
     period_days = _extract_period_days(user_text, pending_missing_data)
-    if period_days is None:
-        return None, [], None
+    assert period_days is not None
 
     summary_tool = _find_tool(mcp_tools, "get_consumption_summary")
     if summary_tool is None:
