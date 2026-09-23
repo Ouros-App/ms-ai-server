@@ -398,7 +398,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             if event["event"] == "mcp.tool_result_invalid"
         ]
         self.assertEqual(len(invalid), 1)
-        self.assertEqual(invalid[0]["tool"], "get_user_context")
+        self.assertEqual(invalid[0]["tool"], "get_user_farm_data")
         self.assertEqual(invalid[0]["result_type"], "dict")
 
     def test_decoder_skips_unsupported_blocks_before_valid_text(self) -> None:
@@ -522,7 +522,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             if event["event"] == "mcp.tool_result_invalid"
         ]
         self.assertEqual(len(invalid), 1)
-        self.assertEqual(invalid[0]["tool"], "get_user_farm_data")
+        self.assertEqual(invalid[0]["tool"], "get_user_context")
         self.assertEqual(invalid[0]["result_type"], "ToolMessage")
 
     async def test_empty_farm_scope_is_explicitly_distinct_from_decode_failure(
