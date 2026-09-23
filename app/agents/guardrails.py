@@ -90,8 +90,10 @@ _HISTORY_PATTERN = re.compile(
     r"|\b(?:historico|conversa anterior|mensagens anteriores|lembra)\b"
 )
 _UNSUPPORTED_CLAIM_PATTERNS = (
-    re.compile(r"\b(?:entra|login|cadastro).{0,100}\b(?:e-?mail|senha)\b", re.IGNORECASE),
-    re.compile(r"\b(?:co2|emissoes?|area plantada|safra|auditorias?|certificacoes?)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:co2|emissoes?|area plantada|safra|auditorias?|certificacoes?)\b",
+        re.IGNORECASE,
+    ),
 )
 _INTERNAL_ID_PATTERNS = (
     re.compile(
