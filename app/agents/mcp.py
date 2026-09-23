@@ -393,18 +393,48 @@ class MCPToolProvider:
 
         return isinstance(result, dict)
 
+    _INTERNAL_ID_KEYS = frozenset(
+        {
+            "id",
+            "id_farm",
+            "farm_id",
+            "user_id",
+            "id_user",
+            "id_enterprise",
+            "enterprise_id",
+        }
+    )
+
+    @staticmethod
+    def _without_internal_ids(value: object) -> object:
+        if isinstance(value, dict):
+            return {
+                key: MCPToolProvider._without_internal_ids(item)
+                for key, item in value.items()
+                if key not in MCPToolProvider._INTERNAL_ID_KEYS
+            }
+        if isinstance(value, list):
+            return [
+                MCPToolProvider._without_internal_ids(item)
+                for item in value
+            ]
+        return value
+
     @staticmethod
     def _filter_user_context(result: object) -> dict:
-        """Hide backend identity fields before context reaches the model."""
+        """Hide backend identity and object IDs before context reaches the model."""
         result = MCPToolProvider._require_decoded_result(
             result,
             tool_name="get_user_context",
         )
-        return {
-            "profile": result.get("profile", {}),
-            "enterprises": result.get("enterprises", []),
-            "farms": result.get("farms", []),
-        }
+        filtered = MCPToolProvider._without_internal_ids(
+            {
+                "profile": result.get("profile", {}),
+                "enterprises": result.get("enterprises", []),
+                "farms": result.get("farms", []),
+            }
+        )
+        return filtered if isinstance(filtered, dict) else {}
 
     @staticmethod
     def _filter_farm_data(
