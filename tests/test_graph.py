@@ -68,6 +68,70 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(conversation[0].tool_call_id, "call-1")
         self.assertIn("Ferramenta nao disponivel", conversation[0].content)
 
+    async def test_unscoped_mcp_tool_records_round_trip_metrics(self) -> None:
+        search_tool = Mock()
+        search_tool.name = "search_knowledge"
+        search_tool.ainvoke = AsyncMock(return_value={"matches": []})
+        conversation = []
+        used_tools: list[str] = []
+
+        with (
+            patch("app.agents.graph.mcp_call_started") as started,
+            patch("app.agents.graph.observe_mcp_call") as observed,
+        ):
+            await _execute_tool_call(
+                {
+                    "name": "search_knowledge",
+                    "id": "search-1",
+                    "args": {"query": "ranking"},
+                },
+                {"search_knowledge": search_tool},
+                conversation,
+                used_tools,
+            )
+
+        started.assert_called_once_with()
+        self.assertEqual(observed.call_count, 1)
+        self.assertEqual(observed.call_args.args[0], "search_knowledge")
+        self.assertEqual(observed.call_args.args[1], "success")
+        self.assertGreaterEqual(observed.call_args.args[2], 0)
+        self.assertEqual(used_tools, ["search_knowledge"])
+        search_tool.ainvoke.assert_awaited_once_with({"query": "ranking"})
+
+    async def test_unscoped_mcp_tool_error_is_not_counted_as_success(self) -> None:
+        search_tool = Mock()
+        search_tool.name = "search_knowledge"
+        search_tool.ainvoke = AsyncMock(
+            return_value=ToolMessage(
+                content="remote error",
+                tool_call_id="remote-search-error",
+                name="search_knowledge",
+                status="error",
+            )
+        )
+        conversation = []
+        used_tools: list[str] = []
+
+        with (
+            patch("app.agents.graph.mcp_call_started"),
+            patch("app.agents.graph.observe_mcp_call") as observed,
+        ):
+            await _execute_tool_call(
+                {
+                    "name": "search_knowledge",
+                    "id": "search-2",
+                    "args": {"query": "ranking"},
+                },
+                {"search_knowledge": search_tool},
+                conversation,
+                used_tools,
+            )
+
+        self.assertEqual(observed.call_count, 1)
+        self.assertEqual(observed.call_args.args[0], "search_knowledge")
+        self.assertEqual(observed.call_args.args[1], "error")
+        self.assertGreaterEqual(observed.call_args.args[2], 0)
+
     async def test_invoke_model_rejects_reset_sentinel_as_tool_name(self) -> None:
         model = Mock()
         model.ainvoke = AsyncMock(return_value=AIMessage(content="ok"))
