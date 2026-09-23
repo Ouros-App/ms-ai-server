@@ -164,8 +164,10 @@ curl "http://localhost:8000/v1/chat/conversa-1/history?limit=20" \
 ## Observabilidade
 
 O endpoint `GET /metrics` expõe métricas Prometheus de requisições HTTP, latência,
-status, resultados do chat, agentes e tools utilizadas. Ele exige o mesmo Bearer
-Token da API. Configure o Prometheus para enviar esse token no scrape e use o
+status, resultados do chat, agentes, tools utilizadas, origem da decisão de rota
+(`deterministic`, `pending`, `model`, etc.) e tarefas que terminaram o turno
+aguardando informação. Os labels de origem são limitados a um conjunto fechado para
+evitar cardinalidade acidental. Ele exige o mesmo Bearer Token da API. Configure o Prometheus para enviar esse token no scrape e use o
 Prometheus como datasource no Grafana:
 
 ```yaml
