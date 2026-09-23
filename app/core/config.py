@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     description: str = "API de orquestracao de IA."
     version: str = "0.1.0"
     app_port: int = 8000
+    metrics_token: SecretStr | None = None
     mongodb_uri: str = "mongodb://localhost:27017"
     mongodb_database: str = "mongodb-ai-prod"
     groq_api_key: SecretStr | None = None
@@ -86,6 +87,7 @@ class Settings(BaseSettings):
         return self
 
     @field_validator(
+        "metrics_token",
         "groq_api_key",
         "nvidia_api_key",
         "mcp_keycloak_token_exchange_client_secret",
