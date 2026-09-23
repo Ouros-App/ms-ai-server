@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -24,6 +25,7 @@ from app.agents.prompts import (
     SYSTEM_PROMPT,
 )
 from app.agents.tools import build_memory_tools
+from app.core.config import settings
 from app.debug_ui.trace import trace_event
 
 logger = logging.getLogger(__name__)
@@ -1040,7 +1042,8 @@ async def _execute_tool_call(
     trace_event("tool.call", tool=selected_tool.name, args=tool_args)
 
     try:
-        result = await selected_tool.ainvoke(tool_args)
+        async with asyncio.timeout(settings.mcp_tool_timeout_seconds):
+            result = await selected_tool.ainvoke(tool_args)
     except Exception as error:  # noqa: BLE001 - remote tools must degrade safely
         logger.warning(
             "agent_tool_failed tool=%s error=%s",
