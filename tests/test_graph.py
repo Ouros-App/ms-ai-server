@@ -238,6 +238,13 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                 ["periodo de analise"],
             )
         )
+        self.assertTrue(
+            _is_pending_followup(
+                HumanMessage(content="1 ciclo"),
+                ["ciclo ou periodo de analise"],
+            )
+        )
+        self.assertIsNone(_extract_period_days("1 ciclo", ["periodo de analise"]))
         self.assertFalse(
             _is_pending_followup(
                 HumanMessage(content="Quero cadastrar 2 propriedades"),
