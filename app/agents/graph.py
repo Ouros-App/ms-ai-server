@@ -640,19 +640,25 @@ async def _load_agent_mcp_tools(
     )
 
 
+def _pending_missing_for_route(
+    state: AgentState,
+    agent_name: str,
+) -> list[str]:
+    return _pending_by_route(state).get(agent_name, [])
+
+
 def _pending_specialist_message(
     state: AgentState,
     agent_name: str,
 ) -> dict[str, str] | None:
-    pending_routes = _inheritable_routes(state.get("pending_routes"))
-    pending_missing_data = _string_list(state.get("pending_missing_data", []))
-    if agent_name not in pending_routes or not pending_missing_data:
+    pending_missing_data = _pending_missing_for_route(state, agent_name)
+    if not pending_missing_data:
         return None
     return {
         "role": "system",
         "content": (
             "Este turno continua uma pergunta objetiva feita anteriormente. "
-            f"Dados ainda aguardados naquele turno: {pending_missing_data}. "
+            f"Dados ainda aguardados para este especialista: {pending_missing_data}. "
             "Use todo o historico para combinar a resposta curta atual com "
             "os valores ja fornecidos. Considere um item resolvido quando o "
             "usuario ja o informou e nao repita a mesma pergunta."
@@ -721,7 +727,7 @@ async def _execute_specialist(
         user_text,
         mcp_provider,
     )
-    pending_missing_data = state.get("pending_missing_data")
+    pending_missing_data = _pending_missing_for_route(state, agent_name)
     prefetch_required = _requires_consumption_prefetch(
         agent_name,
         user_text,
