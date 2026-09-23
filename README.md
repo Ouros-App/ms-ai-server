@@ -82,9 +82,20 @@ até quatro especialistas independentes, que rodam em paralelo no LangGraph. Cad
 especialista retorna somente JSON com fatos, recomendações, dados ausentes e
 fontes; o `default` é o único agente que gera linguagem natural para o usuário.
 
+Quando um especialista retorna `needs_input`, o fan-in persiste a rota e os dados
+faltantes como estado estruturado da conversa. Respostas curtas como "30 dias" ou
+"na minha fazenda" continuam a tarefa anterior sem depender apenas de palavras-chave
+ou de o roteador reconstruir a intenção do zero. Uma troca explícita de assunto
+continua tendo precedência sobre a pendência.
+
 As tools de memória e MCP ficam disponíveis somente para especialistas. O cliente
-MCP usa Streamable HTTP, recebe exatamente o access token Keycloak já validado pela API e aplica a allowlist em `app/agents/mcp.py`. O sintetizador não recebe
-nenhuma dessas tools.
+MCP usa Streamable HTTP, troca o JWT validado por um token delegado de backend,
+aplica uma allowlist por especialista e faz filtragem adicional dos resultados
+escopados em `app/agents/mcp.py`. O sintetizador não recebe nenhuma dessas tools.
+Sustentabilidade pode usar `get_consumption_summary(period_days)` sem expor
+`farm_id`, `user_id` ou SQL arbitrário ao modelo; ranking consulta a base de
+conhecimento para regras mutáveis em vez de manter ligas e fórmulas duplicadas no
+system prompt.
 
 ## Execução
 
