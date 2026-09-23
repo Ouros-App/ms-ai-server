@@ -91,6 +91,33 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    async def test_greeting_and_identity_skip_router_model_and_specialists(self) -> None:
+        graph = build_graph(InMemorySaver())
+
+        greeting = await invoke_graph(
+            graph,
+            ChatRequest(
+                user_id="user",
+                thread_id="quick-greeting",
+                message="bom dia",
+            ),
+            "user",
+        )
+        identity = await invoke_graph(
+            graph,
+            ChatRequest(
+                user_id="user",
+                thread_id="quick-identity",
+                message="quem eh vc?",
+            ),
+            "user",
+        )
+
+        self.assertEqual(greeting.agents, ["router", "default"])
+        self.assertEqual(identity.agents, ["router", "default"])
+        self.assertIn("Midas", greeting.message)
+        self.assertIn("Midas", identity.message)
+
     async def test_contextual_followup_inherits_route_and_explicit_topic_wins(self) -> None:
         """Carry context only for referential follow-ups, not explicit topic changes."""
         graph = build_graph(InMemorySaver())
