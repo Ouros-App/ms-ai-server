@@ -6,6 +6,7 @@ from time import perf_counter
 from fastapi import HTTPException, status
 from langchain_core.messages import HumanMessage
 
+from app.agents.diagnostics import specialist_results_summary
 from app.agents.guardrails import guard_input
 from app.agents.mcp import forward_mcp_access_token
 from app.core.config import settings
@@ -137,6 +138,7 @@ async def _invoke_graph(
         routes = result.get("routes", [])
         route_source = result.get("route_source")
         specialist_results = result.get("specialist_results", [])
+        debug_specialist_results = specialist_results_summary(specialist_results)
         pending_routes = result.get("pending_routes", [])
         pending_missing_data = result.get("pending_missing_data", [])
         pending_by_route = result.get("pending_by_route", {})
@@ -150,7 +152,7 @@ async def _invoke_graph(
             route_source=route_source,
             agents=agents,
             tools=tools,
-            specialist_results=specialist_results,
+            specialist_results=debug_specialist_results,
             pending_routes=pending_routes,
             pending_missing_data=pending_missing_data,
             pending_by_route=pending_by_route,
@@ -173,7 +175,7 @@ async def _invoke_graph(
         return response, {
             "routes": routes,
             "route_source": route_source,
-            "specialist_results": specialist_results,
+            "specialist_results": debug_specialist_results,
             "pending_routes": pending_routes,
             "pending_missing_data": pending_missing_data,
             "pending_by_route": pending_by_route,
