@@ -52,6 +52,7 @@ def _merge_results(
 class AgentState(MessagesState):
     user_id: str
     route: str
+    route_source: str
     routes: list[str]
     last_routes: list[str]
     pending_routes: list[str]
@@ -424,24 +425,57 @@ def _latest_message(state: AgentState) -> object | None:
     return messages[-1] if messages else None
 
 
+def _pending_by_route(state: AgentState) -> dict[str, list[str]]:
+    raw = state.get("pending_by_route")
+    if isinstance(raw, dict):
+        return {
+            route: _string_list(missing, max_items=3, max_chars=200)
+            for route, missing in raw.items()
+            if route in ROUTES and _string_list(missing, max_items=3, max_chars=200)
+        }
+
+    legacy_missing = _string_list(
+        state.get("pending_missing_data", []),
+        max_items=3,
+        max_chars=200,
+    )
+    return {
+        route: legacy_missing
+        for route in _inheritable_routes(state.get("pending_routes"))
+        if legacy_missing
+    }
+
+
 def _pending_router_message(
-    pending_routes: list[str],
-    pending_missing_data: object,
+    pending_by_route: dict[str, list[str]],
 ) -> dict[str, str] | None:
-    if not pending_routes:
+    if not pending_by_route:
         return None
-    pending_items = _string_list(pending_missing_data)
     return {
         "role": "system",
         "content": (
-            "Ha uma pendencia estruturada do turno anterior. "
-            f"Rotas pendentes: {pending_routes}. "
-            f"Dados aguardados: {pending_items}. "
-            "Se a nova mensagem preencher ou esclarecer esses dados, "
-            "mantenha a rota pendente. Se o usuario trocar claramente "
-            "de assunto, escolha a nova intencao."
+            "Ha pendencias estruturadas do turno anterior, separadas por rota: "
+            + json.dumps(
+                pending_by_route,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            + ". Se a nova mensagem preencher uma dessas pendencias, mantenha "
+            "somente a rota correspondente. Se o usuario trocar claramente de "
+            "assunto ou cancelar a tarefa, nao herde a rota anterior."
         ),
     }
+
+
+def _matching_pending_routes(
+    message: object,
+    pending_by_route: dict[str, list[str]],
+) -> list[str]:
+    return [
+        route
+        for route, missing in pending_by_route.items()
+        if _is_pending_followup(message, missing)
+    ][:4]
 
 
 def _resolve_local_routes(state: AgentState) -> tuple[list[str] | None, str | None]:
@@ -453,12 +487,15 @@ def _resolve_local_routes(state: AgentState) -> tuple[list[str] | None, str | No
     if deterministic is not None:
         return deterministic, "deterministic"
 
-    pending_routes = _inheritable_routes(state.get("pending_routes"))
-    if pending_routes and _is_pending_followup(
+    if _is_cancel_request(latest_message):
+        return ["fallback"], "cancelled"
+
+    pending_matches = _matching_pending_routes(
         latest_message,
-        state.get("pending_missing_data"),
-    ):
-        return pending_routes, "pending"
+        _pending_by_route(state),
+    )
+    if pending_matches:
+        return pending_matches, "pending"
 
     inherited_routes = _inheritable_routes(state.get("last_routes"))
     if inherited_routes and _is_contextual_followup(latest_message):
@@ -474,10 +511,7 @@ async def _resolve_model_routes(state: AgentState) -> tuple[list[str], str]:
     router_messages: list[dict[str, str] | object] = [
         {"role": "system", "content": ROUTER_PROMPT},
     ]
-    pending_message = _pending_router_message(
-        _inheritable_routes(state.get("pending_routes")),
-        state.get("pending_missing_data"),
-    )
+    pending_message = _pending_router_message(_pending_by_route(state))
     if pending_message is not None:
         router_messages.append(pending_message)
 
@@ -492,9 +526,10 @@ async def _resolve_model_routes(state: AgentState) -> tuple[list[str], str]:
         return ["fallback"], "router_error"
 
 
-def _route_update(routes: list[str]) -> dict[str, object]:
+def _route_update(routes: list[str], route_source: str) -> dict[str, object]:
     update: dict[str, object] = {
         "route": routes[0],
+        "route_source": route_source,
         "routes": routes,
         "agents": ["router"],
         "tools": [_RESET_TOOLS],
@@ -506,6 +541,7 @@ def _route_update(routes: list[str]) -> dict[str, object]:
     if routes in (["fallback"], ["default"]):
         update["pending_routes"] = []
         update["pending_missing_data"] = []
+        update["pending_by_route"] = {}
     return update
 
 
@@ -527,7 +563,7 @@ async def route_request(state: AgentState) -> dict:
         routes,
     )
     trace_event("router.selected", routes=routes, source=route_source)
-    return _route_update(routes)
+    return _route_update(routes, route_source)
 
 
 async def default_agent(state: AgentState) -> dict:
