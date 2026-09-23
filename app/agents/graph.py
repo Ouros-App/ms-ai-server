@@ -3,6 +3,7 @@ import json
 import logging
 import re
 import unicodedata
+from time import perf_counter
 from typing import Annotated
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
