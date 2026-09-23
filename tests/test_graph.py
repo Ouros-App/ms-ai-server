@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -751,6 +752,48 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.content, '{"status":"ok"}')
         self.assertEqual(tools, [])
         model.ainvoke.assert_awaited_once()
+
+    async def test_tool_timeout_is_returned_to_model_without_hanging_request(self) -> None:
+        async def slow_tool(_args):
+            await asyncio.sleep(0.05)
+            return {"status": "ok"}
+
+        mcp_tool = Mock(name="get_user_context")
+        mcp_tool.name = "get_user_context"
+        mcp_tool.ainvoke = AsyncMock(side_effect=slow_tool)
+        tool_call = {"name": mcp_tool.name, "args": {}, "id": "mcp-timeout"}
+
+        bound_model = Mock()
+        bound_model.ainvoke = AsyncMock(
+            side_effect=[
+                AIMessage(content="", tool_calls=[tool_call]),
+                AIMessage(
+                    content=(
+                        '{"status":"error","facts":[],"recommendations":[],'
+                        '"missing_data":[],"sources":[]}'
+                    )
+                ),
+            ],
+        )
+        model = Mock()
+        model.bind_tools.return_value = bound_model
+
+        with patch.object(settings, "mcp_tool_timeout_seconds", 0.01):
+            response, tools = await _invoke_model(
+                model,
+                [],
+                None,
+                "42",
+                [mcp_tool],
+            )
+
+        self.assertEqual(tools, ["get_user_context"])
+        self.assertIn('"status":"error"', response.content)
+        second_messages = bound_model.ainvoke.await_args_list[1].args[0]
+        tool_message = next(
+            message for message in second_messages if isinstance(message, ToolMessage)
+        )
+        self.assertIn("temporariamente indisponivel", tool_message.content)
 
     async def test_tool_failure_is_returned_to_model_without_crashing_graph(self) -> None:
         mcp_tool = Mock(name="get_user_context")
