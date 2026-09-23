@@ -4,13 +4,14 @@ import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
 from hashlib import sha256
-from time import monotonic
+from time import monotonic, perf_counter
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
+from app.core.metrics import mcp_call_started, observe_mcp_call
 from app.core.token_exchange import MCPTokenExchangeError, exchange_mcp_access_token
 from app.debug_ui.trace import trace_event
 
@@ -289,7 +290,23 @@ class MCPToolProvider:
             "name": tool.name,
             "args": arguments,
         }
-        return await tool.ainvoke(tool_call)
+        started_at = perf_counter()
+        mcp_call_started()
+        try:
+            result = await tool.ainvoke(tool_call)
+        except Exception:
+            observe_mcp_call(
+                tool.name,
+                "error",
+                perf_counter() - started_at,
+            )
+            raise
+        observe_mcp_call(
+            tool.name,
+            "success",
+            perf_counter() - started_at,
+        )
+        return result
 
     @staticmethod
     def _require_decoded_result(
