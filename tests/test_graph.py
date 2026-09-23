@@ -260,6 +260,32 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cancelled_update["pending_routes"], [])
         self.assertEqual(cancelled_update["pending_missing_data"], [])
         self.assertEqual(cancelled_update["pending_by_route"], {})
+
+
+    def test_explicit_topic_switch_retires_unrelated_pending_task(self) -> None:
+        state = {
+            "pending_routes": ["sustainability"],
+            "pending_missing_data": ["periodo de analise"],
+            "pending_by_route": {"sustainability": ["periodo de analise"]},
+            "pending_personal_routes": ["sustainability"],
+        }
+
+        switched = _route_update(
+            ["ranking"],
+            "deterministic",
+            state,
+        )
+        greeting = _route_update(
+            ["default"],
+            "greeting",
+            state,
+        )
+
+        self.assertEqual(switched["pending_routes"], [])
+        self.assertEqual(switched["pending_missing_data"], [])
+        self.assertEqual(switched["pending_by_route"], {})
+        self.assertEqual(switched["pending_personal_routes"], [])
+        self.assertNotIn("pending_by_route", greeting)
         self.assertEqual(cancelled_update["pending_personal_routes"], [])
 
     def test_cancel_does_not_revive_previous_route(self) -> None:
