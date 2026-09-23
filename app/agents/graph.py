@@ -139,7 +139,10 @@ _PENDING_CANCEL_PATTERN = re.compile(
 _DETERMINISTIC_ROUTE_PATTERNS = (
     (
         "support",
-        re.compile(r"\b(?:erro|falha|sincron\w*|offline|login|notifica\w*)\b"),
+        re.compile(
+            r"\b(?:erro|falha|sincron\w*|offline|login|senha|acesso|autentic\w*|"
+            r"notifica\w*)\b"
+        ),
     ),
     (
         "ranking",
@@ -158,6 +161,7 @@ _DETERMINISTIC_ROUTE_PATTERNS = (
         "faq",
         re.compile(
             r"\b(?:aplicativo|app|dashboard|painel|relatorio\w*)\b|"
+            r"\b(?:quem\s+(?:e|eh)\s+(?:voce|vc)|o\s+que\s+(?:voce|vc)\s+faz)\b|"
             r"\b(?:cadastr|registr|editar|visualiz)\w*\s+(?:o\s+|um\s+)?lote\w*\b"
         ),
     ),
