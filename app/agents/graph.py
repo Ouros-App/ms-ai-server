@@ -546,6 +546,173 @@ async def default_agent(state: AgentState) -> dict:
     }
 
 
+async def _resolve_specialist_guardrail(
+    state: AgentState,
+    user_text: object,
+) -> dict[str, object] | None:
+    input_guardrail = state.get("input_guardrail")
+    if input_guardrail is not None or not isinstance(user_text, str):
+        return input_guardrail
+
+    decision = await guard_input(
+        user_text,
+        has_history=len(state.get("messages", [])) > 1,
+    )
+    return decision.as_state()
+
+
+async def _load_agent_mcp_tools(
+    state: AgentState,
+    agent_name: str,
+    user_text: str,
+    mcp_provider: MCPToolProvider | None,
+) -> list:
+    if mcp_provider is None:
+        return []
+    return await mcp_provider.tools_for(
+        agent_name,
+        state["user_id"],
+        request_text=user_text,
+    )
+
+
+def _pending_specialist_message(
+    state: AgentState,
+    agent_name: str,
+) -> dict[str, str] | None:
+    pending_routes = _inheritable_routes(state.get("pending_routes"))
+    pending_missing_data = _string_list(state.get("pending_missing_data", []))
+    if agent_name not in pending_routes or not pending_missing_data:
+        return None
+    return {
+        "role": "system",
+        "content": (
+            "Este turno continua uma pergunta objetiva feita anteriormente. "
+            f"Dados ainda aguardados naquele turno: {pending_missing_data}. "
+            "Use todo o historico para combinar a resposta curta atual com "
+            "os valores ja fornecidos. Considere um item resolvido quando o "
+            "usuario ja o informou e nao repita a mesma pergunta."
+        ),
+    }
+
+
+def _mcp_policy_message() -> dict[str, str]:
+    return {
+        "role": "system",
+        "content": (
+            "As ferramentas MCP autorizadas estao disponiveis. "
+            "A identidade e o escopo de fazendas ja estao vinculados "
+            "pelo JWT no backend. Nunca peca nem invente farm_id, "
+            "user_id ou user_type. Prefira a ferramenta de dominio mais "
+            "especifica em vez de dados brutos. Use get_user_context somente "
+            "quando perfil ou fazendas vinculadas forem relevantes. Se dados "
+            "pessoais estiverem indisponiveis, informe a indisponibilidade sem "
+            "pedir identificadores internos."
+        ),
+    }
+
+
+def _build_specialist_messages(
+    state: AgentState,
+    prompt: str,
+    agent_name: str,
+    mcp_tools: list,
+    prefetch_message: dict | None,
+) -> list:
+    messages = [
+        {"role": "system", "content": prompt + SPECIALIST_JSON_RULES},
+        *state.get("messages", []),
+    ]
+    contextual_messages = [
+        _pending_specialist_message(state, agent_name),
+        _mcp_policy_message() if mcp_tools else None,
+        prefetch_message,
+    ]
+    for message in reversed([item for item in contextual_messages if item is not None]):
+        messages.insert(1, message)
+    return messages
+
+
+def _personal_data_error_result() -> dict[str, object]:
+    result = _empty_specialist_result("error")
+    result["facts"] = [
+        "Os dados autenticados da fazenda estao indisponiveis para esta conta."
+    ]
+    result["sources"] = ["dados autenticados da conta"]
+    return result
+
+
+async def _execute_specialist(
+    state: AgentState,
+    prompt: str,
+    agent_name: str,
+    user_text: str,
+    model,
+    specialist_tools: list,
+    mcp_provider: MCPToolProvider | None,
+) -> tuple[dict[str, object], list[str]]:
+    mcp_tools = await _load_agent_mcp_tools(
+        state,
+        agent_name,
+        user_text,
+        mcp_provider,
+    )
+    pending_missing_data = state.get("pending_missing_data")
+    prefetch_required = _requires_consumption_prefetch(
+        agent_name,
+        user_text,
+        pending_missing_data,
+    )
+    (
+        prefetch_message,
+        prefetched_tools,
+        prefetched_personal_data,
+    ) = await _prefetch_consumption_summary(
+        agent_name,
+        user_text,
+        mcp_tools,
+        pending_missing_data,
+    )
+
+    specialist_messages = _build_specialist_messages(
+        state,
+        prompt,
+        agent_name,
+        mcp_tools,
+        prefetch_message,
+    )
+    prefetched_names = set(prefetched_tools)
+    remaining_mcp_tools = [
+        tool
+        for tool in mcp_tools
+        if getattr(tool, "name", None) not in prefetched_names
+    ]
+    response, model_used_tools = await _invoke_model(
+        model,
+        specialist_messages,
+        state.get("memory_store"),
+        state["user_id"],
+        [*specialist_tools, *remaining_mcp_tools],
+    )
+    used_tools = list(dict.fromkeys([*prefetched_tools, *model_used_tools]))
+    trace_event(
+        "agent.response",
+        agent=agent_name,
+        response=_response_content(response),
+    )
+
+    result = _normalize_specialist_result(response)
+    if (
+        prefetch_required
+        and (
+            prefetched_personal_data is None
+            or prefetched_personal_data.get("authorized") is False
+        )
+    ):
+        result = _personal_data_error_result()
+    return result, used_tools
+
+
 async def _run_agent(
     state: AgentState,
     prompt: str,
@@ -553,119 +720,30 @@ async def _run_agent(
     specialist_tools: list | None = None,
     mcp_provider: MCPToolProvider | None = None,
 ) -> dict:
-    """Executa um especialista e armazena apenas o contrato JSON no estado."""
+    """Execute one specialist while keeping routing, data policy and tools isolated."""
     trace_event("agent.started", agent=agent_name)
-    latest_message = state["messages"][-1] if state["messages"] else None
+    latest_message = _latest_message(state)
     user_text = getattr(latest_message, "content", "")
-    used_tools: list[str] = []
-    input_guardrail = state.get("input_guardrail")
-    if input_guardrail is None and isinstance(user_text, str):
-        decision = await guard_input(user_text, has_history=len(state["messages"]) > 1)
-        input_guardrail = decision.as_state()
+    input_guardrail = await _resolve_specialist_guardrail(state, user_text)
+
     if input_guardrail and not input_guardrail["allowed"]:
-        result = _empty_specialist_result("unsupported")
+        result, used_tools = _empty_specialist_result("unsupported"), []
     elif not isinstance(user_text, str):
-        result = _empty_specialist_result("error")
+        result, used_tools = _empty_specialist_result("error"), []
     else:
         model = get_chat_model(profile_for(agent_name))
-        if model:
-            mcp_tools = (
-                await mcp_provider.tools_for(
-                    agent_name,
-                    state["user_id"],
-                    request_text=user_text,
-                )
-                if mcp_provider is not None
-                else []
-            )
-            specialist_messages = [
-                {"role": "system", "content": prompt + SPECIALIST_JSON_RULES},
-                *state["messages"],
-            ]
-            pending_routes = _inheritable_routes(state.get("pending_routes"))
-            pending_missing_data = _string_list(state.get("pending_missing_data", []))
-            if agent_name in pending_routes and pending_missing_data:
-                specialist_messages.insert(
-                    1,
-                    {
-                        "role": "system",
-                        "content": (
-                            "Este turno continua uma pergunta objetiva feita anteriormente. "
-                            f"Dados ainda aguardados naquele turno: {pending_missing_data}. "
-                            "Use todo o historico para combinar a resposta curta atual com "
-                            "os valores ja fornecidos. Considere um item resolvido quando o "
-                            "usuario ja o informou e nao repita a mesma pergunta."
-                        ),
-                    },
-                )
-            personal_data_required = _requires_personal_farm_data(
-                agent_name,
-                user_text,
-            )
-            (
-                prefetch_message,
-                prefetched_tools,
-                prefetched_personal_data,
-            ) = await _prefetch_personal_farm_data(
-                agent_name,
-                user_text,
-                mcp_tools,
-            )
-            if prefetch_message is not None:
-                specialist_messages.insert(1, prefetch_message)
-                used_tools.extend(prefetched_tools)
-            if mcp_tools:
-                specialist_messages.insert(
-                    1,
-                    {
-                        "role": "system",
-                        "content": (
-                            "As ferramentas MCP autorizadas estao disponiveis. "
-                            "A identidade e o escopo de fazendas ja estao vinculados "
-                            "pelo JWT no backend. Nunca peca nem invente farm_id, "
-                            "user_id ou user_type. Use get_user_context somente quando "
-                            "o perfil ou a lista de fazendas vinculadas forem relevantes. "
-                            "Se os dados pessoais estiverem indisponiveis, informe a "
-                            "indisponibilidade sem pedir identificadores internos."
-                        ),
-                    },
-                )
-            remaining_mcp_tools = [
-                tool
-                for tool in mcp_tools
-                if not (
-                    personal_data_required
-                    and getattr(tool, "name", None) == "get_user_farm_data"
-                )
-            ]
-            response, model_used_tools = await _invoke_model(
-                model,
-                specialist_messages,
-                state.get("memory_store"),
-                state["user_id"],
-                [*(specialist_tools or []), *remaining_mcp_tools],
-            )
-            used_tools = list(dict.fromkeys([*used_tools, *model_used_tools]))
-            trace_event(
-                "agent.response",
-                agent=agent_name,
-                response=_response_content(response),
-            )
-            result = _normalize_specialist_result(response)
-            if (
-                personal_data_required
-                and (
-                    prefetched_personal_data is None
-                    or prefetched_personal_data.get("authorized") is False
-                )
-            ):
-                result = _empty_specialist_result("error")
-                result["facts"] = [
-                    "Os dados autenticados da fazenda estao indisponiveis para esta conta."
-                ]
-                result["sources"] = ["dados autenticados da conta"]
+        if model is None:
+            result, used_tools = _empty_specialist_result("error"), []
         else:
-            result = _empty_specialist_result("error")
+            result, used_tools = await _execute_specialist(
+                state,
+                prompt,
+                agent_name,
+                user_text,
+                model,
+                list(specialist_tools or []),
+                mcp_provider,
+            )
 
     if used_tools:
         logger.info("agent_tools_used agent=%s tools=%s", agent_name, used_tools)
@@ -675,7 +753,6 @@ async def _run_agent(
         tools=used_tools,
         result=result,
     )
-
     return {
         "agents": [*state["agents"], agent_name],
         "tools": used_tools,
