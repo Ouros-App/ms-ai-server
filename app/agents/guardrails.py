@@ -65,8 +65,8 @@ _OUT_OF_SCOPE_PATTERNS = (
 _PROJECT_TERMS = (
     "aplicativo", "midas", "fazenda", "granja", "produtor", "integrado",
     "agua", "energia", "consumo", "hidrometro", "ranking", "ferro", "bronze", "cobre",
-    "prata", "ouro", "dashboard", "painel", "offline", "sincron", "notific", "relatorio", "vacina",
-    "lote", "meta", "selo", "econom", "sustent", "eficien", "suporte", "tecnic", "memoria",
+    "prata", "ouro", "dashboard", "painel", "offline", "sincron", "notific", "relatorio",
+    "lote", "meta", "econom", "sustent", "eficien", "suporte", "tecnic", "memoria",
     "lembr", "usuario", "thread", "conversa",
 )
 _REQUESTED_USER_ID_PATTERN = re.compile(
