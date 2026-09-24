@@ -7,6 +7,7 @@ from app.agents.prompts import (
     ROUTER_PROMPT,
     SPECIALIST_JSON_RULES,
     SUSTAINABILITY_AGENT_PROMPT,
+    SUPPORT_AGENT_PROMPT,
     SYSTEM_PROMPT,
 )
 
@@ -49,3 +50,12 @@ class PromptTest(unittest.TestCase):
         self.assertIn("search_knowledge", RANKING_AGENT_PROMPT)
         self.assertNotIn("biblioteca Explorar", COMMON_AGENT_RULES)
         self.assertNotIn("niveis ferro, bronze, prata e ouro", RANKING_AGENT_PROMPT)
+
+
+    def test_prompts_do_not_assume_a_specific_integrator(self) -> None:
+        self.assertNotIn("Seara", SUSTAINABILITY_AGENT_PROMPT)
+        self.assertNotIn("Seara", SUPPORT_AGENT_PROMPT)
+
+    def test_ranking_does_not_collect_slots_without_a_leaderboard_source(self) -> None:
+        self.assertIn("retorne `unsupported`", RANKING_AGENT_PROMPT)
+        self.assertIn("Nao peca periodo, estado, fazenda", RANKING_AGENT_PROMPT)
