@@ -66,6 +66,7 @@ _PROJECT_TERMS = (
     "agua", "energia", "consumo", "hidrometro", "ranking", "ferro", "bronze", "cobre",
     "prata", "ouro", "dashboard", "painel", "offline", "sincron", "notific", "relatorio",
     "lote", "meta", "econom", "sustent", "eficien", "suporte", "tecnic", "memoria",
+    "selo", "insignia", "calendario", "vacina", "explorar", "biblioteca",
     "lembr", "usuario", "thread", "conversa",
 )
 _REQUESTED_USER_ID_PATTERN = re.compile(
