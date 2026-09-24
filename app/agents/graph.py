@@ -180,7 +180,7 @@ _DETERMINISTIC_ROUTE_PATTERNS = (
     (
         "ranking",
         re.compile(
-            r"\b(?:ranking|pontua\w*|nivel\w*|ferro|bronze|prata|ouro|posi\w*|"
+            r"\b(?:ranking|pontua\w*|nivel\w*|ferro|bronze|cobre|prata|ouro|posi\w*|"
             r"selo\w*|historico)\b"
         ),
     ),
