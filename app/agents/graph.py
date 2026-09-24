@@ -641,13 +641,24 @@ def _route_starts_new_task(
 ) -> bool:
     if state is None or route_source not in {"deterministic", "model", "explicit"}:
         return False
-    previous_routes = set(_pending_by_route(state))
+    pending_by_route = _pending_by_route(state)
+    previous_routes = set(pending_by_route)
     selected_routes = set(_inheritable_routes(routes))
-    return bool(
-        previous_routes
-        and selected_routes
-        and previous_routes.isdisjoint(selected_routes)
+    if not previous_routes or not selected_routes:
+        return False
+    if previous_routes.isdisjoint(selected_routes):
+        return True
+
+    latest_message = _latest_message(state)
+    if latest_message is None:
+        return True
+    pending_matches = set(
+        _matching_pending_routes(
+            latest_message,
+            pending_by_route,
+        )
     )
+    return not bool(selected_routes & pending_matches)
 
 
 def _route_update(
