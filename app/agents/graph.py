@@ -1262,7 +1262,7 @@ def choose_agents(state: AgentState, agents: dict) -> list[str]:
     selected = [
         route
         for route in routes
-        if route in SPECIALIST_ROUTES and route in agents
+        if route in agents and route not in {"default", "fallback"}
     ]
     return selected or (["default"] if "default" in agents else [])
 
