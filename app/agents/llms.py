@@ -5,7 +5,6 @@ AGENT_LLM_PROFILE = {
     "router": FAST_LLM,
     "faq": FAST_LLM,
     "support": FAST_LLM,
-    "fallback": FAST_LLM,
     "sustainability": POWERFUL_LLM,
     "ranking": POWERFUL_LLM,
     "default": FAST_LLM,
