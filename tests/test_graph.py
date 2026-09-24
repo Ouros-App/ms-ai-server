@@ -728,6 +728,27 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             )
         )
 
+    def test_legacy_product_feature_routes_to_faq_without_personal_data(self) -> None:
+        state = {
+            "messages": [HumanMessage(content="Onde vejo meus selos antigos?")],
+            "pending_routes": [],
+            "pending_missing_data": [],
+            "pending_by_route": {},
+            "pending_personal_routes": [],
+        }
+
+        self.assertEqual(
+            _resolve_local_routes(state),
+            (["faq"], "deterministic"),
+        )
+        self.assertFalse(
+            _conversation_is_personal_request(
+                state,
+                "faq",
+                "Onde vejo meus selos antigos?",
+            )
+        )
+
     def test_overlapping_intents_use_semantic_router_unless_explicitly_compound(self) -> None:
         self.assertIsNone(
             _deterministic_routes(
