@@ -150,7 +150,7 @@ _PERSONAL_MARKER_PATTERN = re.compile(
 )
 _PERSONAL_DATA_TOPIC_PATTERN = re.compile(
     r"\b(?:fazenda|consumo|agua|energia|ranking|posi\w*|historico|"
-    r"pontua\w*|nivel\w*|desempenh\w*|perform\w*|"
+    r"pontua\w*|nivel\w*|selo\w*|insignia\w*|desempenh\w*|perform\w*|"
     r"medicao|registro\w*)\b"
 )
 _PENDING_CANCEL_PATTERN = re.compile(
