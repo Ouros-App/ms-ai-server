@@ -243,6 +243,24 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(call["name"], "get_user_farm_data")
         self.assertEqual(call["args"], {"limit": 20})
 
+    async def test_consumption_summary_rejects_mismatched_period(self) -> None:
+        payload = {
+            "user_type": "farm_owner",
+            "user_id": 42,
+            "farm_ids": [11],
+            "period_days": 7,
+            "water_unit": "hydrometer_reading_delta",
+            "energy_unit": "kWh",
+            "summaries": [],
+        }
+
+        with self.assertRaises(MCPToolResultError):
+            MCPToolProvider._filter_consumption_summary(
+                payload,
+                42,
+                expected_period_days=30,
+            )
+
     async def test_consumption_summary_keeps_scope_and_only_exposes_period(self) -> None:
         payload = {
             "user_type": "farm_owner",
