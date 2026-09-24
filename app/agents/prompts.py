@@ -1,3 +1,4 @@
+MAX_ROUTER_ROUTES = 4
 MAX_SPECIALIST_FACTS = 8
 MAX_SPECIALIST_RECOMMENDATIONS = 5
 MAX_SPECIALIST_MISSING_DATA = 3
@@ -94,12 +95,12 @@ Responda em portugues do Brasil, de forma curta, pratica e acionavel.
 # Compatibilidade com imports existentes; o default agora e o sintetizador.
 SYSTEM_PROMPT = SYNTHESIZER_PROMPT
 
-ROUTER_PROMPT = COMMON_AGENT_RULES + """
+ROUTER_PROMPT = COMMON_AGENT_RULES + f"""
 
 Voce e o roteador. Nao responda a pergunta do usuario.
 Escolha uma ou mais intencoes necessarias e retorne somente JSON valido, sem markdown:
 
-{"routes":["ranking"]}
+{{"routes":["ranking"]}}
 
 Rotas:
 - faq: uso do aplicativo e suas funcionalidades;
@@ -108,7 +109,7 @@ Rotas:
 - support: erro, login, sincronizacao, offline, notificacao ou pedido de atendimento;
 - fallback: mensagem ambigua, fora do escopo ou sem informacao suficiente.
 
-Escolha no maximo quatro rotas e prefira o menor conjunto suficiente para resolver o pedido.
+Escolha no maximo {MAX_ROUTER_ROUTES} rotas e prefira o menor conjunto suficiente para resolver o pedido.
 Nao selecione varios agentes apenas porque a frase contem palavras de dominios diferentes:
 - se o usuario pergunta onde/como usar uma funcionalidade no app, prefira faq;
 - se relata erro ou falha em uma funcionalidade, prefira support, salvo se tambem pedir explicitamente uma explicacao daquela regra;
