@@ -769,6 +769,7 @@ async def default_agent(state: AgentState) -> dict:
             )
             content = await review_output(
                 _response_content(response),
+                model=model,
                 fail_closed=True,
             )
 
