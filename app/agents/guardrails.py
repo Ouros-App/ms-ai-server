@@ -351,14 +351,21 @@ def guard_output(content: object, sensitive_token: str = "") -> str:
     return text
 
 
-async def review_output(content: object, sensitive_token: str = "", model=None) -> str:
-    """Aplica o revisor semantico depois das redacoes deterministicas."""
+async def review_output(
+    content: object,
+    sensitive_token: str = "",
+    model=None,
+    *,
+    fail_closed: bool = False,
+) -> str:
+    """Apply semantic output review after deterministic redaction."""
+    fallback = SAFE_REFUSAL if fail_closed else None
     safe_text = guard_output(content, sensitive_token)
     if safe_text in (SAFE_REFUSAL, OUT_OF_SCOPE_REFUSAL):
         return safe_text
     reviewer = model or get_chat_model(FAST_LLM)
     if reviewer is None:
-        return safe_text
+        return fallback or safe_text
     try:
         response = await observed_llm_ainvoke(
             reviewer,
@@ -376,4 +383,4 @@ async def review_output(content: object, sensitive_token: str = "", model=None) 
             return guard_output(reviewed, sensitive_token)
     except Exception:
         logger.debug("Falha no revisor de saida", exc_info=True)
-    return safe_text
+    return fallback or safe_text
