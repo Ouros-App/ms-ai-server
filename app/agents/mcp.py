@@ -275,7 +275,11 @@ class MCPToolProvider:
                     tool,
                     {"period_days": period_days},
                 )
-                return self._filter_consumption_summary(result, user_id)
+                return self._filter_consumption_summary(
+                    result,
+                    user_id,
+                    expected_period_days=period_days,
+                )
 
             args_schema = _ConsumptionSummaryArguments
         else:
@@ -330,6 +334,7 @@ class MCPToolProvider:
         result: object,
         *,
         tool_name: str,
+        expected_period_days: int | None = None,
     ) -> dict:
         """Decode and validate the contract for a structured MCP tool result."""
         if isinstance(result, ToolMessage) and result.status == "error":
@@ -347,6 +352,7 @@ class MCPToolProvider:
         if decoded is not None and MCPToolProvider._result_contract_is_valid(
             decoded,
             tool_name=tool_name,
+            expected_period_days=expected_period_days,
         ):
             return decoded
 
@@ -385,6 +391,7 @@ class MCPToolProvider:
         result: dict,
         *,
         tool_name: str,
+        expected_period_days: int | None = None,
     ) -> bool:
         """Validate the minimum trusted shape returned by user-scoped MCP tools."""
         if tool_name == "get_user_farm_data":
@@ -411,12 +418,17 @@ class MCPToolProvider:
 
         if tool_name == "get_consumption_summary":
             farm_ids = result.get("farm_ids")
+            period_days = result.get("period_days")
             return (
                 isinstance(result.get("user_type"), str)
                 and isinstance(result.get("user_id"), int)
                 and not isinstance(result.get("user_id"), bool)
-                and isinstance(result.get("period_days"), int)
-                and not isinstance(result.get("period_days"), bool)
+                and isinstance(period_days, int)
+                and not isinstance(period_days, bool)
+                and (
+                    expected_period_days is None
+                    or period_days == expected_period_days
+                )
                 and isinstance(farm_ids, list)
                 and all(
                     isinstance(farm_id, int) and not isinstance(farm_id, bool)
@@ -533,12 +545,15 @@ class MCPToolProvider:
     def _filter_consumption_summary(
         result: object,
         user_id: int,
+        *,
+        expected_period_days: int,
     ) -> dict:
         """Defense-in-depth filter for scoped aggregate consumption results."""
 
         result = MCPToolProvider._require_decoded_result(
             result,
             tool_name="get_consumption_summary",
+            expected_period_days=expected_period_days,
         )
         authorized_ids = [
             item
