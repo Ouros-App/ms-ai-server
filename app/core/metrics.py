@@ -118,7 +118,6 @@ _ALLOWED_MCP_TOOLS = {
     "qdrant_status",
     "postgres_status",
     "get_user_context",
-    "get_user_farm_data",
     "get_consumption_summary",
     "prepare_resource_import",
     "import_user_resource_records",
