@@ -284,6 +284,48 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cancelled_update["pending_by_route"], {})
         self.assertEqual(cancelled_update["pending_personal_routes"], [])
 
+    def test_same_route_new_task_retires_pending_personal_context(self) -> None:
+        state = {
+            "messages": [
+                HumanMessage(
+                    content="Como funciona o consumo de agua no aplicativo?"
+                )
+            ],
+            "pending_routes": ["sustainability"],
+            "pending_missing_data": ["periodo de analise"],
+            "pending_by_route": {"sustainability": ["periodo de analise"]},
+            "pending_personal_routes": ["sustainability"],
+        }
+
+        update = _route_update(
+            ["sustainability"],
+            "deterministic",
+            state,
+        )
+
+        self.assertEqual(update["pending_routes"], [])
+        self.assertEqual(update["pending_missing_data"], [])
+        self.assertEqual(update["pending_by_route"], {})
+        self.assertEqual(update["pending_personal_routes"], [])
+
+    def test_same_route_slot_answer_keeps_pending_personal_context(self) -> None:
+        state = {
+            "messages": [HumanMessage(content="consumo nos ultimos 30 dias")],
+            "pending_routes": ["sustainability"],
+            "pending_missing_data": ["periodo de analise"],
+            "pending_by_route": {"sustainability": ["periodo de analise"]},
+            "pending_personal_routes": ["sustainability"],
+        }
+
+        update = _route_update(
+            ["sustainability"],
+            "deterministic",
+            state,
+        )
+
+        self.assertNotIn("pending_routes", update)
+        self.assertNotIn("pending_personal_routes", update)
+
     def test_explicit_topic_switch_retires_unrelated_pending_task(self) -> None:
         state = {
             "pending_routes": ["sustainability"],
