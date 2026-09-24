@@ -31,6 +31,10 @@ from app.agents.prompts import (
     FALLBACK_RESPONSE,
     GREETING_RESPONSE,
     IDENTITY_RESPONSE,
+    MAX_SPECIALIST_FACTS,
+    MAX_SPECIALIST_MISSING_DATA,
+    MAX_SPECIALIST_RECOMMENDATIONS,
+    MAX_SPECIALIST_SOURCES,
     ROUTER_PROMPT,
     SPECIALIST_JSON_RULES,
     SYSTEM_PROMPT,
@@ -48,10 +52,6 @@ logger = logging.getLogger(__name__)
 ROUTES = frozenset(AGENT_PROMPTS)
 _RESET_TOOLS = "__reset_tools__"
 _MAX_TOOL_RESULT_CHARS = 12_000
-_MAX_SPECIALIST_FACTS = 8
-_MAX_SPECIALIST_RECOMMENDATIONS = 5
-_MAX_SPECIALIST_MISSING_DATA = 3
-_MAX_SPECIALIST_SOURCES = 5
 _MAX_SPECIALIST_FIELD_CHARS = 200
 _MAX_TRACE_KEYS = 20
 
@@ -1053,20 +1053,20 @@ def _normalize_specialist_result(response: object) -> dict[str, object]:
         "status": status if status in {"ok", "needs_input", "unsupported", "error"} else "error",
         "facts": _string_list(
             payload.get("facts", []),
-            max_items=_MAX_SPECIALIST_FACTS,
+            max_items=MAX_SPECIALIST_FACTS,
         ),
         "recommendations": _string_list(
             payload.get("recommendations", []),
-            max_items=_MAX_SPECIALIST_RECOMMENDATIONS,
+            max_items=MAX_SPECIALIST_RECOMMENDATIONS,
         ),
         "missing_data": _string_list(
             payload.get("missing_data", []),
-            max_items=_MAX_SPECIALIST_MISSING_DATA,
+            max_items=MAX_SPECIALIST_MISSING_DATA,
             max_chars=_MAX_SPECIALIST_FIELD_CHARS,
         ),
         "sources": _string_list(
             payload.get("sources", []),
-            max_items=_MAX_SPECIALIST_SOURCES,
+            max_items=MAX_SPECIALIST_SOURCES,
             max_chars=_MAX_SPECIALIST_FIELD_CHARS,
         ),
     }
