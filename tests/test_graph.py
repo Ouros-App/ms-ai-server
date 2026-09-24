@@ -682,6 +682,12 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                     )
                 ),
                 AIMessage(content="Os dados da sua fazenda estao indisponiveis."),
+                AIMessage(
+                    content=(
+                        "STATUS: APROVADO\nRESPOSTA:\n"
+                        "Os dados da sua fazenda estao indisponiveis."
+                    )
+                ),
             ]
         )
 
@@ -735,6 +741,12 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                     content='{"status":"ok","facts":["nivel prata"],"recommendations":[],"missing_data":[],"sources":["ranking_mcp"]}',
                 ),
                 AIMessage(content="resposta sintetizada"),
+                AIMessage(
+                    content=(
+                        "STATUS: APROVADO\nRESPOSTA:\n"
+                        "resposta sintetizada"
+                    )
+                ),
             ],
         )
 
@@ -752,7 +764,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.message, "resposta sintetizada")
         self.assertEqual(response.tools, [])
         self.assertEqual(response.agents, ["router", "ranking", "default"])
-        self.assertEqual(model.ainvoke.await_count, 2)
+        self.assertEqual(model.ainvoke.await_count, 3)
         model.bind_tools.assert_not_called()
 
     async def test_router_selects_valid_route_from_model(self) -> None:
@@ -1129,6 +1141,12 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                     content='{"status":"ok","facts":["funciona offline"],"recommendations":[],"missing_data":[],"sources":[]}',
                 ),
                 AIMessage(content="O aplicativo funciona offline."),
+                AIMessage(
+                    content=(
+                        "STATUS: APROVADO\nRESPOSTA:\n"
+                        "O aplicativo funciona offline."
+                    )
+                ),
             ],
         )
 
@@ -1230,6 +1248,9 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         model.ainvoke = AsyncMock(
             side_effect=[
                 AIMessage(content="sintese final"),
+                AIMessage(
+                    content="STATUS: APROVADO\nRESPOSTA:\nsintese final"
+                ),
             ],
         )
         bound_model = Mock()
