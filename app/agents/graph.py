@@ -29,6 +29,7 @@ from app.agents.prompts import (
     FALLBACK_RESPONSE,
     GREETING_RESPONSE,
     IDENTITY_RESPONSE,
+    MAX_ROUTER_ROUTES,
     MAX_SPECIALIST_FACTS,
     MAX_SPECIALIST_MISSING_DATA,
     MAX_SPECIALIST_RECOMMENDATIONS,
@@ -48,6 +49,8 @@ _RESET_TOOLS = "__reset_tools__"
 _MAX_TOOL_RESULT_CHARS = 12_000
 _MAX_SPECIALIST_FIELD_CHARS = 200
 _MAX_TRACE_KEYS = 20
+_MAX_PENDING_REPLY_CHARS = 180
+_ROUTER_HISTORY_MESSAGES = 6
 
 
 def _merge_agents(current: list[str] | None, update: list[str] | None) -> list[str]:
@@ -119,7 +122,7 @@ def _extract_routes(response: object) -> list[str]:
         normalized_route = route.lower() if isinstance(route, str) else ""
         if normalized_route in ROUTES and normalized_route not in routes:
             routes.append(normalized_route)
-    return routes[:4] or ["fallback"]
+    return routes[:MAX_ROUTER_ROUTES] or ["fallback"]
 
 
 def _extract_route(response: object) -> str:
@@ -250,7 +253,7 @@ def _is_pending_followup(message: object, missing_data: object) -> bool:
     if not isinstance(content, str):
         return False
     text = _normalize_route_text(content).strip()
-    if not text or len(text) > 180 or _is_cancel_request(message):
+    if not text or len(text) > _MAX_PENDING_REPLY_CHARS or _is_cancel_request(message):
         return False
     if _is_contextual_followup(message):
         return True
@@ -280,7 +283,7 @@ def _inheritable_routes(routes: object) -> list[str]:
         for route in routes
         if isinstance(route, str)
         and route in SPECIALIST_ROUTES
-    ][:4]
+    ][:MAX_ROUTER_ROUTES]
 
 
 def _is_personal_data_request(agent_name: str, user_text: str) -> bool:
@@ -543,7 +546,7 @@ def _matching_pending_routes(
         route
         for route, missing in pending_by_route.items()
         if _is_pending_followup(message, missing)
-    ][:4]
+    ][:MAX_ROUTER_ROUTES]
 
 
 def _quick_route_source(message: object) -> str | None:
@@ -614,7 +617,7 @@ async def _resolve_model_routes(state: AgentState) -> tuple[list[str], str]:
     try:
         response = await model.ainvoke([
             *router_messages,
-            *state.get("messages", [])[-6:],
+            *state.get("messages", [])[-_ROUTER_HISTORY_MESSAGES:],
         ])
         return _extract_routes(response), "model"
     except Exception:
