@@ -26,7 +26,7 @@ MCP_TOOL_ALLOWLIST: dict[str, frozenset[str]] = {
     "support": frozenset({"search_knowledge", "get_user_context"}),
 }
 MCP_USER_SCOPED_TOOLS = frozenset(
-    {"get_user_context", "get_user_farm_data", "get_consumption_summary"}
+    {"get_user_context", "get_consumption_summary"}
 )
 MCP_UNSCOPED_TOOLS = frozenset(
     tool_name
@@ -35,8 +35,6 @@ MCP_UNSCOPED_TOOLS = frozenset(
     if tool_name not in MCP_USER_SCOPED_TOOLS
 )
 MCP_TOOLS_CACHE_MAX_ENTRIES = 256
-DEFAULT_FARM_DATA_LIMIT = 20
-MAX_FARM_DATA_LIMIT = 100
 DEFAULT_CONSUMPTION_PERIOD_DAYS = 30
 MAX_CONSUMPTION_PERIOD_DAYS = 366
 _FORWARDED_ACCESS_TOKEN: ContextVar[str | None] = ContextVar(
@@ -62,15 +60,6 @@ class MCPToolResultError(RuntimeError):
 
 class _NoArguments(BaseModel):
     pass
-
-
-class _FarmDataArguments(BaseModel):
-    limit: int = Field(
-        default=DEFAULT_FARM_DATA_LIMIT,
-        ge=1,
-        le=MAX_FARM_DATA_LIMIT,
-        description="Quantidade maxima de registros por conjunto de dados.",
-    )
 
 
 class _ConsumptionSummaryArguments(BaseModel):
@@ -255,16 +244,6 @@ class MCPToolProvider:
                 return self._filter_user_context(result)
 
             args_schema = _NoArguments
-        elif tool.name == "get_user_farm_data":
-
-            async def invoke(limit: int = DEFAULT_FARM_DATA_LIMIT) -> object:
-                result = await self._invoke_remote_tool(
-                    tool,
-                    {"limit": limit},
-                )
-                return self._filter_farm_data(result, user_id)
-
-            args_schema = _FarmDataArguments
         elif tool.name == "get_consumption_summary":
 
             async def invoke(
@@ -393,18 +372,6 @@ class MCPToolProvider:
         expected_period_days: int | None = None,
     ) -> bool:
         """Validate the minimum trusted shape returned by user-scoped MCP tools."""
-        if tool_name == "get_user_farm_data":
-            farm_ids = result.get("farm_ids")
-            data = result.get("data")
-            return (
-                isinstance(farm_ids, list)
-                and all(
-                    isinstance(farm_id, int) and not isinstance(farm_id, bool)
-                    for farm_id in farm_ids
-                )
-                and isinstance(data, dict)
-            )
-
         if tool_name == "get_user_context":
             return (
                 isinstance(result.get("user_type"), str)
@@ -493,52 +460,6 @@ class MCPToolProvider:
                 "farms": result.get("farms", []),
             }
         )
-
-    @staticmethod
-    def _filter_farm_data(
-        result: object,
-        user_id: int,
-    ) -> dict:
-        """Return only records for farms authorized by the MCP response."""
-
-        result = MCPToolProvider._require_decoded_result(
-            result,
-            tool_name="get_user_farm_data",
-        )
-
-        authorized_ids = [
-            item
-            for item in result.get("farm_ids", [])
-            if isinstance(item, int)
-        ]
-        if not authorized_ids:
-            logger.warning("mcp_farm_scope_denied user_id=%s", user_id)
-            return {
-                "user_type": result.get("user_type"),
-                "user_id": user_id,
-                "authorized": False,
-                "reason": "no_farm_scope",
-                "data": {},
-            }
-
-        raw_data = result.get("data", {})
-        data = {}
-        if isinstance(raw_data, dict):
-            for name, rows in raw_data.items():
-                if not isinstance(rows, list):
-                    continue
-                key = "id" if name == "farms" else "id_farm"
-                data[name] = [
-                    row
-                    for row in rows
-                    if isinstance(row, dict) and row.get(key) in authorized_ids
-                ]
-        return {
-            "user_type": result.get("user_type"),
-            "user_id": user_id,
-            "authorized": True,
-            "data": data,
-        }
 
     @staticmethod
     def _filter_consumption_summary(
