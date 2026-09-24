@@ -461,6 +461,12 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(_extract_period_days("30"))
         self.assertIsNone(_extract_period_days("13 meses"))
 
+    def test_copper_league_routes_to_ranking(self) -> None:
+        self.assertEqual(
+            _deterministic_routes(HumanMessage(content="Estou no cobre?")),
+            ["ranking"],
+        )
+
     def test_lot_mentions_only_route_to_faq_when_the_intent_is_app_usage(self) -> None:
         self.assertEqual(
             _deterministic_routes(
