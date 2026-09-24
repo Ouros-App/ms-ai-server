@@ -63,8 +63,8 @@ _OUT_OF_SCOPE_PATTERNS = (
 )
 _PROJECT_TERMS = (
     "aplicativo", "midas", "fazenda", "granja", "produtor", "integrado",
-    "agua", "energia", "consumo", "hidrometro", "ranking", "ferro", "bronze", "prata",
-    "ouro", "dashboard", "painel", "offline", "sincron", "notific", "relatorio", "vacina",
+    "agua", "energia", "consumo", "hidrometro", "ranking", "ferro", "bronze", "cobre",
+    "prata", "ouro", "dashboard", "painel", "offline", "sincron", "notific", "relatorio", "vacina",
     "lote", "meta", "selo", "econom", "sustent", "eficien", "suporte", "tecnic", "memoria",
     "lembr", "usuario", "thread", "conversa",
 )
