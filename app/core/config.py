@@ -32,24 +32,35 @@ class Settings(BaseSettings):
     auth_jwt_audience: str = "ms-ai-server"
     auth_jwks_url: str | None = None
     mcp_url: str | None = "https://ms-midas-mcp.discloud.app/mcp/"
-    mcp_resource_url: str | None = "https://ms-midas-mcp.discloud.app/mcp/"
+    mcp_resource_url: str | None = None
     mcp_tools_cache_ttl_seconds: int = 300
     mcp_tool_timeout_seconds: float = Field(10.0, gt=0, le=30)
-    mcp_keycloak_token_exchange_url: str = (
-        "https://ouros-keycloak.discloud.app/realms/ouros/protocol/openid-connect/token"
-    )
+    mcp_keycloak_token_exchange_url: str | None = None
     mcp_keycloak_token_exchange_client_id: str = "ms-ai-server-mcp-exchange"
     mcp_keycloak_token_exchange_client_secret: SecretStr | None = None
     mcp_keycloak_token_exchange_audience: str = "ms-mcp-server-ouros-knowledge"
     mcp_keycloak_token_exchange_timeout_seconds: float = Field(8.0, gt=0)
     debug_ui_enabled: bool = False
-    debug_ui_keycloak_token_url: str = (
-        "https://ouros-keycloak.discloud.app/realms/ouros/protocol/openid-connect/token"
-    )
+    debug_ui_keycloak_token_url: str | None = None
     debug_ui_keycloak_client_id: str = "ms-ai-server-debug"
     debug_ui_keycloak_client_secret: SecretStr | None = None
     debug_ui_cookie_secure: bool = True
     debug_ui_request_timeout_seconds: float = 8.0
+
+    @property
+    def keycloak_token_url(self) -> str:
+        return (
+            f"{self.auth_jwt_issuer.rstrip('/')}"
+            "/protocol/openid-connect/token"
+        )
+
+    @property
+    def effective_mcp_token_exchange_url(self) -> str:
+        return self.mcp_keycloak_token_exchange_url or self.keycloak_token_url
+
+    @property
+    def effective_debug_ui_token_url(self) -> str:
+        return self.debug_ui_keycloak_token_url or self.keycloak_token_url
 
     @model_validator(mode="after")
     def validate_keycloak_jwt_config(self) -> "Settings":
@@ -58,9 +69,12 @@ class Settings(BaseSettings):
                 "AUTH_JWT_ISSUER e AUTH_JWT_AUDIENCE são obrigatórios"
             )
         if self.mcp_keycloak_token_exchange_client_secret is not None:
-            if not self.mcp_keycloak_token_exchange_url.strip():
+            if (
+                self.mcp_keycloak_token_exchange_url is not None
+                and not self.mcp_keycloak_token_exchange_url.strip()
+            ):
                 raise ValueError(
-                    "MCP_KEYCLOAK_TOKEN_EXCHANGE_URL é obrigatório quando o exchange está configurado"
+                    "MCP_KEYCLOAK_TOKEN_EXCHANGE_URL não pode ser vazio"
                 )
             if not self.mcp_keycloak_token_exchange_client_id.strip():
                 raise ValueError(
@@ -71,9 +85,12 @@ class Settings(BaseSettings):
                     "MCP_KEYCLOAK_TOKEN_EXCHANGE_AUDIENCE é obrigatório quando o exchange está configurado"
                 )
         if self.debug_ui_enabled:
-            if not self.debug_ui_keycloak_token_url.strip():
+            if (
+                self.debug_ui_keycloak_token_url is not None
+                and not self.debug_ui_keycloak_token_url.strip()
+            ):
                 raise ValueError(
-                    "DEBUG_UI_KEYCLOAK_TOKEN_URL é obrigatório quando DEBUG_UI_ENABLED=true"
+                    "DEBUG_UI_KEYCLOAK_TOKEN_URL não pode ser vazio"
                 )
             if not self.debug_ui_keycloak_client_id.strip():
                 raise ValueError(
