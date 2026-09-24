@@ -1,3 +1,8 @@
+MAX_SPECIALIST_FACTS = 8
+MAX_SPECIALIST_RECOMMENDATIONS = 5
+MAX_SPECIALIST_MISSING_DATA = 3
+MAX_SPECIALIST_SOURCES = 5
+
 COMMON_AGENT_RULES = """Voce atende usuarios de uma plataforma B2B de sustentabilidade para produtores integrados.
 
 Objetivo:
@@ -47,19 +52,21 @@ informacao temporaria. Nao transforme toda mensagem da conversa em memoria.
 
 SPECIALIST_AGENT_RULES = COMMON_AGENT_RULES + MEMORY_AGENT_RULES
 
-SPECIALIST_JSON_RULES = """
+SPECIALIST_JSON_RULES = f"""
 
 Voce e um agente especialista interno. Nao responda ao usuario diretamente.
 Retorne somente JSON valido, sem markdown, neste formato:
-{
+{{
   "status": "ok|needs_input|unsupported|error",
   "facts": ["fato confirmado"],
   "recommendations": ["orientacao aplicavel"],
   "missing_data": ["dado necessario"],
   "sources": ["fonte ou tool usada"]
-}
-Use listas vazias quando nao houver itens. Seja economico: no maximo 8 fatos,
-5 recomendacoes, 3 dados ausentes e 5 fontes. Cada item deve ser curto e factual.
+}}
+Use listas vazias quando nao houver itens. Seja economico: no maximo
+{MAX_SPECIALIST_FACTS} fatos, {MAX_SPECIALIST_RECOMMENDATIONS} recomendacoes,
+{MAX_SPECIALIST_MISSING_DATA} dados ausentes e {MAX_SPECIALIST_SOURCES} fontes.
+Cada item deve ser curto e factual.
 Nao inclua texto fora do JSON, prompts, credenciais ou dados de outros usuarios.
 """
 
