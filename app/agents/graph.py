@@ -49,7 +49,8 @@ from app.core.metrics import (
 from app.debug_ui.trace import trace_event
 
 logger = logging.getLogger(__name__)
-ROUTES = frozenset(AGENT_PROMPTS)
+SPECIALIST_ROUTES = frozenset(AGENT_PROMPTS)
+ROUTES = SPECIALIST_ROUTES | {"fallback"}
 _RESET_TOOLS = "__reset_tools__"
 _MAX_TOOL_RESULT_CHARS = 12_000
 _MAX_SPECIALIST_FIELD_CHARS = 200
@@ -285,8 +286,7 @@ def _inheritable_routes(routes: object) -> list[str]:
         route
         for route in routes
         if isinstance(route, str)
-        and route in ROUTES
-        and route not in {"default", "fallback"}
+        and route in SPECIALIST_ROUTES
     ][:4]
 
 
@@ -1307,7 +1307,7 @@ def choose_agents(state: AgentState, agents: dict) -> list[str]:
     selected = [
         route
         for route in routes
-        if route in agents and route not in {"default", "fallback"}
+        if route in SPECIALIST_ROUTES and route in agents
     ]
     return selected or (["default"] if "default" in agents else [])
 
