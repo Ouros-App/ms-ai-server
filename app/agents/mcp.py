@@ -36,6 +36,10 @@ MCP_UNSCOPED_TOOLS = frozenset(
     if tool_name not in MCP_USER_SCOPED_TOOLS
 )
 MCP_TOOLS_CACHE_MAX_ENTRIES = 256
+DEFAULT_FARM_DATA_LIMIT = 20
+MAX_FARM_DATA_LIMIT = 100
+DEFAULT_CONSUMPTION_PERIOD_DAYS = 30
+MAX_CONSUMPTION_PERIOD_DAYS = 366
 _FORWARDED_ACCESS_TOKEN: ContextVar[str | None] = ContextVar(
     "mcp_forwarded_access_token",
     default=None,
@@ -63,19 +67,21 @@ class _NoArguments(BaseModel):
 
 class _FarmDataArguments(BaseModel):
     limit: int = Field(
-        default=20,
+        default=DEFAULT_FARM_DATA_LIMIT,
         ge=1,
-        le=100,
+        le=MAX_FARM_DATA_LIMIT,
         description="Quantidade maxima de registros por conjunto de dados.",
     )
 
 
 class _ConsumptionSummaryArguments(BaseModel):
     period_days: int = Field(
-        default=30,
+        default=DEFAULT_CONSUMPTION_PERIOD_DAYS,
         ge=1,
-        le=366,
-        description="Janela de consulta em dias, entre 1 e 366.",
+        le=MAX_CONSUMPTION_PERIOD_DAYS,
+        description=(
+            "Janela de consulta em dias, limitada pelo contrato da tool."
+        ),
     )
 
 
@@ -252,7 +258,7 @@ class MCPToolProvider:
             args_schema = _NoArguments
         elif tool.name == "get_user_farm_data":
 
-            async def invoke(limit: int = 20) -> object:
+            async def invoke(limit: int = DEFAULT_FARM_DATA_LIMIT) -> object:
                 result = await self._invoke_remote_tool(
                     tool,
                     {"limit": limit},
@@ -262,7 +268,9 @@ class MCPToolProvider:
             args_schema = _FarmDataArguments
         elif tool.name == "get_consumption_summary":
 
-            async def invoke(period_days: int = 30) -> object:
+            async def invoke(
+                period_days: int = DEFAULT_CONSUMPTION_PERIOD_DAYS,
+            ) -> object:
                 result = await self._invoke_remote_tool(
                     tool,
                     {"period_days": period_days},
