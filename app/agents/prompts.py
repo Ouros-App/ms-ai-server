@@ -183,13 +183,6 @@ resolver, gere um resumo para o time tecnico responsavel com causa provavel,
 evidencias e proximo passo.
 """
 
-FALLBACK_AGENT_PROMPT = SPECIALIST_AGENT_RULES + """
-
-Voce e o agente de fallback.
-Nao responda por aproximacao. Explique que precisa de mais contexto e pergunte
-se a pessoa precisa de ajuda com o aplicativo, sustentabilidade, ranking ou suporte.
-"""
-
 FALLBACK_RESPONSE = (
     "Nao consegui entender esse pedido com seguranca. Pode reformular em uma frase "
     "dizendo o que voce quer consultar ou fazer no Midas?"
@@ -211,5 +204,4 @@ AGENT_PROMPTS: dict[str, str] = {
     "sustainability": SUSTAINABILITY_AGENT_PROMPT,
     "ranking": RANKING_AGENT_PROMPT,
     "support": SUPPORT_AGENT_PROMPT,
-    "fallback": FALLBACK_AGENT_PROMPT,
 }
