@@ -22,9 +22,20 @@ class ConfigTest(unittest.TestCase):
             config.mcp_url,
             "https://ms-midas-mcp.discloud.app/mcp/",
         )
+        self.assertIsNone(config.mcp_resource_url)
         self.assertEqual(
-            config.mcp_resource_url,
-            "https://ms-midas-mcp.discloud.app/mcp/",
+            config.effective_mcp_token_exchange_url,
+            (
+                "https://ouros-keycloak.discloud.app/realms/ouros"
+                "/protocol/openid-connect/token"
+            ),
+        )
+        self.assertEqual(
+            config.effective_debug_ui_token_url,
+            (
+                "https://ouros-keycloak.discloud.app/realms/ouros"
+                "/protocol/openid-connect/token"
+            ),
         )
         self.assertEqual(config.mcp_tools_cache_ttl_seconds, 300)
         self.assertEqual(
@@ -82,6 +93,35 @@ class ConfigTest(unittest.TestCase):
                 mcp_keycloak_token_exchange_client_secret="secret",
                 mcp_keycloak_token_exchange_audience="",
             )
+
+    def test_keycloak_token_endpoint_overrides_are_optional(self) -> None:
+        config = Settings(
+            _env_file=None,
+            auth_jwt_issuer="https://issuer.example/realms/ouros",
+        )
+
+        self.assertEqual(
+            config.effective_mcp_token_exchange_url,
+            "https://issuer.example/realms/ouros/protocol/openid-connect/token",
+        )
+        self.assertEqual(
+            config.effective_debug_ui_token_url,
+            "https://issuer.example/realms/ouros/protocol/openid-connect/token",
+        )
+
+        overridden = Settings(
+            _env_file=None,
+            mcp_keycloak_token_exchange_url="https://auth.example/token",
+            debug_ui_keycloak_token_url="https://debug-auth.example/token",
+        )
+        self.assertEqual(
+            overridden.effective_mcp_token_exchange_url,
+            "https://auth.example/token",
+        )
+        self.assertEqual(
+            overridden.effective_debug_ui_token_url,
+            "https://debug-auth.example/token",
+        )
 
     def test_mcp_exchange_timeout_must_be_positive(self) -> None:
         for timeout in (0, -1):
