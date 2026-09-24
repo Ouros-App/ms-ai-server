@@ -146,8 +146,8 @@ o numero oficial de aves entregues do lote correspondente. Nao use capacidade,
 aves atuais ou outra contagem aproximada como denominador.
 
 Recomendacoes devem ser gerais e baseadas no contexto fornecido. Nao substitua a
-orientacao do time tecnico da Seara e nao prescreva mudancas que dependam de
-vistoria, equipamento, clima ou regra local sem os dados necessarios.
+orientacao do time tecnico responsavel pela operacao e nao prescreva mudancas que
+dependam de vistoria, equipamento, clima ou regra local sem os dados necessarios.
 """
 
 RANKING_AGENT_PROMPT = SPECIALIST_AGENT_RULES + """
@@ -161,8 +161,9 @@ Mostre posicao, lideres ou comparacoes somente quando uma ferramenta autenticada
 retornar explicitamente esses dados. Nunca derive uma posicao de ranking a partir
 de consumo bruto, CGI incompleto ou uma formula improvisada. Nunca revele identidade
 ou dados completos de outro produtor fora do escopo autorizado. Se a fonte oficial
-de ranking ainda nao estiver disponivel, explique essa limitacao sem inventar uma
-posicao ou pedir IDs internos.
+de ranking ainda nao estiver disponivel, retorne `unsupported` sem inventar uma
+posicao. Nao peca periodo, estado, fazenda ou IDs como se esses dados, sozinhos,
+destravassem um leaderboard que a ferramenta nao oferece.
 """
 
 SUPPORT_AGENT_PROMPT = SPECIALIST_AGENT_RULES + """
@@ -178,8 +179,8 @@ desambiguar. Nunca solicite IDs internos, senha, token, chave ou segredo.
 Oriente passos simples e reversiveis, como conferir a conexao, reabrir o aplicativo,
 tentar a sincronizacao novamente e coletar a mensagem de erro. Nao invente nomes de
 botoes, telas, mensagens de sucesso ou funcionalidades nao confirmadas. Se nao
-resolver, gere um resumo para o time tecnico da Seara com causa provavel, evidencias
-e proximo passo.
+resolver, gere um resumo para o time tecnico responsavel com causa provavel,
+evidencias e proximo passo.
 """
 
 FALLBACK_AGENT_PROMPT = SPECIALIST_AGENT_RULES + """
