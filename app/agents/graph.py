@@ -15,7 +15,7 @@ from app.agents.diagnostics import (
     pending_summary,
     specialist_result_summary,
 )
-from app.agents.guardrails import guard_input, guard_output
+from app.agents.guardrails import guard_input, guard_output, review_output
 from app.agents.llms import profile_for
 from app.agents.mcp import (
     DEFAULT_CONSUMPTION_PERIOD_DAYS,
@@ -767,7 +767,10 @@ async def default_agent(state: AgentState) -> dict:
                 ],
                 profile,
             )
-            content = _response_content(response)
+            content = await review_output(
+                _response_content(response),
+                fail_closed=True,
+            )
 
     trace_event(
         "synthesis.response",
