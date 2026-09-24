@@ -48,6 +48,12 @@ logger = logging.getLogger(__name__)
 ROUTES = frozenset(AGENT_PROMPTS)
 _RESET_TOOLS = "__reset_tools__"
 _MAX_TOOL_RESULT_CHARS = 12_000
+_MAX_SPECIALIST_FACTS = 8
+_MAX_SPECIALIST_RECOMMENDATIONS = 5
+_MAX_SPECIALIST_MISSING_DATA = 3
+_MAX_SPECIALIST_SOURCES = 5
+_MAX_SPECIALIST_FIELD_CHARS = 200
+_MAX_TRACE_KEYS = 20
 
 
 def _merge_agents(current: list[str] | None, update: list[str] | None) -> list[str]:
@@ -1034,20 +1040,23 @@ def _normalize_specialist_result(response: object) -> dict[str, object]:
     status = payload.get("status")
     return {
         "status": status if status in {"ok", "needs_input", "unsupported", "error"} else "error",
-        "facts": _string_list(payload.get("facts", []), max_items=8),
+        "facts": _string_list(
+            payload.get("facts", []),
+            max_items=_MAX_SPECIALIST_FACTS,
+        ),
         "recommendations": _string_list(
             payload.get("recommendations", []),
-            max_items=5,
+            max_items=_MAX_SPECIALIST_RECOMMENDATIONS,
         ),
         "missing_data": _string_list(
             payload.get("missing_data", []),
-            max_items=3,
-            max_chars=200,
+            max_items=_MAX_SPECIALIST_MISSING_DATA,
+            max_chars=_MAX_SPECIALIST_FIELD_CHARS,
         ),
         "sources": _string_list(
             payload.get("sources", []),
-            max_items=5,
-            max_chars=200,
+            max_items=_MAX_SPECIALIST_SOURCES,
+            max_chars=_MAX_SPECIALIST_FIELD_CHARS,
         ),
     }
 
@@ -1057,7 +1066,7 @@ def _tool_args_trace(arguments: object) -> dict[str, object]:
     if not isinstance(arguments, dict):
         return {"type": type(arguments).__name__}
     return {
-        "keys": sorted(str(key) for key in arguments)[:20],
+        "keys": sorted(str(key) for key in arguments)[:_MAX_TRACE_KEYS],
         "arg_count": len(arguments),
     }
 
@@ -1067,7 +1076,7 @@ def _tool_result_trace(result: object) -> dict[str, object]:
     if isinstance(result, dict):
         return {
             "type": "dict",
-            "keys": sorted(str(key) for key in result)[:20],
+            "keys": sorted(str(key) for key in result)[:_MAX_TRACE_KEYS],
             "field_count": len(result),
         }
     if isinstance(result, list):
