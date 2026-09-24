@@ -63,44 +63,59 @@ class Settings(BaseSettings):
     def effective_debug_ui_token_url(self) -> str:
         return self.debug_ui_keycloak_token_url or self.keycloak_token_url
 
-    @model_validator(mode="after")
-    def validate_keycloak_jwt_config(self) -> "Settings":
+    def _validate_auth_contract(self) -> None:
         if not self.auth_jwt_issuer.strip() or not self.auth_jwt_audience.strip():
             raise ValueError(
                 "AUTH_JWT_ISSUER e AUTH_JWT_AUDIENCE são obrigatórios"
             )
-        if self.mcp_keycloak_token_exchange_client_secret is not None:
-            if (
-                self.mcp_keycloak_token_exchange_url is not None
-                and not self.mcp_keycloak_token_exchange_url.strip()
-            ):
-                raise ValueError(
-                    "MCP_KEYCLOAK_TOKEN_EXCHANGE_URL não pode ser vazio"
-                )
-            if not self.mcp_keycloak_token_exchange_client_id.strip():
-                raise ValueError(
-                    "MCP_KEYCLOAK_TOKEN_EXCHANGE_CLIENT_ID é obrigatório quando o exchange está configurado"
-                )
-            if not self.mcp_keycloak_token_exchange_audience.strip():
-                raise ValueError(
-                    "MCP_KEYCLOAK_TOKEN_EXCHANGE_AUDIENCE é obrigatório quando o exchange está configurado"
-                )
-        if self.debug_ui_enabled:
-            if (
-                self.debug_ui_keycloak_token_url is not None
-                and not self.debug_ui_keycloak_token_url.strip()
-            ):
-                raise ValueError(
-                    "DEBUG_UI_KEYCLOAK_TOKEN_URL não pode ser vazio"
-                )
-            if not self.debug_ui_keycloak_client_id.strip():
-                raise ValueError(
-                    "DEBUG_UI_KEYCLOAK_CLIENT_ID é obrigatório quando DEBUG_UI_ENABLED=true"
-                )
-            if self.debug_ui_keycloak_client_secret is None:
-                raise ValueError(
-                    "DEBUG_UI_KEYCLOAK_CLIENT_SECRET é obrigatório quando DEBUG_UI_ENABLED=true"
-                )
+
+    def _validate_mcp_exchange_contract(self) -> None:
+        if self.mcp_keycloak_token_exchange_client_secret is None:
+            return
+        if (
+            self.mcp_keycloak_token_exchange_url is not None
+            and not self.mcp_keycloak_token_exchange_url.strip()
+        ):
+            raise ValueError(
+                "MCP_KEYCLOAK_TOKEN_EXCHANGE_URL não pode ser vazio"
+            )
+        if not self.mcp_keycloak_token_exchange_client_id.strip():
+            raise ValueError(
+                "MCP_KEYCLOAK_TOKEN_EXCHANGE_CLIENT_ID é obrigatório "
+                "quando o exchange está configurado"
+            )
+        if not self.mcp_keycloak_token_exchange_audience.strip():
+            raise ValueError(
+                "MCP_KEYCLOAK_TOKEN_EXCHANGE_AUDIENCE é obrigatório "
+                "quando o exchange está configurado"
+            )
+
+    def _validate_debug_ui_contract(self) -> None:
+        if not self.debug_ui_enabled:
+            return
+        if (
+            self.debug_ui_keycloak_token_url is not None
+            and not self.debug_ui_keycloak_token_url.strip()
+        ):
+            raise ValueError(
+                "DEBUG_UI_KEYCLOAK_TOKEN_URL não pode ser vazio"
+            )
+        if not self.debug_ui_keycloak_client_id.strip():
+            raise ValueError(
+                "DEBUG_UI_KEYCLOAK_CLIENT_ID é obrigatório quando "
+                "DEBUG_UI_ENABLED=true"
+            )
+        if self.debug_ui_keycloak_client_secret is None:
+            raise ValueError(
+                "DEBUG_UI_KEYCLOAK_CLIENT_SECRET é obrigatório quando "
+                "DEBUG_UI_ENABLED=true"
+            )
+
+    @model_validator(mode="after")
+    def validate_keycloak_jwt_config(self) -> "Settings":
+        self._validate_auth_contract()
+        self._validate_mcp_exchange_contract()
+        self._validate_debug_ui_contract()
         return self
 
     @field_validator(
