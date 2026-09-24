@@ -23,7 +23,6 @@ MCP_TOOL_ALLOWLIST: dict[str, frozenset[str]] = {
     ),
     "ranking": frozenset({"search_knowledge", "get_user_context"}),
     "support": frozenset({"search_knowledge", "get_user_context"}),
-    "fallback": frozenset({"search_knowledge"}),
 }
 MCP_USER_SCOPED_TOOLS = frozenset(
     {"get_user_context", "get_user_farm_data", "get_consumption_summary"}
