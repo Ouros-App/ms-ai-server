@@ -136,3 +136,16 @@ class GuardrailsTest(unittest.IsolatedAsyncioTestCase):
         result = await review_output("Resposta inicial.", model=model)
 
         self.assertEqual(result, "Resposta revisada.")
+
+
+    async def test_output_reviewer_can_fail_closed(self) -> None:
+        model = Mock()
+        model.ainvoke = AsyncMock(side_effect=RuntimeError("reviewer unavailable"))
+
+        result = await review_output(
+            "Alegacao sintetizada nao validada.",
+            model=model,
+            fail_closed=True,
+        )
+
+        self.assertEqual(result, SAFE_REFUSAL)
