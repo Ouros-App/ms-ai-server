@@ -16,7 +16,11 @@ from app.agents.diagnostics import (
 )
 from app.agents.guardrails import guard_input, guard_output
 from app.agents.llms import profile_for
-from app.agents.mcp import MCPToolProvider
+from app.agents.mcp import (
+    DEFAULT_CONSUMPTION_PERIOD_DAYS,
+    MAX_CONSUMPTION_PERIOD_DAYS,
+    MCPToolProvider,
+)
 from app.agents.model import get_chat_model
 from app.agents.prompts import (
     AGENT_PROMPTS,
@@ -321,18 +325,18 @@ def _extract_period_days(
             "dias": 1,
             "semana": 7,
             "semanas": 7,
-            "mes": 30,
-            "meses": 30,
+            "mes": DEFAULT_CONSUMPTION_PERIOD_DAYS,
+            "meses": DEFAULT_CONSUMPTION_PERIOD_DAYS,
         }[match.group("unit")]
         period_days = value * multiplier
-        return period_days if 1 <= period_days <= 366 else None
+        return period_days if 1 <= period_days <= MAX_CONSUMPTION_PERIOD_DAYS else None
 
     if re.search(r"\bhoje\b", text):
         return 1
     if re.search(r"\b(?:ultima|ultimo)\s+semana\b", text):
         return 7
     if re.search(r"\b(?:ultimo|ultima)\s+mes\b", text):
-        return 30
+        return DEFAULT_CONSUMPTION_PERIOD_DAYS
 
     missing_items = _string_list(pending_missing_data)
     waiting_for_period = any(
@@ -343,7 +347,7 @@ def _extract_period_days(
     bare_match = _BARE_PERIOD_PATTERN.fullmatch(text)
     if waiting_for_period and bare_match is not None:
         period_days = int(bare_match.group("value"))
-        return period_days if 1 <= period_days <= 366 else None
+        return period_days if 1 <= period_days <= MAX_CONSUMPTION_PERIOD_DAYS else None
     return None
 
 
