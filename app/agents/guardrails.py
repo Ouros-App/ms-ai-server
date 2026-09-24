@@ -63,7 +63,7 @@ _OUT_OF_SCOPE_PATTERNS = (
     re.compile(r"\b(dever de casa|trabalho escolar|prova|matematica|redacao)\b"),
 )
 _PROJECT_TERMS = (
-    "aplicativo", "midas", "fazenda", "granja", "produtor", "integrado", "jbs", "seara",
+    "aplicativo", "midas", "fazenda", "granja", "produtor", "integrado",
     "agua", "energia", "consumo", "hidrometro", "ranking", "ferro", "bronze", "prata",
     "ouro", "dashboard", "painel", "offline", "sincron", "notific", "relatorio", "vacina",
     "lote", "meta", "selo", "econom", "sustent", "eficien", "suporte", "tecnic", "memoria",
@@ -109,7 +109,7 @@ _INTERNAL_ID_PATTERNS = (
     ),
 )
 
-_CLASSIFIER_PROMPT = """Voce e o classificador de seguranca do Midas, um FAQ para produtores integrados.
+_CLASSIFIER_PROMPT = """Voce e o classificador de seguranca do assistente Midas no ecossistema Ouros.
 Classifique a mensagem em exatamente uma categoria e responda somente neste formato:
 CATEGORIA: [categoria]
 JUSTIFICATIVA: [uma linha]
