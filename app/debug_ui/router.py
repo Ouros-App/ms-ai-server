@@ -120,7 +120,7 @@ async def _refresh_debug_session(
             follow_redirects=False,
         ) as client:
             upstream = await client.post(
-                settings.debug_ui_keycloak_token_url,
+                settings.effective_debug_ui_token_url,
                 data={
                     "grant_type": "refresh_token",
                     "refresh_token": refresh_token,
@@ -246,7 +246,7 @@ async def debug_login(
             follow_redirects=False,
         ) as client:
             upstream = await client.post(
-                settings.debug_ui_keycloak_token_url,
+                settings.effective_debug_ui_token_url,
                 data={
                     "grant_type": "password",
                     "username": payload.email,
