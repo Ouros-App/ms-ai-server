@@ -66,8 +66,10 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 | `MCP_TOOL_TIMEOUT_SECONDS` | Limite por chamada de tool, evitando que uma dependência consuma todo o tempo da requisição. |
 | `AUTH_JWT_ISSUER` / `AUTH_JWT_AUDIENCE` / `AUTH_JWKS_URL` | Contrato oficial do Keycloak; valida assinatura RS256, issuer, audience e expiração. `database_id` é o ID do banco legado e `sub` permanece a identidade do Keycloak. |
 | `MCP_URL` | Endpoint Streamable HTTP do servidor MCP externo. |
-| `MCP_RESOURCE_URL` | Identificador/URL do recurso MCP. |
+| `MCP_RESOURCE_URL` | Override opcional do identificador do recurso MCP; quando vazio, usa `MCP_URL`. |
 | `MCP_TOOLS_CACHE_TTL_SECONDS` | TTL do cache de tools MCP por token validado. |
+| `MCP_KEYCLOAK_TOKEN_EXCHANGE_URL` | Override opcional do token endpoint; por padrão é derivado de `AUTH_JWT_ISSUER`. |
+| `DEBUG_UI_KEYCLOAK_TOKEN_URL` | Override opcional do token endpoint do painel de debug; por padrão é derivado do mesmo issuer. |
 
 Não versione o arquivo `.env` nem os tokens. Quando o Infisical está totalmente configurado, os secrets carregados do cofre são aplicados antes da criação de `Settings` e prevalecem sobre valores locais com a mesma chave. Sem nenhuma das quatro variáveis de bootstrap, o serviço pode rodar em modo local. Configuração parcial ou ambiente inválido interrompe o startup para evitar fallback silencioso.
 
@@ -216,7 +218,8 @@ Ative explicitamente no ambiente de debug:
 
 ```dotenv
 DEBUG_UI_ENABLED=true
-DEBUG_UI_KEYCLOAK_TOKEN_URL=https://ouros-keycloak.discloud.app/realms/ouros/protocol/openid-connect/token
+# Opcional: deixe vazio para derivar do AUTH_JWT_ISSUER.
+DEBUG_UI_KEYCLOAK_TOKEN_URL=
 DEBUG_UI_KEYCLOAK_CLIENT_ID=ms-ai-server-debug
 DEBUG_UI_KEYCLOAK_CLIENT_SECRET=<secret-gerado-pelo-keycloak>
 DEBUG_UI_COOKIE_SECURE=true
