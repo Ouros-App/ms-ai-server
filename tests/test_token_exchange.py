@@ -11,6 +11,7 @@ from app.core.token_exchange import (
     TOKEN_EXCHANGE_GRANT,
     MCPTokenExchangeError,
     _exchange_with_client,
+    _oauth_error_code,
 )
 
 
@@ -116,6 +117,66 @@ class TokenExchangeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("reason=connect_error", joined)
         self.assertNotIn("super-secret-value", joined)
         self.assertNotIn("user-token-material", joined)
+
+    def test_oauth_error_code_allowlists_values_and_redacts_untrusted_content(self) -> None:
+        known = httpx.Response(400, json={"error": "invalid_request"})
+        hostile = httpx.Response(
+            400,
+            json={"error": "eyJhbGciOiJSUzI1NiJ9.sensitive.signature"},
+        )
+        invalid_json = httpx.Response(400, content=b"not-json")
+
+        self.assertEqual(_oauth_error_code(known), "invalid_request")
+        self.assertEqual(_oauth_error_code(hostile), "unknown")
+        self.assertEqual(_oauth_error_code(invalid_json), "unknown")
+
+    async def test_exchange_classifies_timeout(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ReadTimeout("timed out", request=request)
+
+        transport = httpx.MockTransport(handler)
+        with patch.object(
+            settings,
+            "mcp_keycloak_token_exchange_client_secret",
+            SecretStr("exchange-secret"),
+        ):
+            async with httpx.AsyncClient(transport=transport) as client:
+                with self.assertRaises(MCPTokenExchangeError) as raised:
+                    await _exchange_with_client("mobile-user-token", client)
+
+        self.assertEqual(raised.exception.reason, "timeout")
+
+    async def test_exchange_rejects_invalid_json_response(self) -> None:
+        transport = httpx.MockTransport(
+            lambda _request: httpx.Response(200, content=b"not-json")
+        )
+        with patch.object(
+            settings,
+            "mcp_keycloak_token_exchange_client_secret",
+            SecretStr("exchange-secret"),
+        ):
+            async with httpx.AsyncClient(transport=transport) as client:
+                with self.assertRaises(MCPTokenExchangeError) as raised:
+                    await _exchange_with_client("mobile-user-token", client)
+
+        self.assertEqual(raised.exception.reason, "invalid_json")
+        self.assertEqual(raised.exception.status_code, 200)
+
+    async def test_exchange_rejects_success_without_access_token(self) -> None:
+        transport = httpx.MockTransport(
+            lambda _request: httpx.Response(200, json={"token_type": "Bearer"})
+        )
+        with patch.object(
+            settings,
+            "mcp_keycloak_token_exchange_client_secret",
+            SecretStr("exchange-secret"),
+        ):
+            async with httpx.AsyncClient(transport=transport) as client:
+                with self.assertRaises(MCPTokenExchangeError) as raised:
+                    await _exchange_with_client("mobile-user-token", client)
+
+        self.assertEqual(raised.exception.reason, "missing_access_token")
+        self.assertEqual(raised.exception.status_code, 200)
 
 
 if __name__ == "__main__":
