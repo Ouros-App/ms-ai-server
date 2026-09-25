@@ -72,8 +72,11 @@ class TokenExchangeTests(unittest.IsolatedAsyncioTestCase):
             SecretStr("exchange-secret"),
         ):
             async with httpx.AsyncClient(transport=transport) as client:
-                with self.assertRaises(MCPTokenExchangeError):
+                with self.assertRaises(MCPTokenExchangeError) as raised:
                     await _exchange_with_client("mobile-user-token", client)
+
+        self.assertEqual(raised.exception.reason, "keycloak_rejected")
+        self.assertEqual(raised.exception.status_code, 403)
 
     async def test_exchange_requires_backend_secret(self) -> None:
         transport = httpx.MockTransport(
@@ -85,8 +88,32 @@ class TokenExchangeTests(unittest.IsolatedAsyncioTestCase):
             None,
         ):
             async with httpx.AsyncClient(transport=transport) as client:
-                with self.assertRaises(MCPTokenExchangeError):
+                with self.assertRaises(MCPTokenExchangeError) as raised:
                     await _exchange_with_client("mobile-user-token", client)
+
+        self.assertEqual(raised.exception.reason, "missing_client_secret")
+        self.assertIsNone(raised.exception.status_code)
+
+    async def test_exchange_classifies_connect_errors_without_logging_credentials(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("connection failed", request=request)
+
+        transport = httpx.MockTransport(handler)
+        with patch.object(
+            settings,
+            "mcp_keycloak_token_exchange_client_secret",
+            SecretStr("super-secret-value"),
+        ):
+            with self.assertLogs("app.core.token_exchange", level="WARNING") as logs:
+                async with httpx.AsyncClient(transport=transport) as client:
+                    with self.assertRaises(MCPTokenExchangeError) as raised:
+                        await _exchange_with_client("user-token-material", client)
+
+        self.assertEqual(raised.exception.reason, "connect_error")
+        joined = "\n".join(logs.output)
+        self.assertIn("reason=connect_error", joined)
+        self.assertNotIn("super-secret-value", joined)
+        self.assertNotIn("user-token-material", joined)
 
 
 if __name__ == "__main__":
