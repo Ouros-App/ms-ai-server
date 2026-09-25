@@ -74,11 +74,9 @@ class MCPToolProvider:
     def __init__(
         self,
         url: str | None = None,
-        resource_url: str | None = None,
         cache_ttl_seconds: int = 300,
     ) -> None:
         self.url = url
-        self.resource_url = resource_url or url
         self.cache_ttl_seconds = cache_ttl_seconds
         self._tools_cache: dict[str, tuple[list, float]] = {}
         self._tools_cache_lock = asyncio.Lock()
@@ -87,7 +85,6 @@ class MCPToolProvider:
     def from_settings(cls) -> "MCPToolProvider":
         return cls(
             url=settings.mcp_url,
-            resource_url=settings.mcp_resource_url,
             cache_ttl_seconds=settings.mcp_tools_cache_ttl_seconds,
         )
 
@@ -153,7 +150,6 @@ class MCPToolProvider:
         self,
         agent_name: str,
         user_id: str,
-        request_text: str | None = None,
     ) -> list:
         """Return only MCP tools authorized for one specialist."""
 
@@ -215,7 +211,6 @@ class MCPToolProvider:
                 self._bind_user_tool(
                     tool,
                     numeric_user_id,
-                    request_text=request_text,
                 )
             )
         logger.info("mcp_tools_loaded agent=%s count=%d", agent_name, len(selected))
@@ -225,7 +220,6 @@ class MCPToolProvider:
         self,
         tool,
         user_id: int,
-        request_text: str | None = None,
     ) -> StructuredTool:
         """Bind authenticated identity without exposing identifiers to the model."""
 
