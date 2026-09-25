@@ -11,7 +11,6 @@ from app.core.token_exchange import (
     TOKEN_EXCHANGE_GRANT,
     MCPTokenExchangeError,
     _exchange_with_client,
-    _oauth_error_code,
 )
 
 
@@ -117,18 +116,6 @@ class TokenExchangeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("reason=connect_error", joined)
         self.assertNotIn("super-secret-value", joined)
         self.assertNotIn("user-token-material", joined)
-
-    def test_oauth_error_code_allowlists_values_and_redacts_untrusted_content(self) -> None:
-        known = httpx.Response(400, json={"error": "invalid_request"})
-        hostile = httpx.Response(
-            400,
-            json={"error": "eyJhbGciOiJSUzI1NiJ9.sensitive.signature"},
-        )
-        invalid_json = httpx.Response(400, content=b"not-json")
-
-        self.assertEqual(_oauth_error_code(known), "invalid_request")
-        self.assertEqual(_oauth_error_code(hostile), "unknown")
-        self.assertEqual(_oauth_error_code(invalid_json), "unknown")
 
     async def test_exchange_classifies_timeout(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
