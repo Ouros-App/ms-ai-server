@@ -66,7 +66,6 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 | `MCP_TOOL_TIMEOUT_SECONDS` | Limite por chamada de tool, evitando que uma dependência consuma todo o tempo da requisição. |
 | `AUTH_JWT_ISSUER` / `AUTH_JWT_AUDIENCE` / `AUTH_JWKS_URL` | Contrato oficial do Keycloak; valida assinatura RS256, issuer, audience e expiração. `database_id` é o ID do banco legado e `sub` permanece a identidade do Keycloak. |
 | `MCP_URL` | Endpoint Streamable HTTP do servidor MCP externo. |
-| `MCP_RESOURCE_URL` | Override opcional do identificador do recurso MCP; quando vazio, usa `MCP_URL`. |
 | `MCP_TOOLS_CACHE_TTL_SECONDS` | TTL do cache de tools MCP por token validado. |
 | `MCP_KEYCLOAK_TOKEN_EXCHANGE_URL` | Override opcional do token endpoint; por padrão é derivado de `AUTH_JWT_ISSUER`. |
 | `DEBUG_UI_KEYCLOAK_TOKEN_URL` | Override opcional do token endpoint do painel de debug; por padrão é derivado do mesmo issuer. |
