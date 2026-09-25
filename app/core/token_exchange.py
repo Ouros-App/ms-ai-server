@@ -26,7 +26,7 @@ async def _exchange_with_client(
 
     try:
         response = await client.post(
-            settings.mcp_keycloak_token_exchange_url,
+            settings.effective_mcp_token_exchange_url,
             data={
                 "grant_type": TOKEN_EXCHANGE_GRANT,
                 "subject_token": subject_token,

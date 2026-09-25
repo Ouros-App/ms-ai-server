@@ -59,9 +59,14 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
                 captured["calls"] += 1
                 return [
                     SimpleNamespace(
+                        name="get_user_context",
+                        description="Contexto seguro",
+                        ainvoke=AsyncMock(),
+                    ),
+                    SimpleNamespace(
                         name="get_user_farm_data",
-                        description="Dados da fazenda",
-                        ainvoke=AsyncMock(return_value={"farm_ids": [], "data": {}}),
+                        description="Dados brutos",
+                        ainvoke=AsyncMock(),
                     ),
                     SimpleNamespace(
                         name="search_knowledge",
@@ -76,11 +81,18 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             forward_mcp_access_token("signed-keycloak-token"),
             patch("langchain_mcp_adapters.client.MultiServerMCPClient", FakeClient),
         ):
-            ranking = await provider.tools_for("ranking", "42")
-            faq = await provider.tools_for("faq", "42")
+            ranking = await provider.tools_for("ranking")
+            faq = await provider.tools_for("faq")
 
-        self.assertEqual([tool.name for tool in ranking], ["get_user_farm_data"])
-        self.assertEqual([tool.name for tool in faq], ["search_knowledge"])
+        self.assertEqual(
+            [tool.name for tool in ranking],
+            ["get_user_context", "search_knowledge"],
+        )
+        self.assertEqual(
+            [tool.name for tool in faq],
+            ["get_user_context", "search_knowledge"],
+        )
+        self.assertNotIn("get_user_farm_data", [tool.name for tool in ranking])
         self.assertEqual(captured["calls"], 1)
         self.assertEqual(
             captured["connections"]["midas"]["headers"]["Authorization"],
@@ -94,9 +106,37 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         payload = {
             "user_type": "farm_owner",
             "user_id": 42,
-            "profile": {"name": "Produtor"},
-            "farms": [{"id": 11, "name": "Fazenda"}],
-            "enterprises": [],
+            "profile": {
+                "id": 42,
+                "name": "Produtor",
+                "id_user": 42,
+                "email": "private@example.com",
+                "telephone": "5511999999999",
+                "document_number": "00000000000",
+            },
+            "farms": [
+                {
+                    "id": 11,
+                    "id_farm": 11,
+                    "name": "Fazenda",
+                    "area_property": 120,
+                    "region": "Sudeste",
+                    "poultry_capacity": 5000,
+                    "place": "Zona rural",
+                    "state": "SP",
+                    "city": "Campinas",
+                    "email": "farm-private@example.com",
+                    "owner_name": "Nao deve vazar",
+                }
+            ],
+            "enterprises": [
+                {
+                    "id": 7,
+                    "name": "Empresa",
+                    "email": "billing@example.com",
+                    "telephone": "5511888888888",
+                }
+            ],
         }
         remote_context = SimpleNamespace(
             name="get_user_context",
@@ -123,45 +163,79 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             forward_mcp_access_token("signed-keycloak-token"),
             patch("langchain_mcp_adapters.client.MultiServerMCPClient", FakeClient),
         ):
-            tools = await provider.tools_for("faq", "42")
-            self.assertEqual(await tools[0].ainvoke({}), payload)
+            tools = await provider.tools_for("faq")
+            result = await tools[0].ainvoke({})
+            self.assertEqual(
+                result,
+                {
+                    "profile": {"name": "Produtor"},
+                    "farms": [
+                        {
+                            "name": "Fazenda",
+                            "area_property": 120,
+                            "region": "Sudeste",
+                            "poultry_capacity": 5000,
+                            "place": "Zona rural",
+                            "state": "SP",
+                            "city": "Campinas",
+                        }
+                    ],
+                    "enterprises": [{"name": "Empresa"}],
+                },
+            )
 
         call = remote_context.ainvoke.await_args.args[0]
         self.assertEqual(call["type"], "tool_call")
         self.assertEqual(call["name"], "get_user_context")
         self.assertEqual(call["args"], {})
         self.assertNotIn("user_id", call["args"])
+        self.assertNotIn("private@example.com", str(result))
+        self.assertNotIn("5511999999999", str(result))
+        self.assertNotIn("00000000000", str(result))
+        self.assertNotIn("billing@example.com", str(result))
+        self.assertNotIn("5511888888888", str(result))
+        self.assertNotIn("farm-private@example.com", str(result))
+        self.assertNotIn("Nao deve vazar", str(result))
 
-    async def test_farm_data_tool_decodes_structured_artifact_and_filters_scope(
-        self,
-    ) -> None:
-        """Decode structured farm artifacts and filter rows to authorized farms."""
+    async def test_consumption_summary_rejects_mismatched_period(self) -> None:
         payload = {
             "user_type": "farm_owner",
             "user_id": 42,
             "farm_ids": [11],
-            "data": {
-                "farms": [{"id": 11}, {"id": 99}],
-                "water_registries": [
-                    {"id_farm": 11, "value": 5},
-                    {"id_farm": 99, "value": 999},
-                ],
-            },
+            "period_days": 7,
+            "water_unit": "hydrometer_reading_delta",
+            "energy_unit": "kWh",
+            "summaries": [],
+        }
+
+        with self.assertRaises(MCPToolResultError):
+            MCPToolProvider._filter_consumption_summary(
+                payload,
+                expected_period_days=30,
+            )
+
+    async def test_consumption_summary_keeps_scope_and_only_exposes_period(self) -> None:
+        payload = {
+            "user_type": "farm_owner",
+            "user_id": 42,
+            "farm_ids": [11],
+            "period_days": 30,
+            "water_unit": "hydrometer_reading_delta",
+            "energy_unit": "kWh",
+            "summaries": [
+                {"id_farm": 11, "water_meter_delta": 80},
+                {"id_farm": 99, "water_meter_delta": 999},
+            ],
         }
         remote_tool = SimpleNamespace(
-            name="get_user_farm_data",
-            description="Dados",
+            name="get_consumption_summary",
+            description="Resumo de consumo",
             ainvoke=AsyncMock(
                 return_value=ToolMessage(
-                    content=[
-                        {
-                            "type": "text",
-                            "text": "conteudo textual nao autoritativo",
-                        }
-                    ],
+                    content=[{"type": "text", "text": "ignored"}],
                     artifact={"structured_content": payload},
                     tool_call_id="remote-call",
-                    name="get_user_farm_data",
+                    name="get_consumption_summary",
                 )
             ),
         )
@@ -178,20 +252,24 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             forward_mcp_access_token("signed-keycloak-token"),
             patch("langchain_mcp_adapters.client.MultiServerMCPClient", FakeClient),
         ):
-            tools = await provider.tools_for("ranking", "42")
-            result = await tools[0].ainvoke({"limit": 20})
+            tools = await provider.tools_for("sustainability")
+            result = await tools[0].ainvoke({"period_days": 30})
 
-        self.assertNotIn("farm_id", tools[0].args_schema.model_fields)
+        self.assertEqual(set(tools[0].args_schema.model_fields), {"period_days"})
         self.assertTrue(result["authorized"])
-        self.assertEqual(result["data"]["farms"], [{"id": 11}])
+        self.assertEqual(result["water_unit"], "hydrometer_reading_delta")
+        self.assertEqual(result["energy_unit"], "kWh")
         self.assertEqual(
-            result["data"]["water_registries"],
-            [{"id_farm": 11, "value": 5}],
+            result["summaries"],
+            [{"water_meter_delta": 80}],
         )
+        self.assertNotIn("user_id", result)
+        self.assertNotIn("user_type", result)
+        self.assertNotIn("id_farm", result["summaries"][0])
         call = remote_tool.ainvoke.await_args.args[0]
-        self.assertEqual(call["type"], "tool_call")
-        self.assertEqual(call["name"], "get_user_farm_data")
-        self.assertEqual(call["args"], {"limit": 20})
+        self.assertEqual(call["args"], {"period_days": 30})
+        self.assertNotIn("farm_id", call["args"])
+        self.assertNotIn("user_id", call["args"])
 
     def test_decode_tool_result_supports_adapter_artifact_shapes(self) -> None:
         """Decode the common content-and-artifact shapes emitted by the adapter."""
@@ -261,31 +339,9 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_user_scoped_result_contracts_reject_error_payloads(self) -> None:
-        """Reject malformed MCP dictionaries instead of treating them as scope state."""
-        valid_farm = {"farm_ids": [11], "data": {}}
-        self.assertTrue(
-            MCPToolProvider._result_contract_is_valid(
-                valid_farm,
-                tool_name="get_user_farm_data",
-            )
-        )
-        for payload in (
-            {"error": "timeout"},
-            {"farm_ids": "11", "data": {}},
-            {"farm_ids": [True], "data": {}},
-            {"farm_ids": [11], "data": []},
-        ):
-            with self.subTest(payload=payload):
-                self.assertFalse(
-                    MCPToolProvider._result_contract_is_valid(
-                        payload,
-                        tool_name="get_user_farm_data",
-                    )
-                )
-
+        """Reject malformed user-scoped results instead of trusting partial data."""
         valid_context = {
             "user_type": "farm_owner",
-            "user_id": 42,
             "profile": {},
             "farms": [],
             "enterprises": [],
@@ -296,18 +352,47 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
                 tool_name="get_user_context",
             )
         )
-        self.assertFalse(
+        for payload in (
+            {"user_type": "farm_owner"},
+            {**valid_context, "profile": []},
+        ):
+            with self.subTest(payload=payload):
+                self.assertFalse(
+                    MCPToolProvider._result_contract_is_valid(
+                        payload,
+                        tool_name="get_user_context",
+                    )
+                )
+
+        valid_summary = {
+            "user_type": "farm_owner",
+            "user_id": 42,
+            "farm_ids": [11],
+            "period_days": 30,
+            "summaries": [],
+        }
+        self.assertTrue(
             MCPToolProvider._result_contract_is_valid(
-                {"user_type": "farm_owner", "user_id": 42},
-                tool_name="get_user_context",
+                valid_summary,
+                tool_name="get_consumption_summary",
+                expected_period_days=30,
             )
         )
-        self.assertFalse(
-            MCPToolProvider._result_contract_is_valid(
-                {**valid_context, "user_id": True},
-                tool_name="get_user_context",
-            )
-        )
+        for payload in (
+            {"error": "timeout"},
+            {**valid_summary, "farm_ids": "11"},
+            {**valid_summary, "farm_ids": [True]},
+            {**valid_summary, "summaries": {}},
+            {**valid_summary, "period_days": 7},
+        ):
+            with self.subTest(payload=payload):
+                self.assertFalse(
+                    MCPToolProvider._result_contract_is_valid(
+                        payload,
+                        tool_name="get_consumption_summary",
+                        expected_period_days=30,
+                    )
+                )
 
     def test_require_decoded_result_rejects_error_dict_and_traces_it(self) -> None:
         """Emit diagnostics for decoded dictionaries that violate the tool contract."""
@@ -317,7 +402,8 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         ):
             MCPToolProvider._require_decoded_result(
                 {"error": "timeout"},
-                tool_name="get_user_farm_data",
+                tool_name="get_consumption_summary",
+                expected_period_days=30,
             )
 
         invalid = [
@@ -326,7 +412,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             if event["event"] == "mcp.tool_result_invalid"
         ]
         self.assertEqual(len(invalid), 1)
-        self.assertEqual(invalid[0]["tool"], "get_user_farm_data")
+        self.assertEqual(invalid[0]["tool"], "get_consumption_summary")
         self.assertEqual(invalid[0]["result_type"], "dict")
 
     def test_decoder_skips_unsupported_blocks_before_valid_text(self) -> None:
@@ -354,12 +440,12 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             content=[
                 {
                     "type": "text",
-                    "text": "Error executing tool get_user_farm_data: undefined column gain",
+                    "text": "Error executing tool get_user_context: upstream unavailable",
                 }
             ],
             artifact=None,
             tool_call_id="remote-error",
-            name="get_user_farm_data",
+            name="get_user_context",
             status="error",
         )
 
@@ -369,7 +455,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         ):
             MCPToolProvider._require_decoded_result(
                 result,
-                tool_name="get_user_farm_data",
+                tool_name="get_user_context",
             )
 
         remote_errors = [
@@ -378,10 +464,9 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             if event["event"] == "mcp.tool_error"
         ]
         self.assertEqual(len(remote_errors), 1)
-        self.assertEqual(
-            remote_errors[0]["message"],
-            "Error executing tool get_user_farm_data: undefined column gain",
-        )
+        self.assertGreater(remote_errors[0]["error_chars"], 0)
+        self.assertNotIn("message", remote_errors[0])
+        self.assertNotIn("upstream unavailable", str(remote_errors[0]))
         self.assertFalse(
             any(event["event"] == "mcp.tool_result_invalid" for event in events)
         )
@@ -391,7 +476,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         long_message = ToolMessage(
             content="x" * 800,
             tool_call_id="remote-error",
-            name="get_user_farm_data",
+            name="get_user_context",
             status="error",
         )
         self.assertEqual(
@@ -402,7 +487,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         empty_message = ToolMessage(
             content=[],
             tool_call_id="remote-error",
-            name="get_user_farm_data",
+            name="get_user_context",
             status="error",
         )
         self.assertEqual(
@@ -415,14 +500,14 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
     ) -> None:
         """Treat undecodable MCP output as integration failure, not scope denial."""
         remote_tool = SimpleNamespace(
-            name="get_user_farm_data",
-            description="Dados",
+            name="get_user_context",
+            description="Contexto",
             ainvoke=AsyncMock(
                 return_value=ToolMessage(
                     content=[{"type": "text", "text": "not-json"}],
                     artifact=None,
                     tool_call_id="remote-call",
-                    name="get_user_farm_data",
+                    name="get_user_context",
                 )
             ),
         )
@@ -440,9 +525,9 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             forward_mcp_access_token("signed-keycloak-token"),
             patch("langchain_mcp_adapters.client.MultiServerMCPClient", FakeClient),
         ):
-            tools = await provider.tools_for("sustainability", "42")
+            tools = await provider.tools_for("faq")
             with self.assertRaises(MCPToolResultError):
-                await tools[0].ainvoke({"limit": 20})
+                await tools[0].ainvoke({})
 
         invalid = [
             event
@@ -450,32 +535,14 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             if event["event"] == "mcp.tool_result_invalid"
         ]
         self.assertEqual(len(invalid), 1)
-        self.assertEqual(invalid[0]["tool"], "get_user_farm_data")
+        self.assertEqual(invalid[0]["tool"], "get_user_context")
         self.assertEqual(invalid[0]["result_type"], "ToolMessage")
-
-    async def test_empty_farm_scope_is_explicitly_distinct_from_decode_failure(
-        self,
-    ) -> None:
-        """Represent a real empty farm scope separately from malformed MCP output."""
-        result = MCPToolProvider._filter_farm_data(
-            {
-                "user_type": "company_employee",
-                "user_id": 42,
-                "farm_ids": [],
-                "data": {},
-            },
-            42,
-        )
-
-        self.assertFalse(result["authorized"])
-        self.assertEqual(result["reason"], "no_farm_scope")
-        self.assertEqual(result["user_type"], "company_employee")
 
     async def test_provider_exposes_no_mcp_tools_without_forwarded_user_token(self) -> None:
         """Expose no user-scoped MCP tools when no validated token was forwarded."""
         provider = MCPToolProvider(url="http://mcp.test/mcp")
         with patch("langchain_mcp_adapters.client.MultiServerMCPClient") as client:
-            tools = await provider.tools_for("ranking", "42")
+            tools = await provider.tools_for("ranking")
 
         self.assertEqual(tools, [])
         client.assert_not_called()
@@ -491,7 +558,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             forward_mcp_access_token("signed-keycloak-token"),
             patch("langchain_mcp_adapters.client.MultiServerMCPClient") as client,
         ):
-            tools = await provider.tools_for("faq", "42")
+            tools = await provider.tools_for("faq")
 
         self.assertEqual(tools, [])
         client.assert_not_called()
@@ -523,7 +590,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
                 FailingClient,
             ),
         ):
-            tools = await provider.tools_for("sustainability", "42")
+            tools = await provider.tools_for("sustainability")
 
         self.assertEqual(tools, [])
         failures = [
@@ -542,7 +609,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             forward_mcp_access_token("signed-keycloak-token"),
             patch("langchain_mcp_adapters.client.MultiServerMCPClient") as client,
         ):
-            tools = await provider.tools_for("default", "42")
+            tools = await provider.tools_for("default")
 
         self.assertEqual(tools, [])
         client.assert_not_called()

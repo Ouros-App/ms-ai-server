@@ -6,10 +6,11 @@ from time import perf_counter
 from fastapi import HTTPException, status
 from langchain_core.messages import HumanMessage
 
+from app.agents.diagnostics import pending_summary, specialist_results_summary
 from app.agents.guardrails import guard_input
 from app.agents.mcp import forward_mcp_access_token
 from app.core.config import settings
-from app.core.metrics import observe_chat_result
+from app.core.metrics import observe_chat_result, observe_chat_routing
 from app.debug_ui.trace import capture_debug_trace, trace_event
 from app.schemas.chat import ChatRequest, ChatResponse
 
@@ -33,7 +34,7 @@ async def _invoke_graph(
         trace_event(
             "request.started",
             thread_id=payload.thread_id,
-            principal_id=principal_id,
+            authenticated=True,
         )
 
         if thread_ownership is not None and not await thread_ownership.claim(
@@ -52,7 +53,7 @@ async def _invoke_graph(
         trace_event(
             "thread.loaded",
             has_history=has_history,
-            owner_id=owner_id,
+            owner_bound=bool(owner_id),
         )
         if thread_ownership is None and owner_id and owner_id != principal_id:
             trace_event("thread.denied", reason="snapshot_owner_mismatch")
@@ -135,16 +136,32 @@ async def _invoke_graph(
         tools = result.get("tools", [])
         agents = result.get("agents", [])
         routes = result.get("routes", [])
+        route_source = result.get("route_source")
         specialist_results = result.get("specialist_results", [])
+        debug_specialist_results = specialist_results_summary(specialist_results)
+        pending_routes = result.get("pending_routes", [])
+        pending_missing_data = result.get("pending_missing_data", [])
+        pending_by_route = result.get("pending_by_route", {})
+        debug_pending_missing_data, debug_pending_by_route = pending_summary(
+            pending_missing_data,
+            pending_by_route,
+        )
+        pending_personal_routes = result.get("pending_personal_routes", [])
         duration_ms = round((perf_counter() - started_at) * 1000, 1)
 
         observe_chat_result("success", agents, tools)
+        observe_chat_routing(routes, route_source, pending_routes)
         trace_event(
             "graph.completed",
             routes=routes,
+            route_source=route_source,
             agents=agents,
             tools=tools,
-            specialist_results=specialist_results,
+            specialist_results=debug_specialist_results,
+            pending_routes=pending_routes,
+            pending_missing_data=debug_pending_missing_data,
+            pending_by_route=debug_pending_by_route,
+            pending_personal_routes=pending_personal_routes,
             duration_ms=duration_ms,
         )
         logger.info(
@@ -162,7 +179,12 @@ async def _invoke_graph(
         )
         return response, {
             "routes": routes,
-            "specialist_results": specialist_results,
+            "route_source": route_source,
+            "specialist_results": debug_specialist_results,
+            "pending_routes": pending_routes,
+            "pending_missing_data": debug_pending_missing_data,
+            "pending_by_route": debug_pending_by_route,
+            "pending_personal_routes": pending_personal_routes,
             "guardrail": guardrail_state,
             "trace": trace,
             "duration_ms": duration_ms,

@@ -63,10 +63,12 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 | `GROQ_API_KEY` / `GROQ_FAST_MODEL` / `GROQ_MODEL` | Provedor Groq e perfis rápido/potente. |
 | `NVIDIA_API_KEY` / `NVIDIA_NIM_FAST_MODEL` / `NVIDIA_NIM_MODEL` / `NVIDIA_NIM_BASE_URL` | Provedor NVIDIA NIM e perfis rápido/potente. |
 | `LLM_TEMPERATURE` / `LLM_TIMEOUT_SECONDS` | Parâmetros das chamadas ao modelo. |
+| `MCP_TOOL_TIMEOUT_SECONDS` | Limite por chamada de tool, evitando que uma dependência consuma todo o tempo da requisição. |
 | `AUTH_JWT_ISSUER` / `AUTH_JWT_AUDIENCE` / `AUTH_JWKS_URL` | Contrato oficial do Keycloak; valida assinatura RS256, issuer, audience e expiração. `database_id` é o ID do banco legado e `sub` permanece a identidade do Keycloak. |
 | `MCP_URL` | Endpoint Streamable HTTP do servidor MCP externo. |
-| `MCP_RESOURCE_URL` | Identificador/URL do recurso MCP. |
 | `MCP_TOOLS_CACHE_TTL_SECONDS` | TTL do cache de tools MCP por token validado. |
+| `MCP_KEYCLOAK_TOKEN_EXCHANGE_URL` | Override opcional do token endpoint; por padrão é derivado de `AUTH_JWT_ISSUER`. |
+| `DEBUG_UI_KEYCLOAK_TOKEN_URL` | Override opcional do token endpoint do painel de debug; por padrão é derivado do mesmo issuer. |
 
 Não versione o arquivo `.env` nem os tokens. Quando o Infisical está totalmente configurado, os secrets carregados do cofre são aplicados antes da criação de `Settings` e prevalecem sobre valores locais com a mesma chave. Sem nenhuma das quatro variáveis de bootstrap, o serviço pode rodar em modo local. Configuração parcial ou ambiente inválido interrompe o startup para evitar fallback silencioso.
 
@@ -82,9 +84,29 @@ até quatro especialistas independentes, que rodam em paralelo no LangGraph. Cad
 especialista retorna somente JSON com fatos, recomendações, dados ausentes e
 fontes; o `default` é o único agente que gera linguagem natural para o usuário.
 
+Quando um especialista retorna `needs_input`, o fan-in persiste a rota e os dados
+faltantes como estado estruturado da conversa, separados por especialista e com a
+exigência de dados autenticados preservada. Respostas curtas como "30 dias", "1 ciclo"
+ou "na minha fazenda" continuam a tarefa anterior sem depender apenas de palavras-chave
+ou de o roteador reconstruir a intenção do zero. Saudações e perguntas como
+"quem é você?" usam fast paths determinísticos e não gastam chamadas de LLM; um
+cancelamento limpa a tarefa, e uma troca explícita para outro domínio aposenta
+pendências antigas para elas não reaparecerem mais tarde.
+
 As tools de memória e MCP ficam disponíveis somente para especialistas. O cliente
-MCP usa Streamable HTTP, recebe exatamente o access token Keycloak já validado pela API e aplica a allowlist em `app/agents/mcp.py`. O sintetizador não recebe
-nenhuma dessas tools.
+MCP usa Streamable HTTP, troca o JWT validado por um token delegado de backend,
+aplica uma allowlist mínima por especialista e faz filtragem adicional dos resultados
+escopados em `app/agents/mcp.py`. O sintetizador não recebe nenhuma dessas tools.
+Sustentabilidade usa preferencialmente `get_consumption_summary(period_days)`: quando
+uma consulta pessoal contém um período explícito, o backend extrai essa janela e faz
+o prefetch determinístico do resumo antes do modelo, evitando carregar registros
+brutos desnecessários. `farm_id`, `user_id` e SQL arbitrário não viram argumentos
+controlados pelo modelo. Ranking consulta a base de conhecimento para regras mutáveis
+e não recebe dados brutos que não consigam provar posição/classificação. Resultados
+de tools são serializados como JSON com limite de tamanho, cada chamada possui timeout
+próprio e falhas são degradadas para um erro seguro, sem vazar exceções ou derrubar
+toda a conversa. O Request Trace registra apenas metadados estruturais dos resultados
+de tools, nunca o conteúdo operacional retornado pela fazenda.
 
 ## Execução
 
@@ -143,8 +165,10 @@ curl "http://localhost:8000/v1/chat/conversa-1/history?limit=20" \
 ## Observabilidade
 
 O endpoint `GET /metrics` expõe métricas Prometheus de requisições HTTP, latência,
-status, resultados do chat, agentes e tools utilizadas. Ele exige o mesmo Bearer
-Token da API. Configure o Prometheus para enviar esse token no scrape e use o
+status, resultados do chat, agentes, tools utilizadas, origem da decisão de rota
+(`deterministic`, `pending`, `model`, etc.) e tarefas que terminaram o turno
+aguardando informação. Os labels de origem são limitados a um conjunto fechado para
+evitar cardinalidade acidental. Ele exige o mesmo Bearer Token da API. Configure o Prometheus para enviar esse token no scrape e use o
 Prometheus como datasource no Grafana:
 
 ```yaml
@@ -193,7 +217,8 @@ Ative explicitamente no ambiente de debug:
 
 ```dotenv
 DEBUG_UI_ENABLED=true
-DEBUG_UI_KEYCLOAK_TOKEN_URL=https://ouros-keycloak.discloud.app/realms/ouros/protocol/openid-connect/token
+# Opcional: deixe vazio para derivar do AUTH_JWT_ISSUER.
+DEBUG_UI_KEYCLOAK_TOKEN_URL=
 DEBUG_UI_KEYCLOAK_CLIENT_ID=ms-ai-server-debug
 DEBUG_UI_KEYCLOAK_CLIENT_SECRET=<secret-gerado-pelo-keycloak>
 DEBUG_UI_COOKIE_SECURE=true

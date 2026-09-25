@@ -1,16 +1,27 @@
+import asyncio
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi import HTTPException
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app.agents.graph import (
     _RESET_TOOLS,
+    _collect_pending_state,
+    _conversation_is_personal_request,
     _deterministic_routes,
+    _execute_tool_call,
+    _extract_period_days,
     _extract_route,
     _invoke_model,
+    _is_pending_followup,
     _merge_tools,
+    _resolve_local_routes,
+    _route_update,
+    _tool_args_trace,
+    _tool_result_content,
+    _tool_result_trace,
     build_graph,
     default_agent,
     route_request,
@@ -39,6 +50,23 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(_merge_tools(["get_user_context"], []), ["get_user_context"])
         self.assertEqual(_merge_tools(["old"], [_RESET_TOOLS]), [])
         self.assertEqual(_merge_tools(["old"], [_RESET_TOOLS, "new"]), ["new"])
+
+    async def test_unknown_tool_call_gets_a_matching_error_tool_message(self) -> None:
+        conversation = []
+        used_tools: list[str] = []
+
+        await _execute_tool_call(
+            {"name": "not_allowed", "id": "call-1", "args": {}},
+            {},
+            conversation,
+            used_tools,
+        )
+
+        self.assertEqual(used_tools, [])
+        self.assertEqual(len(conversation), 1)
+        self.assertIsInstance(conversation[0], ToolMessage)
+        self.assertEqual(conversation[0].tool_call_id, "call-1")
+        self.assertIn("Ferramenta nao disponivel", conversation[0].content)
 
     async def test_invoke_model_rejects_reset_sentinel_as_tool_name(self) -> None:
         model = Mock()
@@ -86,6 +114,33 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    async def test_greeting_and_identity_skip_router_model_and_specialists(self) -> None:
+        graph = build_graph(InMemorySaver())
+
+        greeting = await invoke_graph(
+            graph,
+            ChatRequest(
+                user_id="user",
+                thread_id="quick-greeting",
+                message="bom dia",
+            ),
+            "user",
+        )
+        identity = await invoke_graph(
+            graph,
+            ChatRequest(
+                user_id="user",
+                thread_id="quick-identity",
+                message="quem eh vc?",
+            ),
+            "user",
+        )
+
+        self.assertEqual(greeting.agents, ["router", "default"])
+        self.assertEqual(identity.agents, ["router", "default"])
+        self.assertIn("Midas", greeting.message)
+        self.assertIn("Midas", identity.message)
+
     async def test_contextual_followup_inherits_route_and_explicit_topic_wins(self) -> None:
         """Carry context only for referential follow-ups, not explicit topic changes."""
         graph = build_graph(InMemorySaver())
@@ -125,41 +180,356 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             ["router", "sustainability", "default"],
         )
 
-    def test_personal_ranking_indicators_require_authenticated_prefetch(self) -> None:
-        """Require farm data for personal ranking, score, level and badge queries."""
-        from app.agents.graph import _requires_personal_farm_data
+    async def test_structured_pending_answer_keeps_specialist_route(self) -> None:
+        """A compact answer to requested data must continue the active task."""
+
+        async def sustainability(state):
+            latest = state["messages"][-1].content
+            needs_period = "30 dias" not in latest.lower()
+            return {
+                "agents": [*state["agents"], "sustainability"],
+                "specialist_results": [
+                    {
+                        "agent": "sustainability",
+                        "status": "needs_input" if needs_period else "ok",
+                        "facts": [] if needs_period else ["periodo recebido"],
+                        "recommendations": [],
+                        "missing_data": ["periodo de analise"] if needs_period else [],
+                        "sources": [],
+                    }
+                ],
+            }
+
+        async def synth(state):
+            needs_input = any(
+                result.get("status") == "needs_input"
+                for result in state.get("specialist_results", [])
+            )
+            return {
+                "agents": [*state["agents"], "default"],
+                "messages": [
+                    AIMessage(
+                        content="Qual periodo?" if needs_input else "Periodo aplicado."
+                    )
+                ],
+            }
+
+        graph = build_graph(
+            InMemorySaver(),
+            agents={"default": synth, "sustainability": sustainability},
+        )
+        first = await invoke_graph(
+            graph,
+            ChatRequest(
+                user_id="user",
+                thread_id="pending-thread",
+                message="Quero analisar meu consumo de agua",
+            ),
+            "user",
+        )
+        first_snapshot = await graph.aget_state(
+            {"configurable": {"thread_id": "pending-thread"}}
+        )
+        second = await invoke_graph(
+            graph,
+            ChatRequest(
+                user_id="user",
+                thread_id="pending-thread",
+                message="30 dias na minha fazenda",
+            ),
+            "user",
+        )
+        second_snapshot = await graph.aget_state(
+            {"configurable": {"thread_id": "pending-thread"}}
+        )
+
+        self.assertEqual(first.agents, ["router", "sustainability", "default"])
+        self.assertEqual(
+            first_snapshot.values["pending_routes"],
+            ["sustainability"],
+        )
+        self.assertEqual(second.agents, ["router", "sustainability", "default"])
+        self.assertEqual(second.message, "Periodo aplicado.")
+        self.assertEqual(second_snapshot.values["pending_routes"], [])
+        self.assertEqual(second_snapshot.values["pending_missing_data"], [])
+
+    def test_pending_reply_must_match_the_requested_slot(self) -> None:
+        self.assertTrue(
+            _is_pending_followup(
+                HumanMessage(content="30 dias"),
+                ["periodo de analise"],
+            )
+        )
+        self.assertTrue(
+            _is_pending_followup(
+                HumanMessage(content="1 ciclo"),
+                ["ciclo ou periodo de analise"],
+            )
+        )
+        self.assertIsNone(_extract_period_days("1 ciclo", ["periodo de analise"]))
+        self.assertFalse(
+            _is_pending_followup(
+                HumanMessage(content="Quero cadastrar 2 propriedades"),
+                ["periodo de analise"],
+            )
+        )
+
+    def test_quick_turns_preserve_pending_state_but_cancel_clears_it(self) -> None:
+        greeting_update = _route_update(["default"], "greeting")
+        cancelled_update = _route_update(["fallback"], "cancelled")
+
+        self.assertNotIn("pending_by_route", greeting_update)
+        self.assertEqual(cancelled_update["pending_routes"], [])
+        self.assertEqual(cancelled_update["pending_missing_data"], [])
+        self.assertEqual(cancelled_update["pending_by_route"], {})
+        self.assertEqual(cancelled_update["pending_personal_routes"], [])
+
+    def test_same_route_new_task_retires_pending_personal_context(self) -> None:
+        state = {
+            "messages": [
+                HumanMessage(
+                    content="Como funciona o consumo de agua no aplicativo?"
+                )
+            ],
+            "pending_routes": ["sustainability"],
+            "pending_missing_data": ["periodo de analise"],
+            "pending_by_route": {"sustainability": ["periodo de analise"]},
+            "pending_personal_routes": ["sustainability"],
+        }
+
+        update = _route_update(
+            ["sustainability"],
+            "deterministic",
+            state,
+        )
+
+        self.assertEqual(update["pending_routes"], [])
+        self.assertEqual(update["pending_missing_data"], [])
+        self.assertEqual(update["pending_by_route"], {})
+        self.assertEqual(update["pending_personal_routes"], [])
+
+    def test_same_route_slot_answer_keeps_pending_personal_context(self) -> None:
+        state = {
+            "messages": [HumanMessage(content="consumo nos ultimos 30 dias")],
+            "pending_routes": ["sustainability"],
+            "pending_missing_data": ["periodo de analise"],
+            "pending_by_route": {"sustainability": ["periodo de analise"]},
+            "pending_personal_routes": ["sustainability"],
+        }
+
+        update = _route_update(
+            ["sustainability"],
+            "deterministic",
+            state,
+        )
+
+        self.assertNotIn("pending_routes", update)
+        self.assertNotIn("pending_personal_routes", update)
+
+    def test_explicit_topic_switch_retires_unrelated_pending_task(self) -> None:
+        state = {
+            "pending_routes": ["sustainability"],
+            "pending_missing_data": ["periodo de analise"],
+            "pending_by_route": {"sustainability": ["periodo de analise"]},
+            "pending_personal_routes": ["sustainability"],
+        }
+
+        switched = _route_update(
+            ["ranking"],
+            "deterministic",
+            state,
+        )
+        greeting = _route_update(
+            ["default"],
+            "greeting",
+            state,
+        )
+
+        self.assertEqual(switched["pending_routes"], [])
+        self.assertEqual(switched["pending_missing_data"], [])
+        self.assertEqual(switched["pending_by_route"], {})
+        self.assertEqual(switched["pending_personal_routes"], [])
+        self.assertNotIn("pending_by_route", greeting)
+
+    def test_cancel_does_not_revive_previous_route(self) -> None:
+        state = {
+            "messages": [HumanMessage(content="Esquece isso")],
+            "pending_routes": ["sustainability"],
+            "pending_missing_data": ["periodo de analise"],
+            "pending_by_route": {"sustainability": ["periodo de analise"]},
+            "last_routes": ["sustainability"],
+        }
+
+        self.assertEqual(
+            _resolve_local_routes(state),
+            (["fallback"], "cancelled"),
+        )
+
+
+    def test_cancel_command_can_name_pending_route(self) -> None:
+        state = {
+            "messages": [HumanMessage(content="Esquece o ranking")],
+            "pending_routes": ["ranking"],
+            "pending_missing_data": ["periodo de analise"],
+            "pending_by_route": {"ranking": ["periodo de analise"]},
+            "last_routes": ["ranking"],
+        }
+
+        self.assertEqual(
+            _resolve_local_routes(state),
+            (["fallback"], "cancelled"),
+        )
+
+    def test_product_cancel_language_is_not_treated_as_task_cancellation(self) -> None:
+        state = {
+            "messages": [HumanMessage(content="Como cancelar uma notificacao?")],
+            "pending_routes": ["sustainability"],
+            "pending_missing_data": ["periodo de analise"],
+            "pending_by_route": {"sustainability": ["periodo de analise"]},
+            "last_routes": ["sustainability"],
+        }
+
+        routes, source = _resolve_local_routes(state)
+
+        self.assertNotEqual(source, "cancelled")
+        self.assertNotEqual(routes, ["fallback"])
+
+    def test_pending_data_remains_isolated_by_route(self) -> None:
+        routes, missing, by_route, personal_routes = _collect_pending_state(
+            [
+                {
+                    "agent": "sustainability",
+                    "status": "needs_input",
+                    "missing_data": ["periodo de analise"],
+                    "_personal_data_required": True,
+                },
+                {
+                    "agent": "ranking",
+                    "status": "needs_input",
+                    "missing_data": ["estado do ranking"],
+                    "_personal_data_required": False,
+                },
+            ]
+        )
+
+        self.assertEqual(routes, ["sustainability", "ranking"])
+        self.assertEqual(
+            by_route,
+            {
+                "sustainability": ["periodo de analise"],
+                "ranking": ["estado do ranking"],
+            },
+        )
+        self.assertEqual(missing, ["periodo de analise", "estado do ranking"])
+        self.assertEqual(personal_routes, ["sustainability"])
+
+    def test_personal_requirement_survives_a_bare_period_followup(self) -> None:
+        state = {
+            "messages": [
+                HumanMessage(content="Como esta o consumo da minha fazenda?"),
+                AIMessage(content="Qual periodo?"),
+                HumanMessage(content="bom dia"),
+                AIMessage(content="Oi!"),
+                HumanMessage(content="30"),
+            ],
+            "pending_routes": ["sustainability"],
+            "pending_missing_data": ["periodo de analise"],
+            "pending_by_route": {"sustainability": ["periodo de analise"]},
+            "pending_personal_routes": ["sustainability"],
+        }
+
+        self.assertTrue(
+            _conversation_is_personal_request(
+                state,
+                "sustainability",
+                "30",
+            )
+        )
+
+    def test_period_parser_handles_natural_followups_without_guessing(self) -> None:
+        self.assertEqual(_extract_period_days("30 dias na minha fazenda"), 30)
+        self.assertEqual(_extract_period_days("ultima semana"), 7)
+        self.assertEqual(_extract_period_days("ultimo mes"), 30)
+        self.assertEqual(
+            _extract_period_days("ultimos 30 dias ate hoje"),
+            30,
+        )
+        self.assertEqual(
+            _extract_period_days("30", ["periodo de analise"]),
+            30,
+        )
+        self.assertIsNone(_extract_period_days("30"))
+        self.assertIsNone(_extract_period_days("13 meses"))
+
+    def test_legacy_league_names_are_not_hardcoded_into_routing(self) -> None:
+        self.assertIsNone(
+            _deterministic_routes(HumanMessage(content="Estou no cobre?"))
+        )
+
+    def test_lot_mentions_only_route_to_faq_when_the_intent_is_app_usage(self) -> None:
+        self.assertEqual(
+            _deterministic_routes(
+                HumanMessage(content="Quanto gasta de agua um lote com 5 mil frangos?")
+            ),
+            ["sustainability"],
+        )
+        self.assertEqual(
+            _deterministic_routes(HumanMessage(content="Como cadastrar um lote?")),
+            ["faq"],
+        )
+
+
+    def test_identity_and_auth_messages_route_without_losing_context(self) -> None:
+        self.assertEqual(
+            _deterministic_routes(HumanMessage(content="quem eh vc?")),
+            ["faq"],
+        )
+        self.assertEqual(
+            _deterministic_routes(HumanMessage(content="minha senha nao funciona")),
+            ["support"],
+        )
+        self.assertEqual(
+            _deterministic_routes(HumanMessage(content="Como acesso meu ranking?")),
+            ["ranking"],
+        )
+
+    def test_personal_ranking_indicators_are_detected_as_personal_data(self) -> None:
+        """Detect personal ranking, score, level and badge queries without choosing storage."""
+        from app.agents.graph import _is_personal_data_request
 
         for message in (
             "Qual e o meu ranking?",
             "Qual e a minha pontuacao?",
             "Qual e o meu nivel?",
-            "Qual e o meu selo?",
         ):
             with self.subTest(message=message):
                 self.assertTrue(
-                    _requires_personal_farm_data("ranking", message)
+                    _is_personal_data_request("ranking", message)
                 )
 
-    async def test_personal_farm_query_prefetches_authenticated_data(self) -> None:
-        """Fetch personal farm data before the specialist can decide to skip tools."""
-        farm_tool = Mock()
-        farm_tool.name = "get_user_farm_data"
-        farm_tool.ainvoke = AsyncMock(
+    async def test_personal_consumption_query_prefetches_domain_summary(self) -> None:
+        """Fetch only the scoped aggregate needed for an explicit personal period."""
+        summary_tool = Mock()
+        summary_tool.name = "get_consumption_summary"
+        summary_tool.ainvoke = AsyncMock(
             return_value={
+                "user_type": "farm_owner",
+                "user_id": 42,
                 "authorized": True,
-                "data": {
-                    "water_registries": [
-                        {
-                            "registration_date": "2026-09-20",
-                            "start_hydrometer": 100,
-                            "end_hydrometer": 180,
-                        }
-                    ]
-                },
+                "period_days": 30,
+                "water_unit": "hydrometer_reading_delta",
+                "energy_unit": "kWh",
+                "summaries": [
+                    {
+                        "id_farm": 11,
+                        "water_meter_delta": 80,
+                        "energy_consumption_kwh": 120,
+                    }
+                ],
             }
         )
         provider = Mock()
-        provider.tools_for = AsyncMock(return_value=[farm_tool])
+        provider.tools_for = AsyncMock(return_value=[summary_tool])
 
         model = Mock()
         model.ainvoke = AsyncMock(
@@ -181,15 +551,15 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                     user_id="42",
                     thread_id="personal-data-thread",
                     message=(
-                        "Como minha fazenda vem performando no quesito consumo de agua?"
+                        "Como foi o consumo de agua da minha fazenda nos ultimos 30 dias?"
                     ),
                 ),
                 "42",
                 principal_token="signed-user-token",
             )
 
-        farm_tool.ainvoke.assert_awaited_once_with({"limit": 20})
-        self.assertIn("get_user_farm_data", response.tools)
+        summary_tool.ainvoke.assert_awaited_once_with({"period_days": 30})
+        self.assertIn("get_consumption_summary", response.tools)
         specialist_messages = model.ainvoke.await_args_list[0].args[0]
         system_context = "\n".join(
             str(message.get("content", ""))
@@ -197,25 +567,28 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             if isinstance(message, dict)
         )
         self.assertIn("Dados pessoais autenticados", system_context)
-        self.assertIn("water_registries", system_context)
+        self.assertIn("water_meter_delta", system_context)
 
     async def test_personal_query_does_not_request_manual_data_without_farm_scope(
         self,
     ) -> None:
         """Treat missing authenticated farm scope as backend state, not user input."""
-        farm_tool = Mock()
-        farm_tool.name = "get_user_farm_data"
-        farm_tool.ainvoke = AsyncMock(
+        summary_tool = Mock()
+        summary_tool.name = "get_consumption_summary"
+        summary_tool.ainvoke = AsyncMock(
             return_value={
                 "user_type": "farm_owner",
                 "user_id": 42,
                 "authorized": False,
                 "reason": "no_farm_scope",
-                "data": {},
+                "period_days": 30,
+                "water_unit": "hydrometer_reading_delta",
+                "energy_unit": "kWh",
+                "summaries": [],
             }
         )
         provider = Mock()
-        provider.tools_for = AsyncMock(return_value=[farm_tool])
+        provider.tools_for = AsyncMock(return_value=[summary_tool])
 
         model = Mock()
         model.ainvoke = AsyncMock(
@@ -228,6 +601,12 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                     )
                 ),
                 AIMessage(content="Os dados da sua fazenda estao indisponiveis."),
+                AIMessage(
+                    content=(
+                        "STATUS: APROVADO\nRESPOSTA:\n"
+                        "Os dados da sua fazenda estao indisponiveis."
+                    )
+                ),
             ]
         )
 
@@ -237,7 +616,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                 ChatRequest(
                     user_id="42",
                     thread_id="no-farm-scope-thread",
-                    message="Como esta o consumo de agua da minha fazenda?",
+                    message="Como esta o consumo de agua da minha fazenda nos ultimos 30 dias?",
                 ),
                 "42",
                 principal_token="signed-user-token",
@@ -281,6 +660,12 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                     content='{"status":"ok","facts":["nivel prata"],"recommendations":[],"missing_data":[],"sources":["ranking_mcp"]}',
                 ),
                 AIMessage(content="resposta sintetizada"),
+                AIMessage(
+                    content=(
+                        "STATUS: APROVADO\nRESPOSTA:\n"
+                        "resposta sintetizada"
+                    )
+                ),
             ],
         )
 
@@ -298,7 +683,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.message, "resposta sintetizada")
         self.assertEqual(response.tools, [])
         self.assertEqual(response.agents, ["router", "ranking", "default"])
-        self.assertEqual(model.ainvoke.await_count, 2)
+        self.assertEqual(model.ainvoke.await_count, 3)
         model.bind_tools.assert_not_called()
 
     async def test_router_selects_valid_route_from_model(self) -> None:
@@ -335,12 +720,74 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             _deterministic_routes(HumanMessage(content="Falhou a sincronizacao offline")),
             ["support"],
         )
-        self.assertEqual(
+        self.assertIsNone(
             _deterministic_routes(
                 HumanMessage(content="Quero ver meu ranking e reduzir o consumo de agua")
-            ),
-            ["ranking", "sustainability"],
+            )
         )
+
+    def test_legacy_product_feature_is_not_hardcoded_into_routing(self) -> None:
+        message = HumanMessage(content="Onde vejo meus selos antigos?")
+        state = {
+            "messages": [message],
+            "pending_routes": [],
+            "pending_missing_data": [],
+            "pending_by_route": {},
+            "pending_personal_routes": [],
+        }
+
+        self.assertIsNone(_deterministic_routes(message))
+        self.assertFalse(
+            _conversation_is_personal_request(
+                state,
+                "faq",
+                "Onde vejo meus selos antigos?",
+            )
+        )
+        self.assertIsNone(
+            _deterministic_routes(HumanMessage(content="Qual e o preco do ouro?"))
+        )
+
+    def test_overlapping_intents_use_semantic_router_unless_explicitly_compound(self) -> None:
+        self.assertIsNone(
+            _deterministic_routes(
+                HumanMessage(content="Meu ranking deu erro")
+            )
+        )
+        self.assertIsNone(
+            _deterministic_routes(
+                HumanMessage(content="Onde vejo meu consumo no app?")
+            )
+        )
+        self.assertIsNone(
+            _deterministic_routes(
+                HumanMessage(content="Quero ver meu ranking e reduzir meu consumo")
+            )
+        )
+
+    async def test_semantic_router_can_choose_multiple_agents_for_real_multi_intent(self) -> None:
+        model = Mock()
+        model.ainvoke = AsyncMock(
+            return_value=AIMessage(
+                content='{"routes":["ranking","sustainability"]}'
+            ),
+        )
+
+        with patch("app.agents.graph.get_chat_model", return_value=model):
+            result = await route_request(
+                {
+                    "route": "",
+                    "messages": [
+                        HumanMessage(
+                            content="Quero ver meu ranking e reduzir meu consumo de agua"
+                        )
+                    ],
+                }
+            )
+
+        self.assertEqual(result["routes"], ["ranking", "sustainability"])
+        self.assertEqual(result["route_source"], "model")
+        model.ainvoke.assert_awaited_once()
 
     async def test_deterministic_route_works_without_router_model(self) -> None:
         """Mantém a rota clara mesmo sem modelo disponível para o roteador."""
@@ -381,7 +828,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                 ChatRequest(
                     user_id="user",
                     thread_id="fallback-thread",
-                    message="ajuda",
+                    message="Sou produtor e preciso de orientacao.",
                 ),
                 "user",
             )
@@ -479,6 +926,100 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tools, [])
         model.ainvoke.assert_awaited_once()
 
+    def test_tool_argument_trace_keeps_shape_not_values(self) -> None:
+        trace = _tool_args_trace(
+            {
+                "query": "conteudo sensivel da fazenda",
+                "period_days": 30,
+            }
+        )
+
+        self.assertEqual(trace["arg_count"], 2)
+        self.assertEqual(trace["keys"], ["period_days", "query"])
+        self.assertNotIn("conteudo sensivel", str(trace))
+        self.assertNotIn("30", str(trace))
+
+    def test_tool_results_are_bounded_and_trace_safe(self) -> None:
+        payload = {"secret_business_value": "x" * 13_000}
+
+        trace = _tool_result_trace(payload)
+        model_content = _tool_result_content(payload)
+
+        self.assertEqual(trace["type"], "dict")
+        self.assertIn("secret_business_value", trace["keys"])
+        self.assertNotIn("x" * 100, str(trace))
+        self.assertIn('"status":"truncated"', model_content)
+        self.assertLess(len(model_content), 12_500)
+
+    async def test_tool_timeout_is_returned_to_model_without_hanging_request(self) -> None:
+        async def slow_tool(_args):
+            await asyncio.sleep(0.05)
+            return {"status": "ok"}
+
+        mcp_tool = Mock(name="get_user_context")
+        mcp_tool.name = "get_user_context"
+        mcp_tool.ainvoke = AsyncMock(side_effect=slow_tool)
+        tool_call = {"name": mcp_tool.name, "args": {}, "id": "mcp-timeout"}
+
+        bound_model = Mock()
+        bound_model.ainvoke = AsyncMock(
+            side_effect=[
+                AIMessage(content="", tool_calls=[tool_call]),
+                AIMessage(
+                    content=(
+                        '{"status":"error","facts":[],"recommendations":[],'
+                        '"missing_data":[],"sources":[]}'
+                    )
+                ),
+            ],
+        )
+        model = Mock()
+        model.bind_tools.return_value = bound_model
+
+        with patch.object(settings, "mcp_tool_timeout_seconds", 0.01):
+            response, tools = await _invoke_model(
+                model,
+                [],
+                None,
+                "42",
+                [mcp_tool],
+            )
+
+        self.assertEqual(tools, ["get_user_context"])
+        self.assertIn('"status":"error"', response.content)
+        second_messages = bound_model.ainvoke.await_args_list[1].args[0]
+        tool_message = next(
+            message for message in second_messages if isinstance(message, ToolMessage)
+        )
+        self.assertIn("temporariamente indisponivel", tool_message.content)
+
+    async def test_tool_failure_is_returned_to_model_without_crashing_graph(self) -> None:
+        mcp_tool = Mock(name="get_user_context")
+        mcp_tool.name = "get_user_context"
+        mcp_tool.ainvoke = AsyncMock(side_effect=RuntimeError("database secret detail"))
+        tool_call = {"name": mcp_tool.name, "args": {}, "id": "mcp-call"}
+
+        bound_model = Mock()
+        bound_model.ainvoke = AsyncMock(
+            side_effect=[
+                AIMessage(content="", tool_calls=[tool_call]),
+                AIMessage(content='{"status":"error","facts":[],"recommendations":[],"missing_data":[],"sources":[]}'),
+            ],
+        )
+        model = Mock()
+        model.bind_tools.return_value = bound_model
+
+        response, tools = await _invoke_model(model, [], None, "42", [mcp_tool])
+
+        self.assertEqual(tools, ["get_user_context"])
+        self.assertIn('"status":"error"', response.content)
+        second_messages = bound_model.ainvoke.await_args_list[1].args[0]
+        tool_message = next(
+            message for message in second_messages if isinstance(message, ToolMessage)
+        )
+        self.assertIn("temporariamente indisponivel", tool_message.content)
+        self.assertNotIn("database secret detail", tool_message.content)
+
     async def test_invoke_model_executes_external_mcp_tool(self) -> None:
         mcp_tool = Mock(name="get_user_context")
         mcp_tool.name = "get_user_context"
@@ -540,6 +1081,12 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                     content='{"status":"ok","facts":["funciona offline"],"recommendations":[],"missing_data":[],"sources":[]}',
                 ),
                 AIMessage(content="O aplicativo funciona offline."),
+                AIMessage(
+                    content=(
+                        "STATUS: APROVADO\nRESPOSTA:\n"
+                        "O aplicativo funciona offline."
+                    )
+                ),
             ],
         )
 
@@ -641,6 +1188,9 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         model.ainvoke = AsyncMock(
             side_effect=[
                 AIMessage(content="sintese final"),
+                AIMessage(
+                    content="STATUS: APROVADO\nRESPOSTA:\nsintese final"
+                ),
             ],
         )
         bound_model = Mock()

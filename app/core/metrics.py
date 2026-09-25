@@ -25,6 +25,34 @@ CHAT_TOOLS = Counter(
     "Quantidade de tools usadas pelo chat.",
     ("tool",),
 )
+CHAT_ROUTES = Counter(
+    "ai_server_chat_route_usage",
+    "Quantidade de rotas selecionadas pelo chat por origem.",
+    ("route", "source"),
+)
+CHAT_PENDING = Counter(
+    "ai_server_chat_pending_tasks",
+    "Quantidade de tarefas que terminaram o turno aguardando dado adicional.",
+    ("route",),
+)
+
+_ALLOWED_ROUTE_SOURCES = {
+    "cancelled",
+    "context",
+    "deterministic",
+    "explicit",
+    "greeting",
+    "guardrail",
+    "identity",
+    "model",
+    "no_model",
+    "pending",
+    "router_error",
+}
+
+
+def _safe_route_source(source: object) -> str:
+    return source if isinstance(source, str) and source in _ALLOWED_ROUTE_SOURCES else "unknown"
 
 
 def observe_http_request(
@@ -43,3 +71,18 @@ def observe_chat_result(outcome: str, agents: list[str], tools: list[str]) -> No
         CHAT_AGENTS.labels(agent).inc()
     for tool in tools:
         CHAT_TOOLS.labels(tool).inc()
+
+
+def observe_chat_routing(
+    routes: list[str],
+    source: object,
+    pending_routes: list[str],
+) -> None:
+    """Record only bounded routing labels to keep Prometheus cardinality stable."""
+    route_source = _safe_route_source(source)
+    for route in routes:
+        if route:
+            CHAT_ROUTES.labels(route, route_source).inc()
+    for route in pending_routes:
+        if route:
+            CHAT_PENDING.labels(route).inc()

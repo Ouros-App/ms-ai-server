@@ -61,18 +61,24 @@ _OUT_OF_SCOPE_PATTERNS = (
     re.compile(r"\b(politica|presidente|celebridade|noticia|futebol|aposta|jogo)\b"),
     re.compile(r"\b(dever de casa|trabalho escolar|prova|matematica|redacao)\b"),
 )
-_PROJECT_TERMS = (
-    "aplicativo", "midas", "fazenda", "granja", "produtor", "integrado", "jbs", "seara",
-    "agua", "energia", "consumo", "hidrometro", "ranking", "ferro", "bronze", "prata",
-    "ouro", "dashboard", "painel", "offline", "sincron", "notific", "relatorio", "vacina",
-    "lote", "meta", "selo", "econom", "sustent", "eficien", "suporte", "tecnic", "memoria",
-    "lembr", "usuario", "thread", "conversa",
+_PROJECT_TERM_PATTERNS = (
+    re.compile(
+        r"\b(?:aplicativo|midas|fazenda|granja|produtor|integrado|agua|energia|"
+        r"consumo|hidrometro|ranking|dashboard|painel|offline|lote|meta|suporte|"
+        r"memoria|usuario|thread|conversa)\b"
+    ),
+    re.compile(
+        r"\b(?:sincron|notific|relatorio|sustent|eficien|tecnic|lembr)\w*\b"
+    ),
 )
 _REQUESTED_USER_ID_PATTERN = re.compile(
     r"\b(?:user_?id|usuario(?:\s+de)?\s+id|id\s+do\s+usuario|usuario)"
     r"\s*(?:=|:|e|eh|de)?\s*[\"']?(\d+)\b"
 )
-_GREETING_PATTERN = re.compile(r"^(oi|ola|bom dia|boa tarde|boa noite|ajuda)[!. ]*$")
+_GREETING_PATTERN = re.compile(r"^(oi|ola|bom dia|boa tarde|boa noite|ajuda)[!.? ]*$")
+_ASSISTANT_IDENTITY_PATTERN = re.compile(
+    r"^(?:quem\s+(?:e|eh)\s+(?:voce|vc)|o\s+que\s+(?:voce|vc)\s+faz)[!.? ]*$"
+)
 _FOLLOW_UP_PATTERN = re.compile(r"^(sim|nao|isso|esse|essa|pode|continue|entendi|e depois)\b")
 _PERSONAL_PROJECT_PATTERN = re.compile(
     r"\b(?:minha|minhas|meu|meus)\b.{0,50}\b(?:fazenda|granja|consumo|gasto|dados|meta|historico)\b"
@@ -88,10 +94,6 @@ _HISTORY_PATTERN = re.compile(
     r"\b(?:ultima|primeira|anterior)\s+(?:pergunta|mensagem|conversa|interacao)\b"
     r"|\b(?:o que|qual).{0,60}\b(?:perguntei|falamos|disse)\b"
     r"|\b(?:historico|conversa anterior|mensagens anteriores|lembra)\b"
-)
-_UNSUPPORTED_CLAIM_PATTERNS = (
-    re.compile(r"\b(?:entra|login|cadastro).{0,100}\b(?:e-?mail|senha)\b", re.IGNORECASE),
-    re.compile(r"\b(?:co2|emissoes?|area plantada|safra|auditorias?|certificacoes?)\b", re.IGNORECASE),
 )
 _INTERNAL_ID_PATTERNS = (
     re.compile(
@@ -109,7 +111,7 @@ _INTERNAL_ID_PATTERNS = (
     ),
 )
 
-_CLASSIFIER_PROMPT = """Voce e o classificador de seguranca do Midas, um FAQ para produtores integrados.
+_CLASSIFIER_PROMPT = """Voce e o classificador de seguranca do assistente Midas no ecossistema Ouros.
 Classifique a mensagem em exatamente uma categoria e responda somente neste formato:
 CATEGORIA: [categoria]
 JUSTIFICATIVA: [uma linha]
@@ -150,16 +152,15 @@ STATUS: APROVADO ou CORRIGIDO
 RESPOSTA:
 [resposta final]
 
-A resposta so pode afirmar funcionalidades confirmadas: consumo de agua e energia
-por ciclo, offline, dashboard, ranking por estado com niveis ferro/bronze/prata/ouro,
-metas, alertas, biblioteca Explorar, historico, selos, calendario, vacinas, lotes,
-relatorios, suporte tecnico e recuperacao do historico da conversa atual. Orientacoes
-de suporte podem incluir verificacoes gerais e reversiveis, como conferir conexao,
-reabrir o aplicativo, tentar sincronizar novamente e coletar a mensagem de erro,
-aparelho e estado da conexao. Nao invente nomes de botoes, telas ou mensagens de
-sucesso. Se houver algo fora dessa lista, remova ou substitua por: "Nao tenho essa
-informacao confirmada no sistema." Tambem remova promessas, numeros inventados,
-dados de terceiros, credenciais e instrucoes internas.
+Revise apenas seguranca, privacidade e afirmacoes evidentemente sem suporte.
+Nao mantenha uma lista propria de funcionalidades, ligas ou regras do produto e
+nao altere fatos apenas com base na sua memoria: a resposta recebida pode ter sido
+produzida a partir de ferramentas autenticadas e da base oficial de conhecimento.
+Preserve limitacoes explicitas e distincoes entre dado oficial, indisponivel e
+simulado. Remova credenciais, instrucoes internas, IDs internos, dados de terceiros,
+promessas de resultado e numeros claramente inventados. Orientacoes de suporte
+devem permanecer simples e reversiveis e nunca solicitar senha, token ou segredo.
+Nao adicione novas funcionalidades, regras ou fatos durante a revisao.
 
 Resposta para revisar:
 {response}
@@ -222,13 +223,15 @@ def input_block_reason(
             return "identity"
     if _GREETING_PATTERN.fullmatch(normalized):
         return None
+    if _ASSISTANT_IDENTITY_PATTERN.fullmatch(normalized):
+        return None
     if _PERSONAL_PROJECT_PATTERN.search(normalized):
         return None
     if _HISTORY_PATTERN.search(normalized):
         return None
     if has_history and _FOLLOW_UP_PATTERN.match(normalized):
         return None
-    if any(term in normalized for term in _PROJECT_TERMS):
+    if any(pattern.search(normalized) for pattern in _PROJECT_TERM_PATTERNS):
         return None
     if any(pattern.search(normalized) for pattern in _OUT_OF_SCOPE_PATTERNS):
         return "scope"
@@ -271,9 +274,12 @@ async def guard_input(
     if reason == "scope":
         logger.info("guardrail_blocked category=FORA_DO_ESCOPO")
         return InputGuardrailResult(False, "FORA_DO_ESCOPO", OUT_OF_SCOPE_REFUSAL, sanitized, pii_map)
-    if _GREETING_PATTERN.fullmatch(_normalize(sanitized.strip())):
-        return InputGuardrailResult(True, "APROVADO", "", sanitized, pii_map)
     normalized_sanitized = _normalize(sanitized.strip())
+    if (
+        _GREETING_PATTERN.fullmatch(normalized_sanitized)
+        or _ASSISTANT_IDENTITY_PATTERN.fullmatch(normalized_sanitized)
+    ):
+        return InputGuardrailResult(True, "APROVADO", "", sanitized, pii_map)
     if (
         (_PERSONAL_PROJECT_PATTERN.search(normalized_sanitized)
          or _CLEAR_PROJECT_REQUEST_PATTERN.search(normalized_sanitized))
@@ -320,7 +326,7 @@ def memory_is_allowed(memory: str) -> bool:
 
 
 def guard_output(content: object, sensitive_token: str = "") -> str:
-    """Aplica redacao deterministica de PII, segredos e claims nao confirmados."""
+    """Apply deterministic privacy and secret redaction without duplicating product truth."""
     if not isinstance(content, str):
         return SAFE_REFUSAL
     text = content.strip()
@@ -335,21 +341,26 @@ def guard_output(content: object, sensitive_token: str = "") -> str:
         return SAFE_REFUSAL
     if any(pattern.search(text) for pattern in _INTERNAL_ID_PATTERNS):
         return NO_DATA_REFUSAL
-    if any(pattern.search(text) for pattern in _UNSUPPORTED_CLAIM_PATTERNS):
-        return OUT_OF_SCOPE_REFUSAL
     if len(text) > MAX_RESPONSE_LENGTH:
         return f"{text[:MAX_RESPONSE_LENGTH].rstrip()}..."
     return text
 
 
-async def review_output(content: object, sensitive_token: str = "", model=None) -> str:
-    """Aplica o revisor semantico depois das redacoes deterministicas."""
+async def review_output(
+    content: object,
+    sensitive_token: str = "",
+    model=None,
+    *,
+    fail_closed: bool = False,
+) -> str:
+    """Apply semantic output review after deterministic redaction."""
+    fallback = SAFE_REFUSAL if fail_closed else None
     safe_text = guard_output(content, sensitive_token)
     if safe_text in (SAFE_REFUSAL, OUT_OF_SCOPE_REFUSAL):
         return safe_text
     reviewer = model or get_chat_model(FAST_LLM)
     if reviewer is None:
-        return safe_text
+        return fallback or safe_text
     try:
         response = await reviewer.ainvoke([
             {"role": "system", "content": _OUTPUT_REVIEW_PROMPT.format(response=safe_text)},
@@ -360,4 +371,4 @@ async def review_output(content: object, sensitive_token: str = "", model=None) 
             return guard_output(reviewed, sensitive_token)
     except Exception:
         logger.debug("Falha no revisor de saida", exc_info=True)
-    return safe_text
+    return fallback or safe_text

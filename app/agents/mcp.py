@@ -19,16 +19,17 @@ logger = logging.getLogger(__name__)
 MCP_TOOL_ALLOWLIST: dict[str, frozenset[str]] = {
     "faq": frozenset({"search_knowledge", "get_user_context"}),
     "sustainability": frozenset(
-        {"search_knowledge", "get_user_context", "get_user_farm_data"}
+        {"search_knowledge", "get_user_context", "get_consumption_summary"}
     ),
-    "ranking": frozenset(
-        {"get_user_context", "get_user_farm_data", "postgres_status"}
-    ),
+    "ranking": frozenset({"search_knowledge", "get_user_context"}),
     "support": frozenset({"search_knowledge", "get_user_context"}),
-    "fallback": frozenset({"search_knowledge"}),
 }
-MCP_USER_SCOPED_TOOLS = frozenset({"get_user_context", "get_user_farm_data"})
+MCP_USER_SCOPED_TOOLS = frozenset(
+    {"get_user_context", "get_consumption_summary"}
+)
 MCP_TOOLS_CACHE_MAX_ENTRIES = 256
+DEFAULT_CONSUMPTION_PERIOD_DAYS = 30
+MAX_CONSUMPTION_PERIOD_DAYS = 366
 _FORWARDED_ACCESS_TOKEN: ContextVar[str | None] = ContextVar(
     "mcp_forwarded_access_token",
     default=None,
@@ -54,12 +55,14 @@ class _NoArguments(BaseModel):
     pass
 
 
-class _FarmDataArguments(BaseModel):
-    limit: int = Field(
-        default=20,
+class _ConsumptionSummaryArguments(BaseModel):
+    period_days: int = Field(
+        default=DEFAULT_CONSUMPTION_PERIOD_DAYS,
         ge=1,
-        le=100,
-        description="Quantidade maxima de registros por conjunto de dados.",
+        le=MAX_CONSUMPTION_PERIOD_DAYS,
+        description=(
+            "Janela de consulta em dias, limitada pelo contrato da tool."
+        ),
     )
 
 
@@ -71,11 +74,9 @@ class MCPToolProvider:
     def __init__(
         self,
         url: str | None = None,
-        resource_url: str | None = None,
         cache_ttl_seconds: int = 300,
     ) -> None:
         self.url = url
-        self.resource_url = resource_url or url
         self.cache_ttl_seconds = cache_ttl_seconds
         self._tools_cache: dict[str, tuple[list, float]] = {}
         self._tools_cache_lock = asyncio.Lock()
@@ -84,11 +85,10 @@ class MCPToolProvider:
     def from_settings(cls) -> "MCPToolProvider":
         return cls(
             url=settings.mcp_url,
-            resource_url=settings.mcp_resource_url,
             cache_ttl_seconds=settings.mcp_tools_cache_ttl_seconds,
         )
 
-    def _token_for(self, _user_id: str) -> str | None:
+    def _token_for(self) -> str | None:
         """Return only the validated Keycloak token forwarded by the API."""
 
         return _FORWARDED_ACCESS_TOKEN.get()
@@ -149,13 +149,11 @@ class MCPToolProvider:
     async def tools_for(
         self,
         agent_name: str,
-        user_id: str,
-        request_text: str | None = None,
     ) -> list:
         """Return only MCP tools authorized for one specialist."""
 
         allowed = MCP_TOOL_ALLOWLIST.get(agent_name, frozenset())
-        token = self._token_for(user_id)
+        token = self._token_for()
         if not self.url:
             trace_event(
                 "mcp.tools_unavailable",
@@ -203,26 +201,13 @@ class MCPToolProvider:
             if tool.name not in MCP_USER_SCOPED_TOOLS:
                 selected.append(tool)
                 continue
-            try:
-                numeric_user_id = int(user_id)
-            except (TypeError, ValueError):
-                logger.warning("mcp_tools_skipped reason=non_numeric_user_id")
-                continue
-            selected.append(
-                self._bind_user_tool(
-                    tool,
-                    numeric_user_id,
-                    request_text=request_text,
-                )
-            )
+            selected.append(self._bind_user_tool(tool))
         logger.info("mcp_tools_loaded agent=%s count=%d", agent_name, len(selected))
         return selected
 
     def _bind_user_tool(
         self,
         tool,
-        user_id: int,
-        request_text: str | None = None,
     ) -> StructuredTool:
         """Bind authenticated identity without exposing identifiers to the model."""
 
@@ -231,22 +216,28 @@ class MCPToolProvider:
 
             async def invoke() -> object:
                 result = await self._invoke_remote_tool(tool, {})
-                return self._require_decoded_result(
-                    result,
-                    tool_name="get_user_context",
-                )
+                return self._filter_user_context(result)
 
             args_schema = _NoArguments
-        else:
+        elif tool.name == "get_consumption_summary":
 
-            async def invoke(limit: int = 20) -> object:
+            async def invoke(
+                period_days: int = DEFAULT_CONSUMPTION_PERIOD_DAYS,
+            ) -> object:
                 result = await self._invoke_remote_tool(
                     tool,
-                    {"limit": limit},
+                    {"period_days": period_days},
                 )
-                return self._filter_farm_data(result, user_id)
+                return self._filter_consumption_summary(
+                    result,
+                    expected_period_days=period_days,
+                )
 
-            args_schema = _FarmDataArguments
+            args_schema = _ConsumptionSummaryArguments
+        else:
+            raise ValueError(f"unsupported user-scoped MCP tool: {tool.name}")
+
+        if tool.name in MCP_USER_SCOPED_TOOLS:
             description = (
                 f"{description} A identidade e as fazendas autorizadas sao resolvidas "
                 "pelo backend a partir do JWT. Nunca solicite farm_id, user_id ou "
@@ -276,6 +267,7 @@ class MCPToolProvider:
         result: object,
         *,
         tool_name: str,
+        expected_period_days: int | None = None,
     ) -> dict:
         """Decode and validate the contract for a structured MCP tool result."""
         if isinstance(result, ToolMessage) and result.status == "error":
@@ -283,7 +275,7 @@ class MCPToolProvider:
             trace_event(
                 "mcp.tool_error",
                 tool=tool_name,
-                message=message,
+                error_chars=len(message),
             )
             raise MCPToolResultError(
                 f"remote MCP tool {tool_name} returned an error"
@@ -293,6 +285,7 @@ class MCPToolProvider:
         if decoded is not None and MCPToolProvider._result_contract_is_valid(
             decoded,
             tool_name=tool_name,
+            expected_period_days=expected_period_days,
         ):
             return decoded
 
@@ -331,76 +324,164 @@ class MCPToolProvider:
         result: dict,
         *,
         tool_name: str,
+        expected_period_days: int | None = None,
     ) -> bool:
         """Validate the minimum trusted shape returned by user-scoped MCP tools."""
-        if tool_name == "get_user_farm_data":
-            farm_ids = result.get("farm_ids")
-            data = result.get("data")
-            return (
-                isinstance(farm_ids, list)
-                and all(
-                    isinstance(farm_id, int) and not isinstance(farm_id, bool)
-                    for farm_id in farm_ids
-                )
-                and isinstance(data, dict)
-            )
-
         if tool_name == "get_user_context":
             return (
                 isinstance(result.get("user_type"), str)
-                and isinstance(result.get("user_id"), int)
-                and not isinstance(result.get("user_id"), bool)
                 and isinstance(result.get("profile"), dict)
                 and isinstance(result.get("farms"), list)
                 and isinstance(result.get("enterprises"), list)
             )
 
+        if tool_name == "get_consumption_summary":
+            farm_ids = result.get("farm_ids")
+            period_days = result.get("period_days")
+            return (
+                isinstance(result.get("user_type"), str)
+                and isinstance(result.get("user_id"), int)
+                and not isinstance(result.get("user_id"), bool)
+                and isinstance(period_days, int)
+                and not isinstance(period_days, bool)
+                and (
+                    expected_period_days is None
+                    or period_days == expected_period_days
+                )
+                and isinstance(farm_ids, list)
+                and all(
+                    isinstance(farm_id, int) and not isinstance(farm_id, bool)
+                    for farm_id in farm_ids
+                )
+                and isinstance(result.get("summaries"), list)
+            )
+
         return isinstance(result, dict)
 
+    _INTERNAL_ID_KEYS = frozenset(
+        {
+            "id",
+            "id_farm",
+            "farm_id",
+            "user_id",
+            "id_user",
+            "id_enterprise",
+            "enterprise_id",
+        }
+    )
+    _PUBLIC_FARM_CONTEXT_FIELDS = (
+        "name",
+        "area_property",
+        "region",
+        "poultry_capacity",
+        "place",
+        "state",
+        "city",
+    )
+
     @staticmethod
-    def _filter_farm_data(
+    def _without_internal_ids(value: object) -> object:
+        if isinstance(value, dict):
+            return {
+                key: MCPToolProvider._without_internal_ids(item)
+                for key, item in value.items()
+                if key not in MCPToolProvider._INTERNAL_ID_KEYS
+            }
+        if isinstance(value, list):
+            return [
+                MCPToolProvider._without_internal_ids(item)
+                for item in value
+            ]
+        return value
+
+    @staticmethod
+    def _filter_user_context(result: object) -> dict:
+        """Hide backend identity and object IDs before context reaches the model."""
+        result = MCPToolProvider._require_decoded_result(
+            result,
+            tool_name="get_user_context",
+        )
+        profile = result.get("profile")
+        public_profile = {}
+        if isinstance(profile, dict) and isinstance(profile.get("name"), str):
+            public_profile["name"] = profile["name"]
+
+        enterprises = result.get("enterprises")
+        public_enterprises = []
+        if isinstance(enterprises, list):
+            public_enterprises = [
+                {"name": item["name"]}
+                for item in enterprises
+                if isinstance(item, dict) and isinstance(item.get("name"), str)
+            ]
+
+        farms = result.get("farms")
+        public_farms = []
+        if isinstance(farms, list):
+            public_farms = [
+                {
+                    key: item[key]
+                    for key in MCPToolProvider._PUBLIC_FARM_CONTEXT_FIELDS
+                    if key in item
+                }
+                for item in farms
+                if isinstance(item, dict)
+            ]
+
+        return MCPToolProvider._without_internal_ids(
+            {
+                "profile": public_profile,
+                "enterprises": public_enterprises,
+                "farms": public_farms,
+            }
+        )
+
+    @staticmethod
+    def _filter_consumption_summary(
         result: object,
-        user_id: int,
+        *,
+        expected_period_days: int,
     ) -> dict:
-        """Return only records for farms authorized by the MCP response."""
+        """Defense-in-depth filter for scoped aggregate consumption results."""
 
         result = MCPToolProvider._require_decoded_result(
             result,
-            tool_name="get_user_farm_data",
+            tool_name="get_consumption_summary",
+            expected_period_days=expected_period_days,
         )
-
         authorized_ids = [
             item
             for item in result.get("farm_ids", [])
-            if isinstance(item, int)
+            if isinstance(item, int) and not isinstance(item, bool)
         ]
         if not authorized_ids:
-            logger.warning("mcp_farm_scope_denied user_id=%s", user_id)
+            logger.warning("mcp_consumption_scope_denied")
             return {
-                "user_type": result.get("user_type"),
-                "user_id": user_id,
                 "authorized": False,
                 "reason": "no_farm_scope",
-                "data": {},
+                "period_days": result.get("period_days"),
+                "water_unit": result.get("water_unit"),
+                "energy_unit": result.get("energy_unit"),
+                "summaries": [],
             }
 
-        raw_data = result.get("data", {})
-        data = {}
-        if isinstance(raw_data, dict):
-            for name, rows in raw_data.items():
-                if not isinstance(rows, list):
-                    continue
-                key = "id" if name == "farms" else "id_farm"
-                data[name] = [
-                    row
-                    for row in rows
-                    if isinstance(row, dict) and row.get(key) in authorized_ids
-                ]
+        summaries = []
+        for row in result.get("summaries", []):
+            if not isinstance(row, dict) or row.get("id_farm") not in authorized_ids:
+                continue
+            summaries.append(
+                {
+                    key: value
+                    for key, value in row.items()
+                    if key != "id_farm"
+                }
+            )
         return {
-            "user_type": result.get("user_type"),
-            "user_id": user_id,
             "authorized": True,
-            "data": data,
+            "period_days": result.get("period_days"),
+            "water_unit": result.get("water_unit"),
+            "energy_unit": result.get("energy_unit"),
+            "summaries": summaries,
         }
 
     @staticmethod

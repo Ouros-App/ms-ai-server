@@ -177,9 +177,9 @@ class KeycloakAuthTests(unittest.IsolatedAsyncioTestCase):
         provider = MCPToolProvider(url="https://mcp.example/mcp")
 
         with forward_mcp_access_token("validated-user-token"):
-            self.assertEqual(provider._token_for("42"), "validated-user-token")
+            self.assertEqual(provider._token_for(), "validated-user-token")
 
-        self.assertIsNone(provider._token_for("42"))
+        self.assertIsNone(provider._token_for())
         self.assertNotEqual(
             provider._token_cache_key("validated-user-token"),
             "validated-user-token",

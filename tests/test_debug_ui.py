@@ -462,7 +462,22 @@ def test_debug_chat_uses_authenticated_identity_and_returns_trace() -> None:
     )
     diagnostics = {
         "routes": ["ranking"],
-        "specialist_results": [{"agent": "ranking", "status": "ok"}],
+        "route_source": "deterministic",
+        "specialist_results": [
+            {
+                "agent": "ranking",
+                "status": "ok",
+                "fact_count": 2,
+                "recommendation_count": 1,
+                "missing_data": [],
+                "source_count": 1,
+                "facts": ["valor operacional que nao deve sair no debug"],
+            }
+        ],
+        "pending_routes": [],
+        "pending_missing_data": [],
+        "pending_by_route": {},
+        "pending_personal_routes": [],
         "guardrail": {"allowed": True},
         "trace": [{"t_ms": 1.2, "event": "router.selected"}],
         "duration_ms": 123.4,
@@ -490,8 +505,14 @@ def test_debug_chat_uses_authenticated_identity_and_returns_trace() -> None:
             )
 
     assert response.status_code == 200
-    assert response.json()["specialist_results"][0]["agent"] == "ranking"
-    assert response.json()["trace"][0]["event"] == "router.selected"
+    body = response.json()
+    assert body["specialist_results"][0]["agent"] == "ranking"
+    assert body["specialist_results"][0]["fact_count"] == 2
+    assert "facts" not in body["specialist_results"][0]
+    assert "valor operacional" not in response.text
+    assert body["route_source"] == "deterministic"
+    assert body["pending_routes"] == []
+    assert body["trace"][0]["event"] == "router.selected"
     args = invoke.await_args.args
     assert args[1].user_id == "42"
     assert args[2] == "42"
