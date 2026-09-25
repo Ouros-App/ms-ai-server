@@ -502,7 +502,6 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             "Qual e o meu ranking?",
             "Qual e a minha pontuacao?",
             "Qual e o meu nivel?",
-            "Qual e o meu selo?",
         ):
             with self.subTest(message=message):
                 self.assertTrue(
@@ -728,25 +727,26 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-    def test_legacy_product_feature_routes_to_faq_without_personal_data(self) -> None:
+    def test_legacy_product_feature_is_not_hardcoded_into_routing(self) -> None:
+        message = HumanMessage(content="Onde vejo meus selos antigos?")
         state = {
-            "messages": [HumanMessage(content="Onde vejo meus selos antigos?")],
+            "messages": [message],
             "pending_routes": [],
             "pending_missing_data": [],
             "pending_by_route": {},
             "pending_personal_routes": [],
         }
 
-        self.assertEqual(
-            _resolve_local_routes(state),
-            (["faq"], "deterministic"),
-        )
+        self.assertIsNone(_deterministic_routes(message))
         self.assertFalse(
             _conversation_is_personal_request(
                 state,
                 "faq",
                 "Onde vejo meus selos antigos?",
             )
+        )
+        self.assertIsNone(
+            _deterministic_routes(HumanMessage(content="Qual e o preco do ouro?"))
         )
 
     def test_overlapping_intents_use_semantic_router_unless_explicitly_compound(self) -> None:
