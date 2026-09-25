@@ -13,6 +13,28 @@ ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token"
 class MCPTokenExchangeError(RuntimeError):
     """Raised when the backend cannot obtain a delegated MCP access token."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        reason: str = "unknown",
+        status_code: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.status_code = status_code
+
+
+def _oauth_error_code(response: httpx.Response) -> str | None:
+    """Return only the OAuth error code, never descriptions or token material."""
+
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+    error = payload.get("error") if isinstance(payload, dict) else None
+    return error if isinstance(error, str) and error else None
+
 
 async def _exchange_with_client(
     subject_token: str,
@@ -22,7 +44,21 @@ async def _exchange_with_client(
 
     secret = settings.mcp_keycloak_token_exchange_client_secret
     if secret is None:
-        raise MCPTokenExchangeError("MCP token-exchange client secret is not configured")
+        logger.error(
+            "mcp_token_exchange_failed reason=missing_client_secret client_id=%s audience=%s",
+            settings.mcp_keycloak_token_exchange_client_id,
+            settings.mcp_keycloak_token_exchange_audience,
+        )
+        raise MCPTokenExchangeError(
+            "MCP token-exchange client secret is not configured",
+            reason="missing_client_secret",
+        )
+
+    logger.info(
+        "mcp_token_exchange_started client_id=%s audience=%s",
+        settings.mcp_keycloak_token_exchange_client_id,
+        settings.mcp_keycloak_token_exchange_audience,
+    )
 
     try:
         response = await client.post(
@@ -39,24 +75,73 @@ async def _exchange_with_client(
                 secret.get_secret_value(),
             ),
         )
+    except httpx.TimeoutException as exc:
+        logger.warning(
+            "mcp_token_exchange_failed reason=timeout error=%s",
+            type(exc).__name__,
+        )
+        raise MCPTokenExchangeError(
+            "Keycloak token exchange timed out",
+            reason="timeout",
+        ) from exc
+    except httpx.ConnectError as exc:
+        logger.warning(
+            "mcp_token_exchange_failed reason=connect_error error=%s",
+            type(exc).__name__,
+        )
+        raise MCPTokenExchangeError(
+            "Keycloak token exchange connection failed",
+            reason="connect_error",
+        ) from exc
     except httpx.HTTPError as exc:
-        raise MCPTokenExchangeError("Keycloak token exchange is unavailable") from exc
+        logger.warning(
+            "mcp_token_exchange_failed reason=http_error error=%s",
+            type(exc).__name__,
+        )
+        raise MCPTokenExchangeError(
+            "Keycloak token exchange is unavailable",
+            reason="http_error",
+        ) from exc
 
     if response.status_code != 200:
+        oauth_error = _oauth_error_code(response)
         logger.warning(
-            "mcp_token_exchange_failed status=%s",
+            "mcp_token_exchange_failed reason=keycloak_rejected status=%s oauth_error=%s",
             response.status_code,
+            oauth_error or "unknown",
         )
-        raise MCPTokenExchangeError("Keycloak rejected the MCP token exchange")
+        raise MCPTokenExchangeError(
+            "Keycloak rejected the MCP token exchange",
+            reason="keycloak_rejected",
+            status_code=response.status_code,
+        )
 
     try:
         payload = response.json()
     except ValueError as exc:
-        raise MCPTokenExchangeError("Keycloak returned an invalid token-exchange response") from exc
+        logger.warning(
+            "mcp_token_exchange_failed reason=invalid_json status=%s",
+            response.status_code,
+        )
+        raise MCPTokenExchangeError(
+            "Keycloak returned an invalid token-exchange response",
+            reason="invalid_json",
+            status_code=response.status_code,
+        ) from exc
 
     access_token = payload.get("access_token") if isinstance(payload, dict) else None
     if not isinstance(access_token, str) or not access_token:
-        raise MCPTokenExchangeError("Keycloak token-exchange response omitted access_token")
+        logger.warning(
+            "mcp_token_exchange_failed reason=missing_access_token status=%s",
+            response.status_code,
+        )
+        raise MCPTokenExchangeError(
+            "Keycloak token-exchange response omitted access_token",
+            reason="missing_access_token",
+            status_code=response.status_code,
+        )
+
+    logger.info("mcp_token_exchange_succeeded status=%s", response.status_code)
     return access_token
 
 
