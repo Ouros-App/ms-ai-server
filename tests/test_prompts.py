@@ -3,11 +3,13 @@ import unittest
 from app.agents.prompts import (
     COMMON_AGENT_RULES,
     MEMORY_AGENT_RULES,
+    OUTPUT_REVIEW_PROMPT,
     RANKING_AGENT_PROMPT,
     ROUTER_PROMPT,
     SPECIALIST_JSON_RULES,
     SUPPORT_AGENT_PROMPT,
     SUSTAINABILITY_AGENT_PROMPT,
+    SYNTHESIZER_PROMPT,
     SYSTEM_PROMPT,
 )
 
@@ -51,6 +53,27 @@ class PromptTest(unittest.TestCase):
         self.assertNotIn("biblioteca Explorar", COMMON_AGENT_RULES)
         self.assertNotIn("niveis ferro, bronze, prata e ouro", RANKING_AGENT_PROMPT)
 
+
+
+    def test_authenticated_data_keeps_quantitative_grounding(self) -> None:
+        self.assertIn("Dados autenticados", COMMON_AGENT_RULES)
+        self.assertIn("Nunca os rotule como exemplo", COMMON_AGENT_RULES)
+        self.assertIn("preserve valor, unidade, periodo", SPECIALIST_JSON_RULES)
+        self.assertIn(
+            "Nunca substitua um valor concreto",
+            SYNTHESIZER_PROMPT,
+        )
+        self.assertIn("water_meter_delta", SUSTAINABILITY_AGENT_PROMPT)
+
+    def test_sustainability_requires_baseline_for_performance_claims(self) -> None:
+        self.assertIn("baseline", SUSTAINABILITY_AGENT_PROMPT)
+        self.assertIn("bom/mau desempenho", SUSTAINABILITY_AGENT_PROMPT)
+        self.assertIn("periodo comparavel", SUSTAINABILITY_AGENT_PROMPT)
+
+    def test_output_reviewer_preserves_authenticated_numbers(self) -> None:
+        self.assertIn("Preserve fatos quantitativos", OUTPUT_REVIEW_PROMPT)
+        self.assertIn("Nunca troque um valor concreto", OUTPUT_REVIEW_PROMPT)
+        self.assertNotIn("numeros claramente inventados", OUTPUT_REVIEW_PROMPT)
 
     def test_prompts_do_not_assume_a_specific_integrator(self) -> None:
         self.assertNotIn("Seara", SUSTAINABILITY_AGENT_PROMPT)
