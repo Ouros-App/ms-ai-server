@@ -10,7 +10,13 @@ from app.agents.diagnostics import pending_summary, specialist_results_summary
 from app.agents.guardrails import guard_input
 from app.agents.mcp import forward_mcp_access_token
 from app.core.config import settings
-from app.core.metrics import observe_chat_result, observe_chat_routing
+from app.core.metrics import (
+    chat_finished,
+    chat_started,
+    observe_chat_duration,
+    observe_chat_result,
+    observe_chat_routing,
+)
 from app.debug_ui.trace import capture_debug_trace, trace_event
 from app.schemas.chat import ChatRequest, ChatResponse
 
@@ -76,6 +82,7 @@ async def _invoke_graph(
         )
         if not input_guardrail.allowed:
             observe_chat_result("blocked", ["guardrail"], [])
+            observe_chat_duration("blocked", perf_counter() - started_at)
             logger.warning(
                 "chat_blocked thread_id=%s category=%s",
                 payload.thread_id,
@@ -118,6 +125,8 @@ async def _invoke_graph(
                         config=config,
                     )
         except TimeoutError as error:
+            observe_chat_result("timeout", ["graph"], [])
+            observe_chat_duration("timeout", perf_counter() - started_at)
             trace_event(
                 "graph.timeout",
                 timeout_seconds=settings.llm_total_timeout_seconds,
@@ -131,6 +140,10 @@ async def _invoke_graph(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="O provedor de IA demorou para responder. Tente novamente.",
             ) from error
+        except Exception:
+            observe_chat_result("error", ["graph"], [])
+            observe_chat_duration("error", perf_counter() - started_at)
+            raise
 
         message = result["messages"][-1].content
         tools = result.get("tools", [])
@@ -150,6 +163,7 @@ async def _invoke_graph(
         duration_ms = round((perf_counter() - started_at) * 1000, 1)
 
         observe_chat_result("success", agents, tools)
+        observe_chat_duration("success", duration_ms / 1000)
         observe_chat_routing(routes, route_source, pending_routes)
         trace_event(
             "graph.completed",
@@ -200,15 +214,19 @@ async def invoke_graph(
 ) -> ChatResponse:
     """Validate ownership, execute the graph and return the product response."""
 
-    response, _diagnostics = await _invoke_graph(
-        graph,
-        payload,
-        principal_id,
-        thread_ownership,
-        principal_token,
-        debug=False,
-    )
-    return response
+    chat_started()
+    try:
+        response, _diagnostics = await _invoke_graph(
+            graph,
+            payload,
+            principal_id,
+            thread_ownership,
+            principal_token,
+            debug=False,
+        )
+        return response
+    finally:
+        chat_finished()
 
 
 async def invoke_graph_debug(

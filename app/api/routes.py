@@ -1,16 +1,26 @@
+from secrets import compare_digest
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.core.auth import Principal, get_current_principal, user_id_for_request
+from app.core.config import settings
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.schemas.common import HealthResponse, MessageResponse
 from app.schemas.history import HistoryResponse
 from app.services.chat import invoke_graph
 from app.services.history import get_thread_history
 
-router = APIRouter(dependencies=[Depends(get_current_principal)])
+router = APIRouter()
 
 
 @router.get("/", response_model=MessageResponse)
@@ -26,10 +36,21 @@ async def health_check() -> HealthResponse:
 
 
 @router.get("/metrics", include_in_schema=False)
-async def metrics(
-    _principal: Annotated[Principal, Depends(get_current_principal)],
-) -> Response:
-    """Expoe metricas no formato Prometheus."""
+async def metrics(request: Request) -> Response:
+    """Expose low-cardinality Prometheus metrics to the telemetry collector."""
+    configured = settings.metrics_token
+    if configured is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Metricas nao configuradas.",
+        )
+    expected = f"Bearer {configured.get_secret_value()}".encode()
+    supplied = request.headers.get("Authorization", "").encode()
+    if not compare_digest(supplied, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Metricas nao autorizadas.",
+        )
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 

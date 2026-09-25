@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -433,6 +434,51 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             ),
             {"farm_ids": [11], "data": {}},
         )
+
+    async def test_remote_tool_metrics_classify_tool_message_error(self) -> None:
+        remote_tool = SimpleNamespace(
+            name="get_user_context",
+            ainvoke=AsyncMock(
+                return_value=ToolMessage(
+                    content="remote error",
+                    tool_call_id="remote-error",
+                    name="get_user_context",
+                    status="error",
+                )
+            ),
+        )
+
+        with (
+            patch("app.agents.mcp.mcp_call_started") as started,
+            patch("app.agents.mcp.observe_mcp_call") as observed,
+        ):
+            result = await MCPToolProvider._invoke_remote_tool(remote_tool, {})
+
+        self.assertEqual(result.status, "error")
+        started.assert_called_once_with()
+        self.assertEqual(observed.call_count, 1)
+        self.assertEqual(observed.call_args.args[0], "get_user_context")
+        self.assertEqual(observed.call_args.args[1], "error")
+        self.assertGreaterEqual(observed.call_args.args[2], 0)
+
+    async def test_remote_tool_metrics_close_in_flight_on_cancellation(self) -> None:
+        remote_tool = SimpleNamespace(
+            name="get_user_context",
+            ainvoke=AsyncMock(side_effect=asyncio.CancelledError()),
+        )
+
+        with (
+            patch("app.agents.mcp.mcp_call_started") as started,
+            patch("app.agents.mcp.observe_mcp_call") as observed,
+            self.assertRaises(asyncio.CancelledError),
+        ):
+            await MCPToolProvider._invoke_remote_tool(remote_tool, {})
+
+        started.assert_called_once_with()
+        self.assertEqual(observed.call_count, 1)
+        self.assertEqual(observed.call_args.args[0], "get_user_context")
+        self.assertEqual(observed.call_args.args[1], "cancelled")
+        self.assertGreaterEqual(observed.call_args.args[2], 0)
 
     def test_remote_tool_error_is_traced_with_bounded_message(self) -> None:
         """Surface MCP execution errors distinctly from malformed result payloads."""

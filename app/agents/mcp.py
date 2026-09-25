@@ -4,13 +4,14 @@ import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
 from hashlib import sha256
-from time import monotonic
+from time import monotonic, perf_counter
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
+from app.core.metrics import mcp_call_started, observe_mcp_call
 from app.core.token_exchange import MCPTokenExchangeError, exchange_mcp_access_token
 from app.debug_ui.trace import trace_event
 
@@ -26,6 +27,12 @@ MCP_TOOL_ALLOWLIST: dict[str, frozenset[str]] = {
 }
 MCP_USER_SCOPED_TOOLS = frozenset(
     {"get_user_context", "get_consumption_summary"}
+)
+MCP_UNSCOPED_TOOLS = frozenset(
+    tool_name
+    for allowed in MCP_TOOL_ALLOWLIST.values()
+    for tool_name in allowed
+    if tool_name not in MCP_USER_SCOPED_TOOLS
 )
 MCP_TOOLS_CACHE_MAX_ENTRIES = 256
 DEFAULT_CONSUMPTION_PERIOD_DAYS = 30
@@ -260,7 +267,26 @@ class MCPToolProvider:
             "name": tool.name,
             "args": arguments,
         }
-        return await tool.ainvoke(tool_call)
+        started_at = perf_counter()
+        mcp_call_started()
+        outcome = "error"
+        try:
+            result = await tool.ainvoke(tool_call)
+            outcome = (
+                "error"
+                if isinstance(result, ToolMessage) and result.status == "error"
+                else "success"
+            )
+            return result
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            raise
+        finally:
+            observe_mcp_call(
+                tool.name,
+                outcome,
+                perf_counter() - started_at,
+            )
 
     @staticmethod
     def _require_decoded_result(

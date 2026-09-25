@@ -55,6 +55,7 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 | Variável | Função |
 | --- | --- |
 | `APP_PORT` | Porta publicada pelo Compose, com padrão `8000`. |
+| `METRICS_TOKEN` | Bearer dedicado ao scrape de `/metrics`; não reutilize JWT de usuário. |
 | `INFISICAL_TOKEN` / `INFISICAL_PROJECT_ID` / `INFISICAL_ENV` / `INFISICAL_PATH` | Bootstrap opcional do Infisical. Configure as quatro juntas; `INFISICAL_ENV` aceita `prod` ou `dev`. |
 | `INFISICAL_HOST` | Host do Infisical, padrão `https://app.infisical.com`. |
 | `MONGODB_URI` | URI do MongoDB para execução fora do Compose. |
@@ -128,12 +129,12 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 Rotas públicas:
 
-- `/docs`, `/redoc` e `/openapi.json`: documentação da API.
-
-Rotas autenticadas:
-
 - `GET /`: confirma que o serviço está em execução.
 - `GET /health`: retorna `{"status":"ok"}`.
+- `/docs`, `/redoc` e `/openapi.json`: documentação da API.
+
+Rotas autenticadas por JWT de usuário:
+
 - `POST /v1/chat`: processa uma mensagem.
 - `GET /v1/chat/{thread_id}/history`: retorna o histórico paginado de uma conversa.
 
@@ -164,12 +165,29 @@ curl "http://localhost:8000/v1/chat/conversa-1/history?limit=20" \
 
 ## Observabilidade
 
-O endpoint `GET /metrics` expõe métricas Prometheus de requisições HTTP, latência,
-status, resultados do chat, agentes, tools utilizadas, origem da decisão de rota
-(`deterministic`, `pending`, `model`, etc.) e tarefas que terminaram o turno
-aguardando informação. Os labels de origem são limitados a um conjunto fechado para
-evitar cardinalidade acidental. Ele exige o mesmo Bearer Token da API. Configure o Prometheus para enviar esse token no scrape e use o
-Prometheus como datasource no Grafana:
+O endpoint `GET /metrics` expõe somente métricas agregadas de baixa cardinalidade.
+Ele usa um `METRICS_TOKEN` dedicado ao coletor e não depende de um JWT de usuário,
+o que permite scrapes recorrentes sem criar uma sessão privilegiada artificial.
+
+Além de HTTP, roteamento, agentes e tools, o serviço mede:
+
+- tempo ponta a ponta de cada mensagem do Midas por resultado;
+- duração e quantidade de chamadas LLM por perfil/modelo;
+- tokens de entrada, cache de entrada e saída reportados pelo provedor;
+- tempo e resultado das chamadas do AI Server ao Knowledge MCP;
+- tarefas conversacionais pendentes e origem da decisão de rota.
+
+Os contadores de tokens representam uso técnico. `input_tokens` já inclui o
+subconjunto servido por cache quando o provedor informa cache. Portanto o Telemetry
+precifica `input_tokens - cached_input_tokens` pela tarifa normal e
+`cached_input_tokens` pela tarifa de cache, sem dupla contagem.
+
+O AI Server **não calcula dólares**: a precificação fica no serviço de Telemetry para
+que mudanças de tabela de preço não alterem a instrumentação e para distinguir modelos
+cobrados por token de modelos NIM precificados por infraestrutura.
+
+Nenhuma métrica usa `user_id`, `farm_id`, `thread_id`, request ID ou conteúdo
+do prompt como label.
 
 ```yaml
 scrape_configs:
@@ -177,7 +195,7 @@ scrape_configs:
     metrics_path: /metrics
     authorization:
       type: Bearer
-      credentials: <token-configurado>
+      credentials: <metrics-token>
     static_configs:
       - targets: ["ms-ai-server.discloud.app"]
 ```
