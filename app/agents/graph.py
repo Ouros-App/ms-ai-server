@@ -150,7 +150,7 @@ _PERSONAL_MARKER_PATTERN = re.compile(
 )
 _PERSONAL_DATA_TOPIC_PATTERN = re.compile(
     r"\b(?:fazenda|consumo|agua|energia|ranking|posi\w*|historico|"
-    r"pontua\w*|nivel\w*|selo\w*|insignia\w*|desempenh\w*|perform\w*|"
+    r"pontua\w*|nivel\w*|desempenh\w*|perform\w*|"
     r"medicao|registro\w*)\b"
 )
 _PENDING_CANCEL_PATTERN = re.compile(
@@ -184,8 +184,7 @@ _DETERMINISTIC_ROUTE_PATTERNS = (
     (
         "ranking",
         re.compile(
-            r"\b(?:ranking|pontua\w*|nivel\w*|ferro|bronze|cobre|prata|ouro|posi\w*|"
-            r"historico)\b"
+            r"\b(?:ranking|pontua\w*|nivel\w*|posi\w*|historico)\b"
         ),
     ),
     (
@@ -197,8 +196,7 @@ _DETERMINISTIC_ROUTE_PATTERNS = (
     (
         "faq",
         re.compile(
-            r"\b(?:aplicativo|app|dashboard|painel|relatorio\w*|selo\w*|insignia\w*|"
-            r"calendario\w*|vacina\w*|explorar|biblioteca)\b|"
+            r"\b(?:aplicativo|app|dashboard|painel|relatorio\w*)\b|"
             r"\b(?:quem\s+(?:e|eh)\s+(?:voce|vc)|o\s+que\s+(?:voce|vc)\s+faz)\b|"
             r"\b(?:cadastr|registr|editar|visualiz)\w*\s+(?:o\s+|um\s+)?lote\w*\b"
         ),
