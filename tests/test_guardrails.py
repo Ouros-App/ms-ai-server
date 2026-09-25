@@ -23,6 +23,11 @@ class GuardrailsTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(input_is_allowed("vacina"))
         self.assertFalse(input_is_allowed("selo"))
 
+    def test_project_keywords_do_not_match_unrelated_substrings_or_old_leagues(self) -> None:
+        self.assertFalse(input_is_allowed("Quero investir no tesouro direto"))
+        self.assertFalse(input_is_allowed("Quero estudar o metaverso"))
+        self.assertFalse(input_is_allowed("Qual e o preco do cobre?"))
+
     def test_allows_normal_faq_request(self) -> None:
         self.assertTrue(input_is_allowed("Como sincronizo os dados depois que a internet volta?"))
 
