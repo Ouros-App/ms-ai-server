@@ -16,6 +16,7 @@ from app.debug_ui.trace import capture_debug_trace
 
 class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
+        """Replace token exchange with a deterministic delegated-token stub."""
         self.exchange_token = AsyncMock(
             side_effect=lambda token: f"delegated::{token}"
         )
