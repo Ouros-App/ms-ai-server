@@ -119,8 +119,14 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
                     "id": 11,
                     "id_farm": 11,
                     "name": "Fazenda",
+                    "area_property": 120,
+                    "region": "Sudeste",
+                    "poultry_capacity": 5000,
+                    "place": "Zona rural",
                     "state": "SP",
-                    "address": {"id": 99, "city": "Campinas"},
+                    "city": "Campinas",
+                    "email": "farm-private@example.com",
+                    "owner_name": "Nao deve vazar",
                 }
             ],
             "enterprises": [
@@ -166,8 +172,12 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
                     "farms": [
                         {
                             "name": "Fazenda",
+                            "area_property": 120,
+                            "region": "Sudeste",
+                            "poultry_capacity": 5000,
+                            "place": "Zona rural",
                             "state": "SP",
-                            "address": {"city": "Campinas"},
+                            "city": "Campinas",
                         }
                     ],
                     "enterprises": [{"name": "Empresa"}],
@@ -184,6 +194,8 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("00000000000", str(result))
         self.assertNotIn("billing@example.com", str(result))
         self.assertNotIn("5511888888888", str(result))
+        self.assertNotIn("farm-private@example.com", str(result))
+        self.assertNotIn("Nao deve vazar", str(result))
 
     async def test_consumption_summary_rejects_mismatched_period(self) -> None:
         payload = {
