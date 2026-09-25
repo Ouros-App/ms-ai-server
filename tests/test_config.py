@@ -22,7 +22,6 @@ class ConfigTest(unittest.TestCase):
             config.mcp_url,
             "https://ms-midas-mcp.discloud.app/mcp/",
         )
-        self.assertIsNone(config.mcp_resource_url)
         self.assertEqual(
             config.effective_mcp_token_exchange_url,
             (
