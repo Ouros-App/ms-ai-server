@@ -145,6 +145,11 @@ class GuardrailsTest(unittest.IsolatedAsyncioTestCase):
         result = await review_output("Resposta inicial.", model=model)
 
         self.assertEqual(result, "Resposta revisada.")
+        review_messages = model.ainvoke.await_args.args[0]
+        review_prompt = review_messages[0]["content"]
+        self.assertIn("Preserve fatos quantitativos", review_prompt)
+        self.assertIn("Nunca troque um valor concreto", review_prompt)
+        self.assertIn("Resposta inicial.", review_prompt)
 
 
     async def test_output_reviewer_can_fail_closed(self) -> None:
