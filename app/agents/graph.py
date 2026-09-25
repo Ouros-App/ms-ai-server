@@ -789,7 +789,6 @@ async def _resolve_specialist_guardrail(
 async def _load_agent_mcp_tools(
     state: AgentState,
     agent_name: str,
-    user_text: str,
     mcp_provider: MCPToolProvider | None,
 ) -> list:
     if mcp_provider is None:
@@ -884,7 +883,6 @@ async def _execute_specialist(
     mcp_tools = await _load_agent_mcp_tools(
         state,
         agent_name,
-        user_text,
         mcp_provider,
     )
     pending_missing_data = _pending_missing_for_route(state, agent_name)
