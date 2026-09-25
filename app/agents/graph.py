@@ -787,16 +787,12 @@ async def _resolve_specialist_guardrail(
 
 
 async def _load_agent_mcp_tools(
-    state: AgentState,
     agent_name: str,
     mcp_provider: MCPToolProvider | None,
 ) -> list:
     if mcp_provider is None:
         return []
-    return await mcp_provider.tools_for(
-        agent_name,
-        state["user_id"],
-    )
+    return await mcp_provider.tools_for(agent_name)
 
 
 def _pending_missing_for_route(
@@ -881,7 +877,6 @@ async def _execute_specialist(
     mcp_provider: MCPToolProvider | None,
 ) -> tuple[dict[str, object], list[str], bool]:
     mcp_tools = await _load_agent_mcp_tools(
-        state,
         agent_name,
         mcp_provider,
     )
