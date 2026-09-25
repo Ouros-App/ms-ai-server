@@ -331,7 +331,6 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         """Reject malformed user-scoped results instead of trusting partial data."""
         valid_context = {
             "user_type": "farm_owner",
-            "user_id": 42,
             "profile": {},
             "farms": [],
             "enterprises": [],
@@ -343,8 +342,8 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             )
         )
         for payload in (
-            {"user_type": "farm_owner", "user_id": 42},
-            {**valid_context, "user_id": True},
+            {"user_type": "farm_owner"},
+            {**valid_context, "profile": []},
         ):
             with self.subTest(payload=payload):
                 self.assertFalse(
