@@ -88,7 +88,7 @@ class MCPToolProvider:
             cache_ttl_seconds=settings.mcp_tools_cache_ttl_seconds,
         )
 
-    def _token_for(self, _user_id: str) -> str | None:
+    def _token_for(self) -> str | None:
         """Return only the validated Keycloak token forwarded by the API."""
 
         return _FORWARDED_ACCESS_TOKEN.get()
@@ -154,7 +154,7 @@ class MCPToolProvider:
         """Return only MCP tools authorized for one specialist."""
 
         allowed = MCP_TOOL_ALLOWLIST.get(agent_name, frozenset())
-        token = self._token_for(user_id)
+        token = self._token_for()
         if not self.url:
             trace_event(
                 "mcp.tools_unavailable",
