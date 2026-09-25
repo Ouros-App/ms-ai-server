@@ -121,6 +121,8 @@ _BLOCK_MESSAGES = {
     "ILICITO": ("pedido_ilicito", "Nao posso auxiliar com atividades ilegais ou irregulares."),
     "IDENTIDADE_INCOMPATIVEL": ("identidade_incompativel", IDENTITY_REFUSAL),
 }
+
+
 @dataclass(frozen=True)
 class InputGuardrailResult:
     allowed: bool
