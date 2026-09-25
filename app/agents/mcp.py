@@ -149,7 +149,6 @@ class MCPToolProvider:
     async def tools_for(
         self,
         agent_name: str,
-        user_id: str,
     ) -> list:
         """Return only MCP tools authorized for one specialist."""
 
@@ -202,24 +201,13 @@ class MCPToolProvider:
             if tool.name not in MCP_USER_SCOPED_TOOLS:
                 selected.append(tool)
                 continue
-            try:
-                numeric_user_id = int(user_id)
-            except (TypeError, ValueError):
-                logger.warning("mcp_tools_skipped reason=non_numeric_user_id")
-                continue
-            selected.append(
-                self._bind_user_tool(
-                    tool,
-                    numeric_user_id,
-                )
-            )
+            selected.append(self._bind_user_tool(tool))
         logger.info("mcp_tools_loaded agent=%s count=%d", agent_name, len(selected))
         return selected
 
     def _bind_user_tool(
         self,
         tool,
-        user_id: int,
     ) -> StructuredTool:
         """Bind authenticated identity without exposing identifiers to the model."""
 
@@ -242,7 +230,6 @@ class MCPToolProvider:
                 )
                 return self._filter_consumption_summary(
                     result,
-                    user_id,
                     expected_period_days=period_days,
                 )
 
@@ -452,7 +439,6 @@ class MCPToolProvider:
     @staticmethod
     def _filter_consumption_summary(
         result: object,
-        user_id: int,
         *,
         expected_period_days: int,
     ) -> dict:
@@ -469,7 +455,7 @@ class MCPToolProvider:
             if isinstance(item, int) and not isinstance(item, bool)
         ]
         if not authorized_ids:
-            logger.warning("mcp_consumption_scope_denied user_id=%s", user_id)
+            logger.warning("mcp_consumption_scope_denied")
             return {
                 "authorized": False,
                 "reason": "no_farm_scope",
