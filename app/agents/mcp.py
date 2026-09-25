@@ -52,10 +52,14 @@ class MCPToolResultError(RuntimeError):
 
 
 class _NoArguments(BaseModel):
+    """Represent a tool contract that accepts no model-provided arguments."""
+
     pass
 
 
 class _ConsumptionSummaryArguments(BaseModel):
+    """Validate the bounded period accepted by consumption summaries."""
+
     period_days: int = Field(
         default=DEFAULT_CONSUMPTION_PERIOD_DAYS,
         ge=1,
@@ -76,6 +80,7 @@ class MCPToolProvider:
         url: str | None = None,
         cache_ttl_seconds: int = 300,
     ) -> None:
+        """Initialize an MCP provider with a bounded per-token tool cache."""
         self.url = url
         self.cache_ttl_seconds = cache_ttl_seconds
         self._tools_cache: dict[str, tuple[list, float]] = {}
@@ -83,6 +88,7 @@ class MCPToolProvider:
 
     @classmethod
     def from_settings(cls) -> "MCPToolProvider":
+        """Build the provider from the process MCP configuration."""
         return cls(
             url=settings.mcp_url,
             cache_ttl_seconds=settings.mcp_tools_cache_ttl_seconds,
@@ -115,6 +121,7 @@ class MCPToolProvider:
             self._tools_cache.pop(oldest_key, None)
 
     async def _load_tools(self, token: str) -> list:
+        """Exchange a user token, discover MCP tools, and cache the result."""
         now = monotonic()
         cache_key = self._token_cache_key(token)
         cached = self._tools_cache.get(cache_key)
