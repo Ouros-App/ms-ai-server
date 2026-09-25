@@ -128,6 +128,7 @@ class MCPToolProvider:
                 return cached[0]
             self._prune_tools_cache(now)
 
+            logger.info("mcp_tools_load_started server=%s", self.server_name)
             delegated_token = await exchange_mcp_access_token(token)
 
             from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -144,6 +145,11 @@ class MCPToolProvider:
             )
             tools = await client.get_tools(server_name=self.server_name)
             self._tools_cache[cache_key] = (tools, now)
+            logger.info(
+                "mcp_tools_load_succeeded server=%s discovered=%d",
+                self.server_name,
+                len(tools),
+            )
             return tools
 
     async def tools_for(
@@ -175,14 +181,16 @@ class MCPToolProvider:
             tools = await self._load_tools(token)
         except MCPTokenExchangeError as error:
             logger.warning(
-                "mcp_token_exchange_unavailable agent=%s error=%s",
+                "mcp_token_exchange_unavailable agent=%s reason=%s status=%s",
                 agent_name,
-                type(error).__name__,
+                error.reason,
+                error.status_code if error.status_code is not None else "none",
             )
             trace_event(
                 "mcp.token_exchange_failed",
                 agent=agent_name,
-                error=type(error).__name__,
+                reason=error.reason,
+                status=error.status_code,
             )
             return []
         except Exception as error:
