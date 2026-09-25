@@ -388,6 +388,15 @@ class MCPToolProvider:
             "enterprise_id",
         }
     )
+    _PUBLIC_FARM_CONTEXT_FIELDS = (
+        "name",
+        "area_property",
+        "region",
+        "poultry_capacity",
+        "place",
+        "state",
+        "city",
+    )
 
     @staticmethod
     def _without_internal_ids(value: object) -> object:
@@ -425,11 +434,24 @@ class MCPToolProvider:
                 if isinstance(item, dict) and isinstance(item.get("name"), str)
             ]
 
+        farms = result.get("farms")
+        public_farms = []
+        if isinstance(farms, list):
+            public_farms = [
+                {
+                    key: item[key]
+                    for key in MCPToolProvider._PUBLIC_FARM_CONTEXT_FIELDS
+                    if key in item
+                }
+                for item in farms
+                if isinstance(item, dict)
+            ]
+
         return MCPToolProvider._without_internal_ids(
             {
                 "profile": public_profile,
                 "enterprises": public_enterprises,
-                "farms": result.get("farms", []),
+                "farms": public_farms,
             }
         )
 
