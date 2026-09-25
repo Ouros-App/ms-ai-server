@@ -63,12 +63,12 @@ _OUT_OF_SCOPE_PATTERNS = (
 )
 _PROJECT_TERM_PATTERNS = (
     re.compile(
-        r"\\b(?:aplicativo|midas|fazenda|granja|produtor|integrado|agua|energia|"
+        r"\b(?:aplicativo|midas|fazenda|granja|produtor|integrado|agua|energia|"
         r"consumo|hidrometro|ranking|dashboard|painel|offline|lote|meta|suporte|"
-        r"memoria|usuario|thread|conversa)\\b"
+        r"memoria|usuario|thread|conversa)\b"
     ),
     re.compile(
-        r"\\b(?:sincron|notific|relatorio|sustent|eficien|tecnic|lembr)\\w*\\b"
+        r"\b(?:sincron|notific|relatorio|sustent|eficien|tecnic|lembr)\w*\b"
     ),
 )
 _REQUESTED_USER_ID_PATTERN = re.compile(
