@@ -797,7 +797,6 @@ async def _load_agent_mcp_tools(
     return await mcp_provider.tools_for(
         agent_name,
         state["user_id"],
-        request_text=user_text,
     )
 
 
