@@ -349,8 +349,6 @@ class MCPToolProvider:
         if tool_name == "get_user_context":
             return (
                 isinstance(result.get("user_type"), str)
-                and isinstance(result.get("user_id"), int)
-                and not isinstance(result.get("user_id"), bool)
                 and isinstance(result.get("profile"), dict)
                 and isinstance(result.get("farms"), list)
                 and isinstance(result.get("enterprises"), list)
