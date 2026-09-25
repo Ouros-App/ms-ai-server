@@ -569,7 +569,8 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(len(failures), 1)
         self.assertEqual(failures[0]["agent"], "faq")
-        self.assertEqual(failures[0]["error"], "MCPTokenExchangeError")
+        self.assertEqual(failures[0]["reason"], "unknown")
+        self.assertIsNone(failures[0]["status"])
 
     async def test_mcp_load_failure_is_visible_in_debug_trace(self) -> None:
         """Expose MCP outages in diagnostics instead of silently hiding all tools."""
