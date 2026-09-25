@@ -81,8 +81,8 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             forward_mcp_access_token("signed-keycloak-token"),
             patch("langchain_mcp_adapters.client.MultiServerMCPClient", FakeClient),
         ):
-            ranking = await provider.tools_for("ranking", "42")
-            faq = await provider.tools_for("faq", "42")
+            ranking = await provider.tools_for("ranking")
+            faq = await provider.tools_for("faq")
 
         self.assertEqual(
             [tool.name for tool in ranking],
@@ -163,7 +163,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             forward_mcp_access_token("signed-keycloak-token"),
             patch("langchain_mcp_adapters.client.MultiServerMCPClient", FakeClient),
         ):
-            tools = await provider.tools_for("faq", "42")
+            tools = await provider.tools_for("faq")
             result = await tools[0].ainvoke({})
             self.assertEqual(
                 result,
@@ -211,7 +211,6 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(MCPToolResultError):
             MCPToolProvider._filter_consumption_summary(
                 payload,
-                42,
                 expected_period_days=30,
             )
 
@@ -253,7 +252,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             forward_mcp_access_token("signed-keycloak-token"),
             patch("langchain_mcp_adapters.client.MultiServerMCPClient", FakeClient),
         ):
-            tools = await provider.tools_for("sustainability", "42")
+            tools = await provider.tools_for("sustainability")
             result = await tools[0].ainvoke({"period_days": 30})
 
         self.assertEqual(set(tools[0].args_schema.model_fields), {"period_days"})
@@ -526,7 +525,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             forward_mcp_access_token("signed-keycloak-token"),
             patch("langchain_mcp_adapters.client.MultiServerMCPClient", FakeClient),
         ):
-            tools = await provider.tools_for("faq", "42")
+            tools = await provider.tools_for("faq")
             with self.assertRaises(MCPToolResultError):
                 await tools[0].ainvoke({})
 
@@ -543,7 +542,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         """Expose no user-scoped MCP tools when no validated token was forwarded."""
         provider = MCPToolProvider(url="http://mcp.test/mcp")
         with patch("langchain_mcp_adapters.client.MultiServerMCPClient") as client:
-            tools = await provider.tools_for("ranking", "42")
+            tools = await provider.tools_for("ranking")
 
         self.assertEqual(tools, [])
         client.assert_not_called()
@@ -559,7 +558,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             forward_mcp_access_token("signed-keycloak-token"),
             patch("langchain_mcp_adapters.client.MultiServerMCPClient") as client,
         ):
-            tools = await provider.tools_for("faq", "42")
+            tools = await provider.tools_for("faq")
 
         self.assertEqual(tools, [])
         client.assert_not_called()
@@ -591,7 +590,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
                 FailingClient,
             ),
         ):
-            tools = await provider.tools_for("sustainability", "42")
+            tools = await provider.tools_for("sustainability")
 
         self.assertEqual(tools, [])
         failures = [
@@ -610,7 +609,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             forward_mcp_access_token("signed-keycloak-token"),
             patch("langchain_mcp_adapters.client.MultiServerMCPClient") as client,
         ):
-            tools = await provider.tools_for("default", "42")
+            tools = await provider.tools_for("default")
 
         self.assertEqual(tools, [])
         client.assert_not_called()
