@@ -61,12 +61,15 @@ _OUT_OF_SCOPE_PATTERNS = (
     re.compile(r"\b(politica|presidente|celebridade|noticia|futebol|aposta|jogo)\b"),
     re.compile(r"\b(dever de casa|trabalho escolar|prova|matematica|redacao)\b"),
 )
-_PROJECT_TERMS = (
-    "aplicativo", "midas", "fazenda", "granja", "produtor", "integrado",
-    "agua", "energia", "consumo", "hidrometro", "ranking", "ferro", "bronze", "cobre",
-    "prata", "ouro", "dashboard", "painel", "offline", "sincron", "notific", "relatorio",
-    "lote", "meta", "econom", "sustent", "eficien", "suporte", "tecnic", "memoria",
-    "lembr", "usuario", "thread", "conversa",
+_PROJECT_TERM_PATTERNS = (
+    re.compile(
+        r"\\b(?:aplicativo|midas|fazenda|granja|produtor|integrado|agua|energia|"
+        r"consumo|hidrometro|ranking|dashboard|painel|offline|lote|meta|suporte|"
+        r"memoria|usuario|thread|conversa)\\b"
+    ),
+    re.compile(
+        r"\\b(?:sincron|notific|relatorio|sustent|eficien|tecnic|lembr)\\w*\\b"
+    ),
 )
 _REQUESTED_USER_ID_PATTERN = re.compile(
     r"\b(?:user_?id|usuario(?:\s+de)?\s+id|id\s+do\s+usuario|usuario)"
@@ -228,7 +231,7 @@ def input_block_reason(
         return None
     if has_history and _FOLLOW_UP_PATTERN.match(normalized):
         return None
-    if any(term in normalized for term in _PROJECT_TERMS):
+    if any(pattern.search(normalized) for pattern in _PROJECT_TERM_PATTERNS):
         return None
     if any(pattern.search(normalized) for pattern in _OUT_OF_SCOPE_PATTERNS):
         return "scope"
