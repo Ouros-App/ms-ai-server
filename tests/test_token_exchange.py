@@ -99,15 +99,17 @@ class TokenExchangeTests(unittest.IsolatedAsyncioTestCase):
             raise httpx.ConnectError("connection failed", request=request)
 
         transport = httpx.MockTransport(handler)
-        with patch.object(
-            settings,
-            "mcp_keycloak_token_exchange_client_secret",
-            SecretStr("super-secret-value"),
+        with (
+            patch.object(
+                settings,
+                "mcp_keycloak_token_exchange_client_secret",
+                SecretStr("super-secret-value"),
+            ),
+            self.assertLogs("app.core.token_exchange", level="WARNING") as logs,
         ):
-            with self.assertLogs("app.core.token_exchange", level="WARNING") as logs:
-                async with httpx.AsyncClient(transport=transport) as client:
-                    with self.assertRaises(MCPTokenExchangeError) as raised:
-                        await _exchange_with_client("user-token-material", client)
+            async with httpx.AsyncClient(transport=transport) as client:
+                with self.assertRaises(MCPTokenExchangeError) as raised:
+                    await _exchange_with_client("user-token-material", client)
 
         self.assertEqual(raised.exception.reason, "connect_error")
         joined = "\n".join(logs.output)
