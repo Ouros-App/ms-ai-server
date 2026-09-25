@@ -54,8 +54,6 @@ class MCPToolResultError(RuntimeError):
 class _NoArguments(BaseModel):
     """Represent a tool contract that accepts no model-provided arguments."""
 
-    pass
-
 
 class _ConsumptionSummaryArguments(BaseModel):
     """Validate the bounded period accepted by consumption summaries."""
