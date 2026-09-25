@@ -20,6 +20,7 @@ class MCPTokenExchangeError(RuntimeError):
         reason: str = "unknown",
         status_code: int | None = None,
     ) -> None:
+        """Store a stable diagnostic reason and optional HTTP status."""
         super().__init__(message)
         self.reason = reason
         self.status_code = status_code
