@@ -32,7 +32,6 @@ class Settings(BaseSettings):
     auth_jwt_audience: str = "ms-ai-server"
     auth_jwks_url: str | None = None
     mcp_url: str | None = "https://ms-midas-mcp.discloud.app/mcp/"
-    mcp_resource_url: str | None = None
     mcp_tools_cache_ttl_seconds: int = 300
     mcp_tool_timeout_seconds: float = Field(10.0, gt=0, le=30)
     mcp_keycloak_token_exchange_url: str | None = None
