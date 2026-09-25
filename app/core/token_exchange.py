@@ -8,20 +8,6 @@ logger = logging.getLogger(__name__)
 
 TOKEN_EXCHANGE_GRANT = "urn:ietf:params:oauth:grant-type:token-exchange"
 ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token"
-SAFE_OAUTH_ERROR_CODES = frozenset(
-    {
-        "invalid_request",
-        "invalid_client",
-        "invalid_grant",
-        "unauthorized_client",
-        "unsupported_grant_type",
-        "invalid_scope",
-        "invalid_target",
-        "access_denied",
-        "temporarily_unavailable",
-        "server_error",
-    }
-)
 
 
 class MCPTokenExchangeError(RuntimeError):
@@ -37,17 +23,6 @@ class MCPTokenExchangeError(RuntimeError):
         super().__init__(message)
         self.reason = reason
         self.status_code = status_code
-
-
-def _oauth_error_code(response: httpx.Response) -> str:
-    """Return an allowlisted OAuth error code without logging response content."""
-
-    try:
-        payload = response.json()
-    except ValueError:
-        return "unknown"
-    error = payload.get("error") if isinstance(payload, dict) else None
-    return error if error in SAFE_OAUTH_ERROR_CODES else "unknown"
 
 
 async def _exchange_with_client(
@@ -118,11 +93,9 @@ async def _exchange_with_client(
         ) from exc
 
     if response.status_code != 200:
-        oauth_error = _oauth_error_code(response)
         logger.warning(
-            "mcp_token_exchange_failed reason=keycloak_rejected status=%s oauth_error=%s",
+            "mcp_token_exchange_failed reason=keycloak_rejected status=%s",
             response.status_code,
-            oauth_error,
         )
         raise MCPTokenExchangeError(
             "Keycloak rejected the MCP token exchange",
