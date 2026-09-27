@@ -3,23 +3,36 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Request, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-from app.core.auth import Principal, get_current_principal, user_id_for_request
+from app.core.auth import (
+    Principal,
+    get_current_principal,
+    require_metrics_bearer,
+    user_id_for_request,
+)
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.schemas.common import HealthResponse, MessageResponse
 from app.schemas.history import HistoryResponse
 from app.services.chat import invoke_graph
 from app.services.history import get_thread_history
 
-router = APIRouter(dependencies=[Depends(get_current_principal)])
+router = APIRouter()
 
 
-@router.get("/", response_model=MessageResponse)
+@router.get(
+    "/",
+    response_model=MessageResponse,
+    dependencies=[Depends(get_current_principal)],
+)
 async def read_root() -> MessageResponse:
     """Informa que a API esta disponivel."""
     return MessageResponse(message="AI Server is running")
 
 
-@router.get("/health", response_model=HealthResponse)
+@router.get(
+    "/health",
+    response_model=HealthResponse,
+    dependencies=[Depends(get_current_principal)],
+)
 async def health_check() -> HealthResponse:
     """Retorna o estado de saude da API."""
     return HealthResponse(status="ok")
@@ -27,7 +40,7 @@ async def health_check() -> HealthResponse:
 
 @router.get("/metrics", include_in_schema=False)
 async def metrics(
-    _principal: Annotated[Principal, Depends(get_current_principal)],
+    _claims: Annotated[dict, Depends(require_metrics_bearer)],
 ) -> Response:
     """Expoe metricas no formato Prometheus."""
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
