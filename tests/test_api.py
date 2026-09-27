@@ -9,7 +9,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from app.agents.graph import build_graph
 from app.agents.model import get_chat_model
 from app.api.routes import router
-from app.core.auth import Principal, get_current_principal
+from app.core.auth import Principal, get_current_principal, require_metrics_bearer
 from app.core.config import settings
 
 
@@ -45,7 +45,16 @@ class ApiTest(unittest.TestCase):
             return self.principal
 
         self.principal_override = principal_override
+        async def metrics_override() -> dict:
+            return {
+                "sub": "service-account-ouros-prometheus",
+                "aud": ["ms-ai-server"],
+                "azp": "ouros-prometheus",
+            }
+
+        self.metrics_override = metrics_override
         app.dependency_overrides[get_current_principal] = principal_override
+        app.dependency_overrides[require_metrics_bearer] = metrics_override
         self.client = TestClient(app)
 
     def auth_headers(self) -> dict[str, str]:
@@ -154,7 +163,7 @@ class ApiTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 404)
 
-    def test_root_health_and_metrics_work_for_authenticated_principal(self) -> None:
+    def test_root_health_and_metrics_use_separate_auth_dependencies(self) -> None:
         self.assertEqual(
             self.client.get("/", headers=self.auth_headers()).json(),
             {"message": "AI Server is running"},
