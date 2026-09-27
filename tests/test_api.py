@@ -9,7 +9,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from app.agents.graph import build_graph
 from app.agents.model import get_chat_model
 from app.api.routes import router
-from app.core.auth import Principal, get_current_principal, require_metrics_bearer
+from app.core.auth import Principal, get_current_principal
 from app.core.config import settings
 
 
@@ -45,16 +45,7 @@ class ApiTest(unittest.TestCase):
             return self.principal
 
         self.principal_override = principal_override
-        async def metrics_override() -> dict:
-            return {
-                "sub": "service-account-ouros-prometheus",
-                "aud": ["ms-ai-server"],
-                "azp": "ouros-prometheus",
-            }
-
-        self.metrics_override = metrics_override
         app.dependency_overrides[get_current_principal] = principal_override
-        app.dependency_overrides[require_metrics_bearer] = metrics_override
         self.client = TestClient(app)
 
     def auth_headers(self) -> dict[str, str]:
@@ -172,9 +163,26 @@ class ApiTest(unittest.TestCase):
             self.client.get("/health", headers=self.auth_headers()).json(),
             {"status": "ok"},
         )
-        metrics = self.client.get("/metrics", headers=self.auth_headers())
-        self.assertEqual(metrics.status_code, 200)
-        self.assertIn("ai_server_http_requests_total", metrics.text)
+
+        def decode_metrics(token: str) -> dict | None:
+            if token != "prometheus-token":
+                return None
+            return {
+                "sub": "service-account-ouros-prometheus",
+                "aud": ["ms-ai-server"],
+                "azp": "ouros-prometheus",
+            }
+
+        with patch("app.core.auth._decode_metrics_token", side_effect=decode_metrics):
+            user_metrics = self.client.get("/metrics", headers=self.auth_headers())
+            prometheus_metrics = self.client.get(
+                "/metrics",
+                headers={"Authorization": "Bearer prometheus-token"},
+            )
+
+        self.assertEqual(user_metrics.status_code, 401)
+        self.assertEqual(prometheus_metrics.status_code, 200)
+        self.assertIn("ai_server_http_requests_total", prometheus_metrics.text)
 
     def test_missing_bearer_is_rejected_by_real_auth_dependency(self) -> None:
         self.app.dependency_overrides.pop(get_current_principal)
