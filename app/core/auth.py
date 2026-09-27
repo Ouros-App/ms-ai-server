@@ -72,7 +72,7 @@ def _has_audience(claims: dict, expected: str) -> bool:
     return False
 
 
-def _decode_keycloak_token(token: str) -> dict | None:
+def _decode_signed_keycloak_token(token: str) -> dict | None:
     signing_key = _get_signing_key(token)
     if signing_key is None:
         return None
@@ -87,11 +87,29 @@ def _decode_keycloak_token(token: str) -> dict | None:
         )
     except InvalidTokenError:
         return None
-    if not isinstance(claims, dict):
+    return claims if isinstance(claims, dict) else None
+
+
+def _decode_keycloak_token(token: str) -> dict | None:
+    claims = _decode_signed_keycloak_token(token)
+    if claims is None:
         return None
     if not _has_audience(
         claims,
         settings.mcp_keycloak_token_exchange_client_id,
+    ):
+        return None
+    return claims
+
+
+def _decode_metrics_token(token: str) -> dict | None:
+    claims = _decode_signed_keycloak_token(token)
+    if claims is None:
+        return None
+    authorized_party = claims.get("azp")
+    if (
+        not isinstance(authorized_party, str)
+        or authorized_party != settings.metrics_keycloak_authorized_party
     ):
         return None
     return claims
@@ -178,6 +196,33 @@ async def get_current_principal(
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise _unauthorized()
     return await principal_from_token(credentials.credentials)
+
+
+async def require_metrics_bearer(
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None,
+        Depends(bearer_scheme),
+    ],
+) -> dict:
+    """Accept only the dedicated Prometheus service-account access token."""
+
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise _unauthorized()
+
+    try:
+        claims = await asyncio.to_thread(
+            _decode_metrics_token,
+            credentials.credentials,
+        )
+    except (PyJWKClientConnectionError, AuthenticationKeyServiceError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Servico de chaves de autenticacao indisponivel.",
+        ) from error
+
+    if claims is None:
+        raise _unauthorized()
+    return claims
 
 
 def user_id_for_request(
