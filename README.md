@@ -168,7 +168,7 @@ O endpoint `GET /metrics` expõe métricas Prometheus de requisições HTTP, lat
 status, resultados do chat, agentes, tools utilizadas, origem da decisão de rota
 (`deterministic`, `pending`, `model`, etc.) e tarefas que terminaram o turno
 aguardando informação. Os labels de origem são limitados a um conjunto fechado para
-evitar cardinalidade acidental. Ele exige o mesmo Bearer Token da API. Configure o Prometheus para enviar esse token no scrape e use o
+evitar cardinalidade acidental. Ele exige um Bearer Token M2M do cliente de métricas, com `azp` igual a `METRICS_KEYCLOAK_AUTHORIZED_PARTY` (por padrão, `ouros-prometheus`). Configure o Prometheus para obter esse token via Client Credentials e use o
 Prometheus como datasource no Grafana:
 
 ```yaml
@@ -177,7 +177,7 @@ scrape_configs:
     metrics_path: /metrics
     authorization:
       type: Bearer
-      credentials: <token-configurado>
+      credentials: <token-m2m-de-metricas>
     static_configs:
       - targets: ["ms-ai-server.discloud.app"]
 ```

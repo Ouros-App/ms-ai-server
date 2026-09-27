@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     auth_jwt_issuer: str = "https://ouros-keycloak.discloud.app/realms/ouros"
     auth_jwt_audience: str = "ms-ai-server"
     auth_jwks_url: str | None = None
+    metrics_keycloak_authorized_party: str = "ouros-prometheus"
     mcp_url: str | None = "https://ms-midas-mcp.discloud.app/mcp/"
     mcp_tools_cache_ttl_seconds: int = 300
     mcp_tool_timeout_seconds: float = Field(10.0, gt=0, le=30)
@@ -65,6 +66,12 @@ class Settings(BaseSettings):
         if not self.auth_jwt_issuer.strip() or not self.auth_jwt_audience.strip():
             raise ValueError(
                 "AUTH_JWT_ISSUER e AUTH_JWT_AUDIENCE são obrigatórios"
+            )
+
+    def _validate_metrics_contract(self) -> None:
+        if not self.metrics_keycloak_authorized_party.strip():
+            raise ValueError(
+                "METRICS_KEYCLOAK_AUTHORIZED_PARTY é obrigatório"
             )
 
     def _validate_mcp_exchange_contract(self) -> None:
@@ -112,6 +119,7 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_keycloak_jwt_config(self) -> "Settings":
         self._validate_auth_contract()
+        self._validate_metrics_contract()
         self._validate_mcp_exchange_contract()
         self._validate_debug_ui_contract()
         return self

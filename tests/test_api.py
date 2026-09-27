@@ -154,7 +154,7 @@ class ApiTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 404)
 
-    def test_root_health_and_metrics_work_for_authenticated_principal(self) -> None:
+    def test_root_health_and_metrics_use_separate_auth_dependencies(self) -> None:
         self.assertEqual(
             self.client.get("/", headers=self.auth_headers()).json(),
             {"message": "AI Server is running"},
@@ -163,9 +163,26 @@ class ApiTest(unittest.TestCase):
             self.client.get("/health", headers=self.auth_headers()).json(),
             {"status": "ok"},
         )
-        metrics = self.client.get("/metrics", headers=self.auth_headers())
-        self.assertEqual(metrics.status_code, 200)
-        self.assertIn("ai_server_http_requests_total", metrics.text)
+
+        def decode_metrics(token: str) -> dict | None:
+            if token != "prometheus-token":
+                return None
+            return {
+                "sub": "service-account-ouros-prometheus",
+                "aud": ["ms-ai-server"],
+                "azp": "ouros-prometheus",
+            }
+
+        with patch("app.core.auth._decode_metrics_token", side_effect=decode_metrics):
+            user_metrics = self.client.get("/metrics", headers=self.auth_headers())
+            prometheus_metrics = self.client.get(
+                "/metrics",
+                headers={"Authorization": "Bearer prometheus-token"},
+            )
+
+        self.assertEqual(user_metrics.status_code, 401)
+        self.assertEqual(prometheus_metrics.status_code, 200)
+        self.assertIn("ai_server_http_requests_total", prometheus_metrics.text)
 
     def test_missing_bearer_is_rejected_by_real_auth_dependency(self) -> None:
         self.app.dependency_overrides.pop(get_current_principal)
