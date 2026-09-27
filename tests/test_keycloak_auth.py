@@ -9,9 +9,11 @@ from jwt.exceptions import PyJWKClientConnectionError
 from app.agents.mcp import MCPToolProvider, forward_mcp_access_token
 from app.core.auth import (
     _decode_keycloak_token,
+    _decode_metrics_token,
     _jwks_url,
     _keycloak_principal,
     get_current_principal,
+    require_metrics_bearer,
     user_id_for_request,
 )
 from app.core.config import settings
@@ -92,6 +94,49 @@ class KeycloakAuthTests(unittest.IsolatedAsyncioTestCase):
             patch("app.core.auth.decode", return_value=claims),
         ):
             self.assertIsNone(_decode_keycloak_token("signed-token"))
+
+    def test_metrics_token_requires_prometheus_authorized_party(self) -> None:
+        claims = {
+            "sub": "service-account-ouros-prometheus",
+            "aud": ["ms-ai-server"],
+            "azp": "ouros-prometheus",
+        }
+        with (
+            patch.object(
+                settings,
+                "metrics_keycloak_authorized_party",
+                "ouros-prometheus",
+            ),
+            patch(
+                "app.core.auth._decode_signed_keycloak_token",
+                return_value=claims,
+            ),
+        ):
+            self.assertEqual(_decode_metrics_token("signed-token"), claims)
+
+        with (
+            patch.object(
+                settings,
+                "metrics_keycloak_authorized_party",
+                "ouros-prometheus",
+            ),
+            patch(
+                "app.core.auth._decode_signed_keycloak_token",
+                return_value={**claims, "azp": "another-client"},
+            ),
+        ):
+            self.assertIsNone(_decode_metrics_token("signed-token"))
+
+    async def test_prometheus_service_token_is_accepted_for_metrics(self) -> None:
+        claims = {
+            "sub": "service-account-ouros-prometheus",
+            "aud": ["ms-ai-server"],
+            "azp": "ouros-prometheus",
+        }
+        with patch("app.core.auth._decode_metrics_token", return_value=claims):
+            result = await require_metrics_bearer(self.credentials())
+
+        self.assertEqual(result["azp"], "ouros-prometheus")
 
     async def test_jwks_connection_failure_is_service_unavailable(self) -> None:
         credentials = self.credentials()
