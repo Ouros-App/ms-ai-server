@@ -9,6 +9,19 @@ from app.core.config import Settings, get_settings, settings
 
 
 class ConfigTest(unittest.TestCase):
+    def test_jev_is_disabled_and_requires_https(self) -> None:
+        """Keep Jev disabled by default and reject insecure provider URLs."""
+        with patch.dict(os.environ, {}, clear=True):
+            config = Settings(_env_file=None)
+        self.assertFalse(config.jev_enabled)
+        self.assertTrue(config.jev_shadow_mode)
+
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            self.assertRaises(ValidationError),
+        ):
+            Settings(_env_file=None, jev_base_url="http://typesafe.example")
+
     def test_defaults_are_keycloak_only(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             config = Settings(_env_file=None)

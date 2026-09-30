@@ -23,6 +23,7 @@ O serviço está implementado com:
 - roteamento entre os agentes `faq`, `sustainability`, `ranking`, `support` e `fallback`;
 - especialistas com contrato JSON e um agente `default` dedicado à síntese da resposta;
 - resposta padrão quando nenhum provedor de IA está configurado;
+- camada opcional de decisão Jev, com modo shadow e fallback para o roteador atual;
 - autenticação de usuário exclusivamente por JWT RS256 do Keycloak validado localmente via JWKS;
 - guardrails de entrada e revisão de saída.
 
@@ -63,6 +64,11 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 | `GROQ_API_KEY` / `GROQ_FAST_MODEL` / `GROQ_MODEL` | Provedor Groq e perfis rápido/potente. |
 | `NVIDIA_API_KEY` / `NVIDIA_NIM_FAST_MODEL` / `NVIDIA_NIM_MODEL` / `NVIDIA_NIM_BASE_URL` | Provedor NVIDIA NIM e perfis rápido/potente. |
 | `LLM_TEMPERATURE` / `LLM_TIMEOUT_SECONDS` | Parâmetros das chamadas ao modelo. |
+| `JEV_ENABLED` / `JEV_SHADOW_MODE` | Ativam a decisão Jev. Comece com `JEV_ENABLED=true` e `JEV_SHADOW_MODE=true` para comparar decisões sem mudar as rotas do chat. |
+| `JEV_API_KEY` | Chave TypeSafe System One; configure no Infisical nos ambientes de deploy. |
+| `JEV_BASE_URL` / `JEV_MODEL` | Endpoint e modelo Jev (`https://api.typesafe.ai` e `jev-latest` por padrão). |
+| `JEV_TIMEOUT_MS` / `JEV_MIN_CONFIDENCE` / `JEV_MAX_CALLS_PER_REQUEST` | Limite de latência, confiança mínima e chamadas permitidas por mensagem. |
+| `JEV_INPUT_COST_PER_MILLION_USD` / `JEV_OUTPUT_COST_PER_MILLION_USD` | Parâmetros ajustáveis para contabilizar custo estimado por tokens. |
 | `MCP_TOOL_TIMEOUT_SECONDS` | Limite por chamada de tool, evitando que uma dependência consuma todo o tempo da requisição. |
 | `AUTH_JWT_ISSUER` / `AUTH_JWT_AUDIENCE` / `AUTH_JWKS_URL` | Contrato oficial do Keycloak; valida assinatura RS256, issuer, audience e expiração. `database_id` é o ID do banco legado e `sub` permanece a identidade do Keycloak. |
 | `MCP_URL` | Endpoint Streamable HTTP do servidor MCP externo. |
@@ -113,6 +119,31 @@ de tools são serializados como JSON com limite de tamanho, cada chamada possui 
 próprio e falhas são degradadas para um erro seguro, sem vazar exceções ou derrubar
 toda a conversa. O Request Trace registra apenas metadados estruturais dos resultados
 de tools, nunca o conteúdo operacional retornado pela fazenda.
+
+### Decisão Jev
+
+O Jev usa o endpoint System One da TypeSafe para propor uma rota, ferramentas MCP
+da allowlist daquela rota e se a tarefa exige analytics. A integração envia apenas
+a mensagem atual após anonimização e um contexto curto de capacidades/rota anterior;
+não envia histórico, identidade, JWT nem o mapa privado de PII. A resposta é validada
+contra as rotas e ferramentas disponíveis antes de ser usada. Jev não autentica,
+autoriza, seleciona escopo de fazenda nem altera guardrails.
+
+O recurso fica desligado por padrão. Em modo shadow, a resposta do Jev é comparada
+com o roteador existente e não afeta o chat; a UI de debug aguarda a comparação para
+registrá-la no trace da requisição. Com shadow desligado, baixa confiança, falha do
+provedor, decisão inválida ou analytics indisponível usam o roteador atual como
+fallback. O backend de analytics ainda não está conectado; por isso uma decisão que
+dependa dele é recusada. Ferramentas continuam limitadas pela allowlist do especialista,
+e o prefetch autenticado de consumo segue sendo controlado pelo backend.
+
+As rotas usam os nomes reais já existentes no AI Server: `faq` cobre conhecimento,
+`ranking` cobre indicadores/analytics disponíveis, e `default` cobre respostas gerais.
+Não há uma rota de analytics independente nem backend analítico conectado ainda.
+
+Depois de observar concordância e falhas no Prometheus, a ativação efetiva pode ser
+feita com `JEV_ENABLED=true` e `JEV_SHADOW_MODE=false`. Mantenha `JEV_API_KEY` no
+Infisical; não coloque a chave no arquivo versionado `.env.example`.
 
 ## Execução
 
@@ -172,7 +203,8 @@ curl "http://localhost:8000/v1/chat/conversa-1/history?limit=20" \
 
 O endpoint `GET /metrics` expõe métricas Prometheus de requisições HTTP, latência,
 status, resultados do chat, agentes, tools utilizadas, origem da decisão de rota
-(`deterministic`, `pending`, `model`, etc.) e tarefas que terminaram o turno
+(`deterministic`, `pending`, `jev`, `model`, etc.), decisões/fallbacks Jev,
+tokens/custo estimado, concordância com o roteador e tarefas que terminaram o turno
 aguardando informação. Os labels de origem são limitados a um conjunto fechado para
 evitar cardinalidade acidental. Ele exige um Bearer Token M2M do cliente de métricas, com `azp` igual a `METRICS_KEYCLOAK_AUTHORIZED_PARTY` (por padrão, `ouros-prometheus`). Configure o Prometheus para obter esse token via Client Credentials e use o
 Prometheus como datasource no Grafana:

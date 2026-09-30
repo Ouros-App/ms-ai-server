@@ -35,6 +35,38 @@ CHAT_PENDING = Counter(
     "Quantidade de tarefas que terminaram o turno aguardando dado adicional.",
     ("route",),
 )
+JEV_REQUESTS = Counter(
+    "midas_jev_requests",
+    "Requests sent to Jev by bounded status and decision type.",
+    ("status", "decision_type"),
+)
+JEV_REQUEST_DURATION = Histogram(
+    "midas_jev_request_duration_seconds",
+    "Time spent waiting for Jev decision responses.",
+    ("decision_type",),
+)
+JEV_INPUT_TOKENS = Counter(
+    "midas_jev_input_tokens",
+    "Input tokens reported by Jev.",
+)
+JEV_OUTPUT_TOKENS = Counter(
+    "midas_jev_output_tokens",
+    "Output tokens reported by Jev.",
+)
+JEV_COST_USD = Counter(
+    "midas_jev_cost_usd",
+    "Estimated Jev request cost in USD from configured token rates.",
+)
+JEV_FALLBACKS = Counter(
+    "midas_jev_fallback",
+    "Jev decisions that fell back to the existing Midas router.",
+    ("reason",),
+)
+JEV_ROUTER_AGREEMENT = Counter(
+    "midas_jev_router_agreement",
+    "Shadow-mode Jev route agreement with the active Midas route.",
+    ("agreement",),
+)
 
 _ALLOWED_ROUTE_SOURCES = {
     "cancelled",
@@ -44,6 +76,7 @@ _ALLOWED_ROUTE_SOURCES = {
     "greeting",
     "guardrail",
     "identity",
+    "jev",
     "model",
     "no_model",
     "pending",
@@ -86,3 +119,30 @@ def observe_chat_routing(
     for route in pending_routes:
         if route:
             CHAT_PENDING.labels(route).inc()
+
+
+def observe_jev_request(
+    status: str,
+    duration_seconds: float,
+    *,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cost_usd: float = 0.0,
+    fallback_reason: str | None = None,
+) -> None:
+    """Record one bounded Jev request without exposing state or credentials."""
+    JEV_REQUESTS.labels(status, "combined").inc()
+    JEV_REQUEST_DURATION.labels("combined").observe(duration_seconds)
+    if input_tokens:
+        JEV_INPUT_TOKENS.inc(input_tokens)
+    if output_tokens:
+        JEV_OUTPUT_TOKENS.inc(output_tokens)
+    if cost_usd > 0:
+        JEV_COST_USD.inc(cost_usd)
+    if fallback_reason:
+        JEV_FALLBACKS.labels(fallback_reason).inc()
+
+
+def observe_jev_router_agreement(agreement: bool) -> None:
+    """Record whether Jev and the active router selected the same agent."""
+    JEV_ROUTER_AGREEMENT.labels(str(agreement).lower()).inc()
