@@ -7,6 +7,7 @@ AGENT_LLM_PROFILE = {
     "support": FAST_LLM,
     "sustainability": POWERFUL_LLM,
     "ranking": POWERFUL_LLM,
+    "visualization": POWERFUL_LLM,
     "default": FAST_LLM,
     "guardrail": FAST_LLM,
 }

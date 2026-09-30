@@ -184,6 +184,30 @@ def _dashboard_period_days(message: str) -> int:
     return DEFAULT_CONSUMPTION_PERIOD_DAYS
 
 
+def _dashboard_period_days_for_state(state: AgentState, user_text: str) -> int:
+    """Carry the most recent explicit period into a short chart follow-up."""
+    candidates = [user_text]
+    current_routes = state.get("routes") or [state.get("route")]
+    if not (
+        state.get("route_source") in {"pending", "context"}
+        and "visualization" in current_routes
+    ):
+        return _dashboard_period_days(user_text)
+    candidates.extend(
+        message.content
+        for message in reversed(state.get("messages", [])[:-1])
+        if isinstance(message, HumanMessage) and isinstance(message.content, str)
+    )
+    for candidate in candidates:
+        text = _normalize_route_text(candidate)
+        if _DASHBOARD_PERIOD_PATTERN.search(text) or re.search(
+            r"\b(?:ultim\w*|passad\w*)\s+(?:mes(?:es)?|ano|semanas?)\b",
+            text,
+        ):
+            return _dashboard_period_days(candidate)
+    return DEFAULT_CONSUMPTION_PERIOD_DAYS
+
+
 _FOLLOWUP_PATTERN = re.compile(
     r"\b(?:isso|isto|aquilo|esse|essa|esses|essas|desse|dessa|desses|dessas|"
     r"disso|nisso|nesse|nessa|anteri\w*|proxim\w*\s+passo|e\s+depois|"
@@ -198,7 +222,16 @@ _PERSONAL_DATA_TOPIC_PATTERN = re.compile(
     r"medicao|registro\w*)\b"
 )
 _DASHBOARD_REQUEST_PATTERN = re.compile(
-    r"\b(?:dashboard\w*|painel\w*|grafico\w*|chart\w*|visualiz\w*)\b"
+    r"\b(?:dashboard\w*|painel\w*|grafico\w*|chart\w*|visualiz\w*|"
+    r"histogram\w*|pizza\w*)\b"
+)
+_DASHBOARD_CREATION_ACTION_PATTERN = re.compile(
+    r"^\s*(?:(?:voce\s+)?pode\s+(?:me\s+)?|me\s+)?"
+    r"(?:gere\w*|gera\w*|crie\w*|cria\w*|"
+    r"monte\w*|monta\w*|mostre\w*|mostra\w*|faca\w*|faz\w*|"
+    r"criar|gerar|montar|quero\s+(?:ver|um|uma|grafico|dashboard|painel|"
+    r"criar|gerar|montar)|"
+    r"preciso\s+de)\b"
 )
 _DASHBOARD_IMPLICIT_REQUEST_PATTERN = re.compile(
     r"\b(?:desempenh\w*|perform\w*|resultado\w*|produc\w*)\b"
@@ -286,6 +319,18 @@ def _is_contextual_followup(message: object) -> bool:
     return bool(_FOLLOWUP_PATTERN.search(_normalize_route_text(content)))
 
 
+def _is_dashboard_creation_request(message: object) -> bool:
+    """Detect explicit requests to create a chart or dashboard."""
+    content = getattr(message, "content", message)
+    if not isinstance(content, str):
+        return False
+    text = _normalize_route_text(content)
+    return bool(
+        _DASHBOARD_REQUEST_PATTERN.search(text)
+        and _DASHBOARD_CREATION_ACTION_PATTERN.search(text)
+    )
+
+
 def _is_cancel_request(message: object) -> bool:
     content = getattr(message, "content", message)
     if not isinstance(content, str):
@@ -312,6 +357,12 @@ def _is_pending_followup(message: object, missing_data: object) -> bool:
     if _is_contextual_followup(message):
         return True
 
+    if any(
+        "assunto do grafico" in _normalize_route_text(item)
+        for item in _string_list(missing_data)
+    ):
+        return True
+
     kinds = _missing_slot_kinds(missing_data)
     if "period" in kinds and (
         _extract_period_days(content, missing_data) is not None
@@ -325,6 +376,30 @@ def _is_pending_followup(message: object, missing_data: object) -> bool:
     return bool(
         "number" in kinds
         and re.fullmatch(r"\d+(?:[.,]\d+)?", text)
+    )
+
+
+def _is_visualization_subject_reply(message: object, missing_data: object) -> bool:
+    content = getattr(message, "content", message)
+    if not isinstance(content, str):
+        return False
+    if not any(
+        "assunto do grafico" in _normalize_route_text(item)
+        for item in _string_list(missing_data)
+    ):
+        return False
+    text = _normalize_route_text(content).strip()
+    if (
+        not text
+        or len(text) > 80
+        or "?" in text
+        or _is_cancel_request(message)
+        or re.match(r"^(?:como|onde|qual|quais|por que|porque)\b", text)
+    ):
+        return False
+    return bool(
+        _PERSONAL_DATA_TOPIC_PATTERN.search(text)
+        or re.search(r"\b(?:mortalidade|custo|producao|lote)\b", text)
     )
 
 
@@ -671,8 +746,26 @@ def _resolve_local_routes(state: AgentState) -> tuple[list[str] | None, str | No
     pending_by_route = _pending_by_route(state)
     if pending_by_route and _is_cancel_request(latest_message):
         return ["fallback"], "cancelled"
+    if _is_visualization_subject_reply(
+        latest_message,
+        pending_by_route.get("visualization", []),
+    ):
+        return ["visualization"], "pending"
 
+    inherited_routes = _inheritable_routes(state.get("last_routes"))
     deterministic = _deterministic_routes(latest_message)
+    if _is_dashboard_creation_request(latest_message):
+        domain_routes = [route for route in (deterministic or []) if route != "faq"]
+        if domain_routes:
+            return list(dict.fromkeys([*domain_routes, "visualization"])), "deterministic"
+        return ["visualization"], "context" if inherited_routes else "deterministic"
+    content = getattr(latest_message, "content", "")
+    if (
+        deterministic
+        and isinstance(content, str)
+        and _DASHBOARD_IMPLICIT_REQUEST_PATTERN.search(_normalize_route_text(content))
+    ):
+        return list(dict.fromkeys([*deterministic, "visualization"])), "deterministic"
     if deterministic is not None:
         return deterministic, "deterministic"
 
@@ -683,7 +776,6 @@ def _resolve_local_routes(state: AgentState) -> tuple[list[str] | None, str | No
     if pending_matches:
         return pending_matches, "pending"
 
-    inherited_routes = _inheritable_routes(state.get("last_routes"))
     if inherited_routes and _is_contextual_followup(latest_message):
         return inherited_routes, "context"
     return None, None
@@ -787,6 +879,30 @@ async def _resolve_jev_route(
         "decision_calls": int(state.get("decision_calls", 0)) + 1,
     }
     if outcome.accepted:
+        latest_message = _latest_message(state)
+        if (
+            _is_dashboard_creation_request(latest_message)
+            and routes is not None
+            and "visualization" in routes
+            and (
+                outcome.decision.agent != "visualization"
+                or "create_custom_dashboard" not in outcome.decision.tools
+            )
+        ):
+            logger.warning(
+                "jev.decision.constrained reason=explicit_visualization_request "
+                "selected_agent=%s selected_tools=%s required_agent=visualization",
+                outcome.decision.agent,
+                outcome.decision.tools,
+            )
+            trace_event(
+                "jev.decision.constrained",
+                reason="explicit_visualization_request",
+                selected_agent=outcome.decision.agent,
+                selected_tools=outcome.decision.tools,
+                required_agent="visualization",
+            )
+            return routes, route_source or "deterministic", _empty_decision_metadata()
         return [outcome.decision.agent], "jev", metadata
     if routes is None:
         routes, route_source = await _resolve_model_routes(state)
@@ -870,6 +986,16 @@ async def route_request(state: AgentState) -> dict:
             routes,
             route_source,
         )
+
+    latest_message = _latest_message(state)
+    content = getattr(latest_message, "content", "")
+    if (
+        isinstance(content, str)
+        and _DASHBOARD_IMPLICIT_REQUEST_PATTERN.search(_normalize_route_text(content))
+        and "visualization" not in routes
+        and routes != ["fallback"]
+    ):
+        routes = [*routes, "visualization"][:MAX_ROUTER_ROUTES]
 
     logger.info(
         "agent_routes_selected source=%s routes=%s",
@@ -1112,13 +1238,9 @@ async def _execute_specialist(
     mcp_provider: MCPToolProvider | None,
 ) -> tuple[dict[str, object], list[str], bool]:
     """Run one specialist with authenticated prefetch and selected tools."""
-    normalized_user_text = _normalize_route_text(user_text)
-    dashboard_requested = bool(
-        _DASHBOARD_REQUEST_PATTERN.search(normalized_user_text)
-        or _DASHBOARD_IMPLICIT_REQUEST_PATTERN.search(normalized_user_text)
-    )
-    dashboard_period_days = _dashboard_period_days(user_text)
+    dashboard_requested = agent_name == "visualization"
     selected_tools: set[str] | None = None
+    dashboard_period_days = _dashboard_period_days_for_state(state, user_text)
     mcp_tools = await _load_agent_mcp_tools(
         agent_name,
         mcp_provider,
