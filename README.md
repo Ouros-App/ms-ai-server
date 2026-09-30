@@ -96,9 +96,11 @@ faltantes como estado estruturado da conversa, separados por especialista e com 
 exigência de dados autenticados preservada. Respostas curtas como "30 dias", "1 ciclo"
 ou "na minha fazenda" continuam a tarefa anterior sem depender apenas de palavras-chave
 ou de o roteador reconstruir a intenção do zero. Saudações e perguntas como
-"quem é você?" usam fast paths determinísticos e não gastam chamadas de LLM; um
-cancelamento limpa a tarefa, e uma troca explícita para outro domínio aposenta
-pendências antigas para elas não reaparecerem mais tarde.
+"quem é você?" começam pela rota determinística `default`; com Jev habilitado,
+também geram uma decisão Jev. No modo ativo, Jev pode substituir essa rota; no
+modo shadow, a rota `default` é mantida. Um cancelamento limpa a tarefa, e uma
+troca explícita para outro domínio aposenta pendências antigas para elas não
+reaparecerem mais tarde.
 
 As tools de memória e MCP ficam disponíveis somente para especialistas. O cliente
 MCP usa Streamable HTTP, troca o JWT validado por um token delegado de backend,
