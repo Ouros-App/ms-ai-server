@@ -21,6 +21,7 @@ from app.agents.graph import (
     _merge_tools,
     _resolve_local_routes,
     _route_update,
+    _run_agent,
     _tool_args_trace,
     _tool_result_content,
     _tool_result_trace,
@@ -29,7 +30,12 @@ from app.agents.graph import (
     route_request,
 )
 from app.agents.model import get_chat_model
-from app.agents.prompts import DEFAULT_AGENT_RESPONSE, FALLBACK_RESPONSE
+from app.agents.prompts import (
+    DEFAULT_AGENT_RESPONSE,
+    FALLBACK_RESPONSE,
+    GREETING_RESPONSE,
+    IDENTITY_RESPONSE,
+)
 from app.core.config import settings
 from app.schemas.chat import ChatRequest
 from app.services.chat import invoke_graph
@@ -142,6 +148,90 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(identity.agents, ["router", "default"])
         self.assertIn("Midas", greeting.message)
         self.assertIn("Midas", identity.message)
+
+    async def test_default_agent_handles_quick_routes_after_jev_selection(self) -> None:
+        """Keep greeting and identity replies when Jev selects the default route."""
+        cases = (
+            ("Bom dia", GREETING_RESPONSE),
+            ("Quem é você?", IDENTITY_RESPONSE),
+        )
+        for message, expected in cases:
+            result = await default_agent(
+                {
+                    "messages": [HumanMessage(content=message)],
+                    "route_source": "jev",
+                    "routes": ["default"],
+                    "specialist_results": [],
+                    "agents": ["router"],
+                    "tools": [],
+                }
+            )
+
+            with self.subTest(message=message):
+                self.assertEqual(result["messages"][0].content, expected)
+
+    async def test_default_agent_answers_general_message_without_specialists(self) -> None:
+        """Use the general model when Jev selects default without specialist data."""
+        model = Mock()
+        model.ainvoke = AsyncMock(
+            side_effect=[
+                AIMessage(content="Posso ajudar com isso."),
+                AIMessage(content="STATUS: APROVADO\nRESPOSTA:\nPosso ajudar com isso."),
+            ],
+        )
+        state = {
+            "messages": [HumanMessage(content="Pode me ajudar?")],
+            "route_source": "jev",
+            "routes": ["default"],
+            "specialist_results": [],
+            "agents": ["router"],
+            "tools": [],
+        }
+
+        with patch("app.agents.graph.get_chat_model", return_value=model):
+            result = await default_agent(state)
+
+        self.assertEqual(result["messages"][0].content, "Posso ajudar com isso.")
+        self.assertEqual(model.ainvoke.await_count, 2)
+        synthesis_messages = model.ainvoke.await_args_list[0].args[0]
+        self.assertIn(
+            "Nenhum especialista forneceu dados",
+            synthesis_messages[-1]["content"],
+        )
+
+    async def test_default_agent_contains_general_model_failures(self) -> None:
+        """Keep a model exception from aborting a default-route chat request."""
+        model = Mock()
+        model.ainvoke = AsyncMock(side_effect=RuntimeError("provider unavailable"))
+        state = {
+            "messages": [HumanMessage(content="Pode me ajudar?")],
+            "route_source": "jev",
+            "routes": ["default"],
+            "specialist_results": [],
+            "agents": ["router"],
+            "tools": [],
+        }
+
+        with patch("app.agents.graph.get_chat_model", return_value=model):
+            result = await default_agent(state)
+
+        self.assertEqual(result["messages"][0].content, DEFAULT_AGENT_RESPONSE)
+
+    async def test_specialist_failure_is_collected_without_aborting_the_graph(self) -> None:
+        """Turn a specialist model exception into a result for safe synthesis."""
+        model = Mock()
+        model.ainvoke = AsyncMock(side_effect=RuntimeError("provider unavailable"))
+        state = {
+            "messages": [HumanMessage(content="Como funciona o aplicativo?")],
+            "user_id": "user",
+            "agents": ["router"],
+            "input_guardrail": {"allowed": True},
+        }
+
+        with patch("app.agents.graph.get_chat_model", return_value=model):
+            result = await _run_agent(state, "prompt", "faq")
+
+        self.assertEqual(result["specialist_results"][0]["status"], "error")
 
     async def test_contextual_followup_inherits_route_and_explicit_topic_wins(self) -> None:
         """Carry context only for referential follow-ups, not explicit topic changes."""
