@@ -380,6 +380,7 @@ def _is_pending_followup(message: object, missing_data: object) -> bool:
 
 
 def _is_visualization_subject_reply(message: object, missing_data: object) -> bool:
+    """Recognize a short chart-topic answer without hijacking a new question."""
     content = getattr(message, "content", message)
     if not isinstance(content, str):
         return False
@@ -880,8 +881,9 @@ async def _resolve_jev_route(
     }
     if outcome.accepted:
         latest_message = _latest_message(state)
+        dashboard_creation_request = _is_dashboard_creation_request(latest_message)
         if (
-            _is_dashboard_creation_request(latest_message)
+            dashboard_creation_request
             and routes is not None
             and "visualization" in routes
             and (
@@ -903,7 +905,14 @@ async def _resolve_jev_route(
                 required_agent="visualization",
             )
             return routes, route_source or "deterministic", _empty_decision_metadata()
-        return [outcome.decision.agent], "jev", metadata
+        selected_route_source = (
+            "context"
+            if dashboard_creation_request
+            and route_source == "context"
+            and outcome.decision.agent == "visualization"
+            else "jev"
+        )
+        return [outcome.decision.agent], selected_route_source, metadata
     if routes is None:
         routes, route_source = await _resolve_model_routes(state)
     return routes, route_source or "no_model", metadata
@@ -990,9 +999,11 @@ async def route_request(state: AgentState) -> dict:
     latest_message = _latest_message(state)
     content = getattr(latest_message, "content", "")
     if (
-        isinstance(content, str)
+        route_source in {"deterministic", "model", "context", "pending"}
+        and isinstance(content, str)
         and _DASHBOARD_IMPLICIT_REQUEST_PATTERN.search(_normalize_route_text(content))
         and "visualization" not in routes
+        and "default" not in routes
         and routes != ["fallback"]
     ):
         routes = [*routes, "visualization"][:MAX_ROUTER_ROUTES]
