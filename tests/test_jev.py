@@ -25,6 +25,7 @@ from app.decision.service import DecisionService
 
 
 def _decision_input() -> DecisionInput:
+    """Build the bounded fixture state used by provider and service tests."""
     return DecisionInput(
         message="Mostre o consumo de água no último mês",
         available_agents=["faq", "sustainability", "default"],
@@ -38,6 +39,7 @@ def _decision_input() -> DecisionInput:
 
 
 def _provider_body(*, agent: str = "sustainability") -> dict:
+    """Build a valid System One response fixture for the selected route."""
     return {
         "model": "jev-latest",
         "answers": {
@@ -53,6 +55,7 @@ def _provider_body(*, agent: str = "sustainability") -> dict:
 
 class JevProviderTests(unittest.TestCase):
     def test_provider_parses_route_tools_confidence_and_usage(self) -> None:
+        """Parse a valid response into route, tools, confidence, and usage."""
         result = JevDecisionProvider._parse_response(_provider_body(), _decision_input())
 
         self.assertEqual(result.decision.agent, "sustainability")
@@ -61,6 +64,7 @@ class JevProviderTests(unittest.TestCase):
         self.assertEqual((result.input_tokens, result.output_tokens), (30, 5))
 
     def test_provider_rejects_unavailable_route_or_missing_answer(self) -> None:
+        """Reject a route outside the candidate set and omitted decisions."""
         invalid_route_body = _provider_body(agent="other")
         state = _decision_input()
         with self.assertRaises(InvalidDecisionError):
@@ -73,6 +77,7 @@ class JevProviderTests(unittest.TestCase):
             JevDecisionProvider._parse_response(body, state_with_missing_answer)
 
     def test_provider_state_contains_no_user_or_history_fields(self) -> None:
+        """Keep identity, credentials, and conversation history out of state."""
         provider_state = _decision_input().to_provider_state()
 
         self.assertEqual(
@@ -84,6 +89,7 @@ class JevProviderTests(unittest.TestCase):
         self.assertNotIn("jwt", provider_state)
 
     def test_graph_decision_input_anonymizes_message_and_omits_identity(self) -> None:
+        """Anonymize the current message and omit internal identity fields."""
         decision_input = graph._build_decision_input(
             {
                 "user_id": "internal-user-123",
@@ -101,9 +107,11 @@ class JevProviderTests(unittest.TestCase):
 
 class JevProviderRequestTests(unittest.IsolatedAsyncioTestCase):
     async def test_request_uses_system_one_contract_and_minimized_state(self) -> None:
+        """Send a single minimized request to the configured System One path."""
         captured: dict[str, object] = {}
 
         async def respond(request: httpx.Request) -> httpx.Response:
+            """Capture the request and return a valid fixture response."""
             captured["url"] = str(request.url)
             captured["authorization"] = request.headers.get("authorization")
             captured["payload"] = json.loads(request.content)
@@ -131,9 +139,11 @@ class JevProviderRequestTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_timeout_and_provider_http_errors_are_classified(self) -> None:
+        """Map timeouts and retryable HTTP statuses to provider errors."""
         state = _decision_input()
 
         async def timeout(_request: httpx.Request) -> httpx.Response:
+            """Simulate an HTTP transport timeout."""
             raise httpx.ReadTimeout("provider timeout")
 
         timeout_provider = JevDecisionProvider(
@@ -145,6 +155,7 @@ class JevProviderRequestTests(unittest.IsolatedAsyncioTestCase):
 
         for status_code in (429, 500):
             async def fail(_request: httpx.Request, code=status_code) -> httpx.Response:
+                """Return one failing status code from the API."""
                 return httpx.Response(code)
 
             provider = JevDecisionProvider(
@@ -158,12 +169,14 @@ class JevProviderRequestTests(unittest.IsolatedAsyncioTestCase):
                 await provider.decide(state)
 
     async def test_invalid_json_and_incomplete_responses_are_rejected(self) -> None:
+        """Reject non-JSON and incomplete successful API responses."""
         state = _decision_input()
         for response in (
             httpx.Response(200, text="not json"),
             httpx.Response(200, json={"answers": {}}),
         ):
             async def respond(_request: httpx.Request, result=response) -> httpx.Response:
+                """Return the selected malformed response fixture."""
                 return result
 
             provider = JevDecisionProvider(
@@ -179,6 +192,7 @@ class JevProviderRequestTests(unittest.IsolatedAsyncioTestCase):
 
 class DecisionServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_valid_decision_is_accepted_and_usage_is_preserved(self) -> None:
+        """Accept an authorized provider decision and preserve token usage."""
         provider = AsyncMock()
         provider.decide.return_value = ProviderResult(
             decision=MidasDecision(
@@ -209,6 +223,7 @@ class DecisionServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((outcome.input_tokens, outcome.output_tokens), (30, 4))
 
     async def test_disabled_service_does_not_call_provider(self) -> None:
+        """Use fallback without a provider request when Jev is disabled."""
         provider = AsyncMock()
         service = DecisionService(
             provider,
@@ -226,6 +241,7 @@ class DecisionServiceTests(unittest.IsolatedAsyncioTestCase):
         provider.decide.assert_not_awaited()
 
     async def test_low_confidence_uses_fallback(self) -> None:
+        """Reject a valid route whose confidence is below the configured floor."""
         provider = AsyncMock()
         provider.decide.return_value = ProviderResult(
             decision=MidasDecision(
@@ -255,6 +271,7 @@ class DecisionServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcome.decision.agent, "default")
 
     async def test_unavailable_tool_is_rejected_and_falls_back(self) -> None:
+        """Reject tools that are outside the selected agent allowlist."""
         provider = AsyncMock()
         provider.decide.return_value = ProviderResult(
             decision=MidasDecision(
@@ -284,6 +301,7 @@ class DecisionServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcome.decision.agent, "default")
 
     async def test_call_limit_falls_back_without_calling_provider(self) -> None:
+        """Enforce the per-request decision limit before calling the provider."""
         provider = AsyncMock()
         service = DecisionService(
             provider,
@@ -301,6 +319,7 @@ class DecisionServiceTests(unittest.IsolatedAsyncioTestCase):
         provider.decide.assert_not_awaited()
 
     async def test_provider_timeouts_and_unexpected_failures_fall_back(self) -> None:
+        """Turn provider timeouts and unexpected exceptions into fallback."""
         for error, reason in (
             (DecisionTimeoutError("timed out"), "timeout"),
             (RuntimeError("unexpected"), "provider_error"),
@@ -322,6 +341,7 @@ class DecisionServiceTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(outcome.fallback_reason, reason)
 
     async def test_analytics_is_rejected_when_backend_is_unavailable(self) -> None:
+        """Reject analytics strategy until an analytics backend is available."""
         provider = AsyncMock()
         provider.decide.return_value = ProviderResult(
             decision=MidasDecision(
@@ -350,6 +370,7 @@ class DecisionServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcome.fallback_reason, "invalid_schema")
 
     async def test_shadow_decision_records_agreement_after_completion(self) -> None:
+        """Record shadow agreement after a valid decision finishes."""
         provider = AsyncMock()
         provider.api_key = "configured"
         provider.decide.return_value = ProviderResult(
@@ -384,14 +405,17 @@ class DecisionServiceTests(unittest.IsolatedAsyncioTestCase):
 
 class JevRouterIntegrationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
+        """Save mutable Jev settings before each router test."""
         self.previous_enabled = settings.jev_enabled
         self.previous_shadow = settings.jev_shadow_mode
 
     def tearDown(self) -> None:
+        """Restore Jev settings after each router test."""
         settings.jev_enabled = self.previous_enabled
         settings.jev_shadow_mode = self.previous_shadow
 
     async def test_active_jev_can_select_valid_route(self) -> None:
+        """Apply a valid Jev route when shadow mode is disabled."""
         settings.jev_enabled = True
         settings.jev_shadow_mode = False
         decision = MidasDecision(
@@ -422,6 +446,7 @@ class JevRouterIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["decision_tools"], ["get_consumption_summary"])
 
     async def test_shadow_decision_preserves_existing_route(self) -> None:
+        """Keep the existing deterministic route while Jev runs in shadow."""
         settings.jev_enabled = True
         settings.jev_shadow_mode = True
         service = Mock()
@@ -447,6 +472,7 @@ class JevRouterIntegrationTests(unittest.IsolatedAsyncioTestCase):
         service.decide.assert_not_called()
 
     async def test_guardrail_block_never_calls_jev(self) -> None:
+        """Skip Jev entirely when the input guardrail blocks a request."""
         settings.jev_enabled = True
         service = AsyncMock()
 
@@ -464,6 +490,7 @@ class JevRouterIntegrationTests(unittest.IsolatedAsyncioTestCase):
         service.schedule_shadow.assert_not_called()
 
     async def test_provider_failure_keeps_the_legacy_deterministic_route(self) -> None:
+        """Retain the existing deterministic route when Jev falls back."""
         settings.jev_enabled = True
         settings.jev_shadow_mode = False
         service = AsyncMock()
@@ -498,6 +525,7 @@ class JevRouterIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
 class JevToolSelectionTests(unittest.TestCase):
     def test_unselected_consumption_tool_is_not_passed_to_model(self) -> None:
+        """Keep a mandatory prefetch tool out of model access when unselected."""
         consumption_tool = Mock()
         consumption_tool.name = "get_consumption_summary"
         knowledge_tool = Mock()
@@ -512,6 +540,7 @@ class JevToolSelectionTests(unittest.TestCase):
         self.assertEqual(available_for_model, [])
 
     def test_selected_tools_remain_available_unless_already_prefetched(self) -> None:
+        """Expose selected tools to the model except tools already prefetched."""
         consumption_tool = Mock()
         consumption_tool.name = "get_consumption_summary"
         knowledge_tool = Mock()

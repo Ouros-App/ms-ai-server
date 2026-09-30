@@ -15,6 +15,7 @@ class DecisionInput(BaseModel):
 
     @property
     def available_tools(self) -> list[str]:
+        """Return the distinct tools available across all candidate agents."""
         return sorted({tool for tools in self.agent_tools.values() for tool in tools})
 
     def to_provider_state(self) -> dict[str, object]:
@@ -42,6 +43,7 @@ class MidasDecision(BaseModel):
     @field_validator("tools")
     @classmethod
     def unique_tools(cls, value: list[str]) -> list[str]:
+        """Reject duplicate tool choices returned by the decision provider."""
         if len(value) != len(set(value)):
             raise ValueError("decision tools must be unique")
         return value
@@ -67,6 +69,7 @@ class DecisionOutcome(BaseModel):
 
     @property
     def accepted(self) -> bool:
+        """Report whether this decision can replace legacy routing."""
         return self.fallback_reason is None
 
 

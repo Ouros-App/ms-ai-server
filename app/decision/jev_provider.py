@@ -54,6 +54,7 @@ class JevDecisionProvider:
         timeout_seconds: float,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
+        """Store provider credentials and bounded request settings."""
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -62,6 +63,7 @@ class JevDecisionProvider:
 
     @classmethod
     def from_settings(cls) -> "JevDecisionProvider":
+        """Build the TypeSafe client from the application settings."""
         key = settings.jev_api_key.get_secret_value() if settings.jev_api_key else None
         return cls(
             api_key=key,
@@ -71,6 +73,7 @@ class JevDecisionProvider:
         )
 
     async def decide(self, state: DecisionInput) -> ProviderResult:
+        """Request and validate one structured decision from System One."""
         if not self.api_key:
             raise DecisionProviderError("JEV_API_KEY is not configured")
 
@@ -113,6 +116,7 @@ class JevDecisionProvider:
 
     @staticmethod
     def _questions(state: DecisionInput) -> dict[str, dict[str, object]]:
+        """Build one combined route, tool, and strategy questionnaire."""
         agent_criteria = {
             agent: _AGENT_DESCRIPTIONS.get(agent, f"Rota {agent} disponível no Midas.")
             for agent in state.available_agents
@@ -155,6 +159,7 @@ class JevDecisionProvider:
 
     @staticmethod
     def _probability(answer: object, name: str) -> float:
+        """Read one bounded probability from a System One answer."""
         if not isinstance(answer, dict) or answer.get("type") != "noul":
             raise InvalidDecisionError(f"Jev omitted the {name} decision")
         probability = answer.get("noul")
@@ -168,6 +173,7 @@ class JevDecisionProvider:
         body: object,
         state: DecisionInput,
     ) -> ProviderResult:
+        """Convert the provider response to locally validated decision data."""
         if not isinstance(body, dict):
             raise InvalidDecisionError("Jev response must be an object")
         answers = body.get("answers")

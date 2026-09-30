@@ -32,6 +32,7 @@ class DecisionService:
         input_cost_per_million_usd: float,
         output_cost_per_million_usd: float,
     ) -> None:
+        """Configure provider validation, fallback, cost, and call limits."""
         self.provider = provider
         self.fallback_provider = fallback_provider
         self.enabled = enabled
@@ -43,6 +44,7 @@ class DecisionService:
 
     @classmethod
     def from_settings(cls) -> "DecisionService":
+        """Create the decision service from process configuration."""
         return cls(
             provider=JevDecisionProvider.from_settings(),
             fallback_provider=DeterministicFallbackProvider(),
@@ -55,6 +57,7 @@ class DecisionService:
 
     @property
     def ready(self) -> bool:
+        """Return whether shadow requests can reach a configured provider."""
         return self.enabled and bool(getattr(self.provider, "api_key", None))
 
     async def decide(
@@ -63,6 +66,7 @@ class DecisionService:
         *,
         call_number: int = 1,
     ) -> DecisionOutcome:
+        """Obtain a decision or return a safe fallback with telemetry."""
         started_at = perf_counter()
         result: ProviderResult | None = None
         if not self.enabled:
@@ -109,6 +113,7 @@ class DecisionService:
 
     @staticmethod
     def _validate_decision(result: ProviderResult, state: DecisionInput) -> None:
+        """Enforce available routes, route tools, and backend capabilities."""
         decision = result.decision
         if decision.agent not in state.available_agents:
             raise InvalidDecisionError("Jev selected an unavailable Midas route")
@@ -128,6 +133,7 @@ class DecisionService:
         *,
         result: ProviderResult | None = None,
     ) -> DecisionOutcome:
+        """Create a fallback outcome and record why Jev was not applied."""
         fallback_result = self.fallback_provider.decide(state)
         duration = perf_counter() - started_at
         tokens_in = result.input_tokens if result else 0
@@ -165,6 +171,7 @@ class DecisionService:
         fallback_reason: str | None = None,
         result: ProviderResult | None = None,
     ) -> None:
+        """Record bounded token, latency, and estimated cost metrics."""
         if result is not None:
             input_tokens = result.input_tokens
             output_tokens = result.output_tokens
@@ -183,6 +190,7 @@ class DecisionService:
 
     @staticmethod
     def _log_completed(outcome: DecisionOutcome, duration: float) -> None:
+        """Write structured decision details without request contents."""
         logger.info(
             "jev.decision.completed agent=%s tools=%s confidence=%.3f "
             "duration_ms=%.1f fallback=%s reason=%s input_tokens=%d "

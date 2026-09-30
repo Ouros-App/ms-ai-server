@@ -5,6 +5,7 @@ class DeterministicFallbackProvider:
     """Provide a safe sentinel that hands control to the existing router."""
 
     def decide(self, state: DecisionInput) -> ProviderResult:
+        """Return a safe sentinel that delegates routing to Midas."""
         fallback_agent = (
             "default" if "default" in state.available_agents else state.available_agents[-1]
         )

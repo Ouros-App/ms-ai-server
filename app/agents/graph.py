@@ -713,6 +713,7 @@ async def _resolve_model_routes(state: AgentState) -> tuple[list[str], str]:
 
 
 def _empty_decision_metadata() -> dict[str, object]:
+    """Return neutral decision state for requests that do not use Jev."""
     return {
         "decision_tools": [],
         "decision_source": "",
@@ -729,6 +730,7 @@ async def _run_jev_shadow(
     routes: list[str] | None,
     route_source: str | None,
 ) -> tuple[list[str], str]:
+    """Run shadow evaluation while preserving the legacy route."""
     if routes is None:
         routes, route_source = await _resolve_model_routes(state)
     task = _DECISION_SERVICE.schedule_shadow(decision_input)
@@ -750,6 +752,7 @@ async def _resolve_jev_route(
     routes: list[str] | None,
     route_source: str | None,
 ) -> tuple[list[str], str, dict[str, object]]:
+    """Apply Jev routing when enabled and fall back to the legacy router."""
     latest_message = _latest_message(state)
     decision_input = _build_decision_input(
         state,
@@ -795,6 +798,7 @@ def _route_starts_new_task(
     routes: list[str],
     route_source: str,
 ) -> bool:
+    """Determine whether a route switch should retire pending task state."""
     if state is None or route_source not in {
         "deterministic",
         "jev",
@@ -1076,6 +1080,7 @@ async def _execute_specialist(
     specialist_tools: list,
     mcp_provider: MCPToolProvider | None,
 ) -> tuple[dict[str, object], list[str], bool]:
+    """Run one specialist with authenticated prefetch and selected tools."""
     normalized_user_text = _normalize_route_text(user_text)
     dashboard_requested = bool(
         _DASHBOARD_REQUEST_PATTERN.search(normalized_user_text)

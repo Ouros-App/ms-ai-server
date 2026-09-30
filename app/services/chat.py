@@ -26,6 +26,7 @@ async def _invoke_graph(
     *,
     debug: bool = False,
 ) -> tuple[ChatResponse, dict]:
+    """Run one authenticated graph request and collect optional diagnostics."""
     started_at = perf_counter()
     config = {"configurable": {"thread_id": payload.thread_id}}
     trace_context = capture_debug_trace() if debug else nullcontext([])

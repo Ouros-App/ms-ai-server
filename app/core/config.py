@@ -134,6 +134,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_keycloak_jwt_config(self) -> "Settings":
+        """Validate authentication, integration, and provider configuration."""
         self._validate_auth_contract()
         self._validate_metrics_contract()
         self._validate_mcp_exchange_contract()
