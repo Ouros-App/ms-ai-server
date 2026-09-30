@@ -1,6 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 from time import perf_counter
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI
 from pymongo import AsyncMongoClient
@@ -31,6 +32,24 @@ async def lifespan(app: FastAPI):
         memory_store = UserMemoryStore(database)
         thread_ownership = ThreadOwnershipStore(database)
         logger.info("database_configured database=%s", settings.mongodb_database)
+        logger.info(
+            "jev.configuration enabled=%s mode=%s api_key_configured=%s "
+            "provider_ready=%s model=%s base_url=%s timeout_ms=%d "
+            "min_confidence=%.2f max_calls_per_request=%d",
+            settings.jev_enabled,
+            "shadow" if settings.jev_shadow_mode else "active",
+            bool(settings.jev_api_key and settings.jev_api_key.get_secret_value()),
+            bool(
+                settings.jev_enabled
+                and settings.jev_api_key
+                and settings.jev_api_key.get_secret_value()
+            ),
+            settings.jev_model,
+            urlsplit(settings.jev_base_url).hostname or "unknown",
+            settings.jev_timeout_ms,
+            settings.jev_min_confidence,
+            settings.jev_max_calls_per_request,
+        )
         with get_checkpointer() as checkpointer:
             app.state.checkpointer = checkpointer
             app.state.thread_ownership = thread_ownership

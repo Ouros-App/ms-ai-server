@@ -65,16 +65,29 @@ class DecisionService:
         state: DecisionInput,
         *,
         call_number: int = 1,
+        mode: str = "active",
     ) -> DecisionOutcome:
         """Obtain a decision or return a safe fallback with telemetry."""
         started_at = perf_counter()
         result: ProviderResult | None = None
         if not self.enabled:
+            logger.warning("jev.decision.skipped reason=disabled")
             return self._fallback(state, "disabled", started_at)
         if call_number > self.max_calls_per_request:
+            logger.warning(
+                "jev.decision.skipped reason=call_limit call_number=%d max_calls_per_request=%d",
+                call_number,
+                self.max_calls_per_request,
+            )
             return self._fallback(state, "call_limit", started_at)
 
-        trace_event("jev.decision.started", decision_type="combined")
+        logger.info(
+            "jev.decision.started mode=%s call_number=%d model=%s",
+            mode,
+            call_number,
+            getattr(self.provider, "model", "unknown"),
+        )
+        trace_event("jev.decision.started", decision_type="combined", mode=mode)
         try:
             result = await self.provider.decide(state)
             self._validate_decision(result, state)
@@ -153,6 +166,15 @@ class DecisionService:
             input_tokens=tokens_in,
             output_tokens=tokens_out,
         )
+        logger.warning(
+            "jev.decision.fallback reason=%s fallback_agent=%s duration_ms=%.1f "
+            "input_tokens=%d output_tokens=%d",
+            reason,
+            outcome.decision.agent,
+            duration * 1000,
+            tokens_in,
+            tokens_out,
+        )
         self._log_completed(outcome, duration)
         trace_event(
             "jev.decision.fallback",
@@ -218,9 +240,19 @@ class DecisionService:
 
     def schedule_shadow(self, state: DecisionInput) -> asyncio.Task | None:
         """Run a bounded shadow request without delaying the user's response."""
-        if not self.ready or self.max_calls_per_request < 1:
+        if not self.enabled:
+            logger.warning("jev.shadow.skipped reason=disabled")
             return None
-        task = asyncio.create_task(self.decide(state), name="jev-shadow-decision")
+        if not getattr(self.provider, "api_key", None):
+            logger.error("jev.shadow.skipped reason=api_key_missing")
+            return None
+        if self.max_calls_per_request < 1:
+            logger.warning("jev.shadow.skipped reason=call_limit")
+            return None
+        logger.info("jev.shadow.scheduled model=%s", getattr(self.provider, "model", "unknown"))
+        task = asyncio.create_task(
+            self.decide(state, mode="shadow"), name="jev-shadow-decision"
+        )
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
         return task
