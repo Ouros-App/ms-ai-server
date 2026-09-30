@@ -76,6 +76,7 @@ class DecisionOutcome(BaseModel):
 DecisionStatus = Literal[
     "success",
     "disabled",
+    "api_key_missing",
     "low_confidence",
     "timeout",
     "provider_error",

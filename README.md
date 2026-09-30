@@ -64,7 +64,7 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 | `GROQ_API_KEY` / `GROQ_FAST_MODEL` / `GROQ_MODEL` | Provedor Groq e perfis rápido/potente. |
 | `NVIDIA_API_KEY` / `NVIDIA_NIM_FAST_MODEL` / `NVIDIA_NIM_MODEL` / `NVIDIA_NIM_BASE_URL` | Provedor NVIDIA NIM e perfis rápido/potente. |
 | `LLM_TEMPERATURE` / `LLM_TIMEOUT_SECONDS` | Parâmetros das chamadas ao modelo. |
-| `JEV_ENABLED` / `JEV_SHADOW_MODE` | Ativam a decisão Jev. Comece com `JEV_ENABLED=true` e `JEV_SHADOW_MODE=true` para comparar decisões sem mudar as rotas do chat. |
+| `JEV_ENABLED` / `JEV_SHADOW_MODE` | Ativam a decisão Jev. Com `JEV_ENABLED=true` e `JEV_SHADOW_MODE=false` (padrão), Jev escolhe a rota de todas as mensagens normais, inclusive saudações e perguntas de identidade. Use `JEV_SHADOW_MODE=true` somente para comparar decisões mantendo o roteador atual. Bloqueios de guardrail e rotas explicitamente definidas continuam fora do roteamento Jev. |
 | `JEV_API_KEY` | Chave TypeSafe System One; configure no Infisical nos ambientes de deploy. |
 | `JEV_BASE_URL` / `JEV_MODEL` | Endpoint e modelo Jev (`https://api.typesafe.ai` e `jev-latest` por padrão). |
 | `JEV_TIMEOUT_MS` / `JEV_MIN_CONFIDENCE` / `JEV_MAX_CALLS_PER_REQUEST` | Limite de latência, confiança mínima e chamadas permitidas por mensagem. |
@@ -96,9 +96,11 @@ faltantes como estado estruturado da conversa, separados por especialista e com 
 exigência de dados autenticados preservada. Respostas curtas como "30 dias", "1 ciclo"
 ou "na minha fazenda" continuam a tarefa anterior sem depender apenas de palavras-chave
 ou de o roteador reconstruir a intenção do zero. Saudações e perguntas como
-"quem é você?" usam fast paths determinísticos e não gastam chamadas de LLM; um
-cancelamento limpa a tarefa, e uma troca explícita para outro domínio aposenta
-pendências antigas para elas não reaparecerem mais tarde.
+"quem é você?" começam pela rota determinística `default`; com Jev habilitado,
+também geram uma decisão Jev. No modo ativo, Jev pode substituir essa rota; no
+modo shadow, a rota `default` é mantida. Um cancelamento limpa a tarefa, e uma
+troca explícita para outro domínio aposenta pendências antigas para elas não
+reaparecerem mais tarde.
 
 As tools de memória e MCP ficam disponíveis somente para especialistas. O cliente
 MCP usa Streamable HTTP, troca o JWT validado por um token delegado de backend,

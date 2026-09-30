@@ -1,4 +1,5 @@
 import logging
+from urllib.parse import urlsplit
 
 import httpx
 from pydantic import ValidationError
@@ -13,6 +14,11 @@ class DecisionProviderError(RuntimeError):
     """Base error for failures that should trigger the existing router."""
 
     reason = "provider_error"
+
+    def __init__(self, message: str, *, reason: str | None = None) -> None:
+        super().__init__(message)
+        if reason is not None:
+            self.reason = reason
 
 
 class DecisionTimeoutError(DecisionProviderError):
@@ -75,7 +81,10 @@ class JevDecisionProvider:
     async def decide(self, state: DecisionInput) -> ProviderResult:
         """Request and validate one structured decision from System One."""
         if not self.api_key:
-            raise DecisionProviderError("JEV_API_KEY is not configured")
+            raise DecisionProviderError(
+                "JEV_API_KEY is not configured",
+                reason="api_key_missing",
+            )
 
         questions = self._questions(state)
         payload = {
@@ -84,6 +93,13 @@ class JevDecisionProvider:
             "questions": questions,
         }
         try:
+            provider_host = urlsplit(self.base_url).hostname or "unknown"
+            logger.info(
+                "jev.provider_request.started model=%s host=%s timeout_ms=%d",
+                self.model,
+                provider_host,
+                round(self.timeout_seconds * 1000),
+            )
             async with httpx.AsyncClient(
                 timeout=self.timeout_seconds,
                 follow_redirects=False,
@@ -95,9 +111,25 @@ class JevDecisionProvider:
                     json=payload,
                 )
         except httpx.TimeoutException as error:
+            logger.warning(
+                "jev.provider_request.failed reason=timeout model=%s timeout_ms=%d",
+                self.model,
+                round(self.timeout_seconds * 1000),
+            )
             raise DecisionTimeoutError("Jev decision timed out") from error
         except httpx.HTTPError as error:
+            logger.warning(
+                "jev.provider_request.failed reason=transport_error model=%s error_type=%s",
+                self.model,
+                type(error).__name__,
+            )
             raise DecisionProviderError("Jev request failed") from error
+
+        logger.info(
+            "jev.provider_request.completed model=%s status=%d",
+            self.model,
+            response.status_code,
+        )
 
         if response.status_code == 429 or response.status_code >= 500:
             raise DecisionProviderError(

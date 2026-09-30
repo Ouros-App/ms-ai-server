@@ -865,12 +865,11 @@ async def route_request(state: AgentState) -> dict:
         routes, route_source = [state["route"]], "explicit"
     else:
         routes, route_source = _resolve_local_routes(state)
-        if routes is None or route_source == "deterministic":
-            routes, route_source, decision_metadata = await _resolve_jev_route(
-                state,
-                routes,
-                route_source,
-            )
+        routes, route_source, decision_metadata = await _resolve_jev_route(
+            state,
+            routes,
+            route_source,
+        )
 
     logger.info(
         "agent_routes_selected source=%s routes=%s",
