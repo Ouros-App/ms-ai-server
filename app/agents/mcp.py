@@ -419,6 +419,7 @@ class MCPToolProvider:
                 or not chart_title.strip()
                 or not isinstance(render_as, str)
                 or not 1 <= len(render_as) <= 32
+                or render_as == "auto"
                 or not isinstance(html, str)
                 or not html
                 or len(html) > 1_500_000
