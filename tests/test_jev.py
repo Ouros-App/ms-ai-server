@@ -44,7 +44,6 @@ def _provider_body(*, agent: str = "sustainability") -> dict:
         "model": "jev-latest",
         "answers": {
             "agent": {"type": "choice", "choice": agent, "confidence": 0.94},
-            "needs_mcp": {"type": "noul", "noul": 0.9},
             "needs_analytics": {"type": "noul", "noul": 0.1},
             "tool_0": {"type": "noul", "noul": 0.9},
             "tool_1": {"type": "noul", "noul": 0.1},
@@ -60,6 +59,8 @@ class JevProviderTests(unittest.TestCase):
 
         self.assertEqual(result.decision.agent, "sustainability")
         self.assertEqual(result.decision.tools, ["get_consumption_summary"])
+        self.assertTrue(result.decision.needs_mcp)
+        self.assertFalse(result.decision.needs_analytics)
         self.assertEqual(result.decision.confidence, 0.94)
         self.assertEqual((result.input_tokens, result.output_tokens), (30, 5))
 
@@ -67,14 +68,73 @@ class JevProviderTests(unittest.TestCase):
         """Reject a route outside the candidate set and omitted decisions."""
         invalid_route_body = _provider_body(agent="other")
         state = _decision_input()
-        with self.assertRaises(InvalidDecisionError):
+        with self.assertRaises(InvalidDecisionError) as invalid_route:
             JevDecisionProvider._parse_response(invalid_route_body, state)
+        self.assertEqual(invalid_route.exception.reason, "agent_unavailable")
 
         body = _provider_body()
-        del body["answers"]["needs_mcp"]
+        del body["answers"]["tool_0"]
         state_with_missing_answer = _decision_input()
-        with self.assertRaises(InvalidDecisionError):
+        with self.assertRaises(InvalidDecisionError) as missing_answer:
             JevDecisionProvider._parse_response(body, state_with_missing_answer)
+        self.assertEqual(missing_answer.exception.reason, "probability_missing")
+
+    def test_provider_classifies_malformed_decision_fields(self) -> None:
+        """Assign a specific reason to every malformed provider response field."""
+        state = _decision_input()
+        cases = (
+            ([], "response_not_object"),
+            ({"answers": []}, "answers_missing"),
+            ({"answers": {}}, "agent_answer_missing"),
+        )
+        for body, expected_reason in cases:
+            with self.subTest(reason=expected_reason):
+                with self.assertRaises(InvalidDecisionError) as raised:
+                    JevDecisionProvider._parse_response(body, state)
+                self.assertEqual(raised.exception.reason, expected_reason)
+
+        invalid_fields = (
+            ("agent", "confidence", 1.1, "confidence_invalid"),
+            ("tool_0", "noul", 1.1, "probability_invalid"),
+        )
+        for answer_name, field_name, value, expected_reason in invalid_fields:
+            body = _provider_body()
+            body["answers"][answer_name][field_name] = value
+            with self.subTest(reason=expected_reason):
+                with self.assertRaises(InvalidDecisionError) as raised:
+                    JevDecisionProvider._parse_response(body, state)
+                self.assertEqual(raised.exception.reason, expected_reason)
+
+        invalid_bodies = []
+        body_without_usage = _provider_body()
+        del body_without_usage["usage"]
+        invalid_bodies.append((body_without_usage, "usage_missing"))
+        body_with_invalid_usage = _provider_body()
+        body_with_invalid_usage["usage"]["input_tokens"] = -1
+        invalid_bodies.append((body_with_invalid_usage, "usage_invalid"))
+        body_without_model = _provider_body()
+        del body_without_model["model"]
+        invalid_bodies.append((body_without_model, "model_missing"))
+        body_with_invalid_schema = _provider_body()
+        body_with_invalid_schema["model"] = "m" * 101
+        invalid_bodies.append((body_with_invalid_schema, "decision_schema_invalid"))
+        for body, expected_reason in invalid_bodies:
+            with self.subTest(reason=expected_reason):
+                with self.assertRaises(InvalidDecisionError) as raised:
+                    JevDecisionProvider._parse_response(body, state)
+                self.assertEqual(raised.exception.reason, expected_reason)
+
+    def test_analytics_question_and_decision_when_backend_is_available(self) -> None:
+        """Ask Jev about analytics and honor its answer when supported."""
+        state = _decision_input().model_copy(update={"context": {"has_analytics": True}})
+        body = _provider_body()
+        body["answers"]["needs_analytics"] = {"type": "noul", "noul": 0.9}
+
+        questions = JevDecisionProvider._questions(state)
+        result = JevDecisionProvider._parse_response(body, state)
+
+        self.assertIn("needs_analytics", questions)
+        self.assertTrue(result.decision.needs_analytics)
 
     def test_provider_state_contains_no_user_or_history_fields(self) -> None:
         """Keep identity, credentials, and conversation history out of state."""
@@ -151,6 +211,34 @@ class JevProviderRequestTests(unittest.IsolatedAsyncioTestCase):
             set(payload["questions"]["agent"]["criteria"]),
             {"faq", "sustainability", "default"},
         )
+        self.assertNotIn("needs_mcp", payload["questions"])
+        self.assertNotIn("needs_analytics", payload["questions"])
+        self.assertIn(
+            "sustainability",
+            payload["questions"]["tool_0"]["instructions"],
+        )
+
+    async def test_tool_selection_is_limited_to_the_selected_route(self) -> None:
+        """Ignore a tool vote that belongs to a different selected agent."""
+        body = _provider_body(agent="default")
+        body["answers"]["tool_0"]["noul"] = 0.95
+
+        result = JevDecisionProvider._parse_response(body, _decision_input())
+
+        self.assertEqual(result.decision.agent, "default")
+        self.assertEqual(result.decision.tools, [])
+        self.assertFalse(result.decision.needs_mcp)
+
+    async def test_unavailable_analytics_is_not_requested_or_selected(self) -> None:
+        """Do not ask Jev for an analytics strategy without that backend."""
+        body = _provider_body()
+        body["answers"]["needs_analytics"]["noul"] = 0.99
+
+        result = JevDecisionProvider._parse_response(body, _decision_input())
+        questions = JevDecisionProvider._questions(_decision_input())
+
+        self.assertFalse(result.decision.needs_analytics)
+        self.assertNotIn("needs_analytics", questions)
 
     async def test_timeout_and_provider_http_errors_are_classified(self) -> None:
         """Map timeouts and retryable HTTP statuses to provider errors."""
@@ -214,8 +302,12 @@ class JevProviderRequestTests(unittest.IsolatedAsyncioTestCase):
                 0.1,
                 transport=httpx.MockTransport(respond),
             )
-            with self.assertRaises(InvalidDecisionError):
+            with self.assertRaises(InvalidDecisionError) as raised:
                 await provider.decide(state)
+            expected_reason = (
+                "invalid_json" if response.text == "not json" else "agent_answer_missing"
+            )
+            self.assertEqual(raised.exception.reason, expected_reason)
 
 
 class DecisionServiceTests(unittest.IsolatedAsyncioTestCase):
@@ -347,8 +439,52 @@ class DecisionServiceTests(unittest.IsolatedAsyncioTestCase):
 
         outcome = await service.decide(_decision_input())
 
-        self.assertEqual(outcome.fallback_reason, "invalid_schema")
+        self.assertEqual(outcome.fallback_reason, "tool_not_allowed")
         self.assertEqual(outcome.decision.agent, "default")
+
+    async def test_invalid_route_and_mcp_mismatch_have_specific_fallback_reasons(self) -> None:
+        """Reject unavailable routes and inconsistent MCP strategy explicitly."""
+        cases = (
+            (
+                MidasDecision(
+                    agent="other",
+                    needs_mcp=False,
+                    needs_analytics=False,
+                    confidence=0.99,
+                ),
+                "agent_unavailable",
+            ),
+            (
+                MidasDecision(
+                    agent="sustainability",
+                    needs_mcp=True,
+                    needs_analytics=False,
+                    confidence=0.99,
+                ),
+                "mcp_strategy_mismatch",
+            ),
+        )
+        for decision, reason in cases:
+            provider = AsyncMock()
+            provider.decide.return_value = ProviderResult(
+                decision=decision,
+                model="jev-latest",
+                input_tokens=10,
+                output_tokens=2,
+            )
+            service = DecisionService(
+                provider,
+                DeterministicFallbackProvider(),
+                enabled=True,
+                min_confidence=0.7,
+                max_calls_per_request=1,
+                input_cost_per_million_usd=0,
+                output_cost_per_million_usd=0,
+            )
+
+            with self.subTest(reason=reason):
+                outcome = await service.decide(_decision_input())
+                self.assertEqual(outcome.fallback_reason, reason)
 
     async def test_call_limit_falls_back_without_calling_provider(self) -> None:
         """Enforce the per-request decision limit before calling the provider."""
@@ -417,7 +553,7 @@ class DecisionServiceTests(unittest.IsolatedAsyncioTestCase):
 
         outcome = await service.decide(_decision_input())
 
-        self.assertEqual(outcome.fallback_reason, "invalid_schema")
+        self.assertEqual(outcome.fallback_reason, "analytics_unavailable")
 
     async def test_shadow_decision_records_agreement_after_completion(self) -> None:
         """Record shadow agreement after a valid decision finishes."""
