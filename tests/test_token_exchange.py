@@ -46,7 +46,11 @@ class TokenExchangeTests(unittest.IsolatedAsyncioTestCase):
             ),
         ):
             async with httpx.AsyncClient(transport=transport) as client:
-                token = await _exchange_with_client("mobile-user-token", client)
+                token = await _exchange_with_client(
+                    "mobile-user-token",
+                    client,
+                    "ms-mcp-server-ouros-knowledge",
+                )
 
         self.assertEqual(token, "delegated-mcp-token")
         self.assertTrue(captured["authorization"].startswith("Basic "))
@@ -75,7 +79,11 @@ class TokenExchangeTests(unittest.IsolatedAsyncioTestCase):
         ):
             async with httpx.AsyncClient(transport=transport) as client:
                 with self.assertRaises(MCPTokenExchangeError) as raised:
-                    await _exchange_with_client("mobile-user-token", client)
+                    await _exchange_with_client(
+                    "mobile-user-token",
+                    client,
+                    "ms-mcp-server-ouros-knowledge",
+                )
 
         self.assertEqual(raised.exception.reason, "keycloak_rejected")
         self.assertEqual(raised.exception.status_code, 403)
@@ -92,7 +100,11 @@ class TokenExchangeTests(unittest.IsolatedAsyncioTestCase):
         ):
             async with httpx.AsyncClient(transport=transport) as client:
                 with self.assertRaises(MCPTokenExchangeError) as raised:
-                    await _exchange_with_client("mobile-user-token", client)
+                    await _exchange_with_client(
+                    "mobile-user-token",
+                    client,
+                    "ms-mcp-server-ouros-knowledge",
+                )
 
         self.assertEqual(raised.exception.reason, "missing_client_secret")
         self.assertIsNone(raised.exception.status_code)
@@ -113,7 +125,11 @@ class TokenExchangeTests(unittest.IsolatedAsyncioTestCase):
         ):
             async with httpx.AsyncClient(transport=transport) as client:
                 with self.assertRaises(MCPTokenExchangeError) as raised:
-                    await _exchange_with_client("user-token-material", client)
+                    await _exchange_with_client(
+                        "user-token-material",
+                        client,
+                        "ms-mcp-server-ouros-knowledge",
+                    )
 
         self.assertEqual(raised.exception.reason, "connect_error")
         joined = "\n".join(logs.output)
@@ -134,7 +150,11 @@ class TokenExchangeTests(unittest.IsolatedAsyncioTestCase):
         ):
             async with httpx.AsyncClient(transport=transport) as client:
                 with self.assertRaises(MCPTokenExchangeError) as raised:
-                    await _exchange_with_client("mobile-user-token", client)
+                    await _exchange_with_client(
+                    "mobile-user-token",
+                    client,
+                    "ms-mcp-server-ouros-knowledge",
+                )
 
         self.assertEqual(raised.exception.reason, "timeout")
 
@@ -150,7 +170,11 @@ class TokenExchangeTests(unittest.IsolatedAsyncioTestCase):
         ):
             async with httpx.AsyncClient(transport=transport) as client:
                 with self.assertRaises(MCPTokenExchangeError) as raised:
-                    await _exchange_with_client("mobile-user-token", client)
+                    await _exchange_with_client(
+                    "mobile-user-token",
+                    client,
+                    "ms-mcp-server-ouros-knowledge",
+                )
 
         self.assertEqual(raised.exception.reason, "invalid_json")
         self.assertEqual(raised.exception.status_code, 200)
@@ -167,7 +191,11 @@ class TokenExchangeTests(unittest.IsolatedAsyncioTestCase):
         ):
             async with httpx.AsyncClient(transport=transport) as client:
                 with self.assertRaises(MCPTokenExchangeError) as raised:
-                    await _exchange_with_client("mobile-user-token", client)
+                    await _exchange_with_client(
+                    "mobile-user-token",
+                    client,
+                    "ms-mcp-server-ouros-knowledge",
+                )
 
         self.assertEqual(raised.exception.reason, "missing_access_token")
         self.assertEqual(raised.exception.status_code, 200)
