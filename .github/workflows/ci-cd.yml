@@ -15,6 +15,7 @@ permissions:
   checks: write
   issues: write
   pull-requests: read
+  security-events: write
 
 jobs:
   conventional-commits-warning:
