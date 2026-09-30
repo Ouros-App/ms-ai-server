@@ -8,6 +8,7 @@ from app.agents.mcp import (
     MCP_TOOLS_CACHE_MAX_ENTRIES,
     MCPToolProvider,
     MCPToolResultError,
+    capture_mcp_visualizations,
     forward_mcp_access_token,
 )
 from app.core.token_exchange import MCPTokenExchangeError
@@ -15,11 +16,93 @@ from app.debug_ui.trace import capture_debug_trace
 
 
 class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
+    async def test_custom_dashboard_tool_returns_summary_and_records_visualization(
+        self,
+    ) -> None:
+        payload = {
+            "title": "Metas da fazenda",
+            "charts": [
+                {
+                    "id": "goal-status",
+                    "title": "Status das metas",
+                    "render_as": "pie",
+                    "html": "<html>chart</html>",
+                }
+            ],
+        }
+        remote_tool = SimpleNamespace(
+            name="create_custom_dashboard",
+            description="Cria um painel",
+            ainvoke=AsyncMock(return_value=payload),
+        )
+        provider = MCPToolProvider()
+        tool = provider._bind_user_tool(remote_tool, dashboard_period_days=14)
+
+        with capture_mcp_visualizations() as visualizations:
+            result = await tool.ainvoke(
+                {
+                    "title": "Metas da fazenda",
+                    "charts": [{"chart_id": "goal-status", "render_as": "pie"}],
+                }
+            )
+
+        self.assertEqual(
+            result,
+            {
+                "title": "Metas da fazenda",
+                "charts": [{"id": "goal-status", "title": "Status das metas"}],
+            },
+        )
+        self.assertEqual(visualizations[0]["charts"][0]["render_as"], "pie")
+        self.assertEqual(visualizations[0]["charts"][0]["html"], "<html>chart</html>")
+        remote_tool.ainvoke.assert_awaited_once()
+
+    def test_custom_dashboard_filter_rejects_invalid_chart_payloads(self) -> None:
+        valid_chart = {
+            "id": "goal-status",
+            "title": "Status das metas",
+            "render_as": "pie",
+            "html": "<html>chart</html>",
+        }
+        invalid_payloads = (
+            {"title": " ", "charts": [valid_chart]},
+            {"title": "Painel", "charts": [{**valid_chart, "title": " "}]},
+            {"title": "Painel", "charts": [{**valid_chart, "render_as": ""}]},
+            {"title": "Painel", "charts": [{**valid_chart, "render_as": "auto"}]},
+            {"title": "Painel", "charts": [{**valid_chart, "html": ""}]},
+            {"title": "Painel", "charts": [{**valid_chart, "html": "x" * 1_500_001}]},
+            {"title": "Painel", "charts": [{**valid_chart, "id": "other"}]},
+        )
+        for index, payload in enumerate(invalid_payloads):
+            with self.subTest(index=index), self.assertRaises(MCPToolResultError):
+                MCPToolProvider._filter_custom_dashboard(
+                    payload,
+                    expected_chart_ids=["goal-status"],
+                )
+
+    def test_custom_dashboard_filter_rejects_oversized_combined_html(self) -> None:
+        chart = {
+            "id": "monthly-consumption",
+            "title": "Consumo mensal",
+            "render_as": "histogram",
+            "html": "x" * 1_100_000,
+        }
+        payload = {
+            "title": "Consumo",
+            "charts": [
+                chart,
+                {**chart, "id": "resource-efficiency"},
+            ],
+        }
+        with self.assertRaises(MCPToolResultError):
+            MCPToolProvider._filter_custom_dashboard(
+                payload,
+                expected_chart_ids=["monthly-consumption", "resource-efficiency"],
+            )
+
     def setUp(self) -> None:
         """Replace token exchange with a deterministic delegated-token stub."""
-        self.exchange_token = AsyncMock(
-            side_effect=lambda token: f"delegated::{token}"
-        )
+        self.exchange_token = AsyncMock(side_effect=lambda token: f"delegated::{token}")
         self.exchange_patcher = patch(
             "app.agents.mcp.exchange_mcp_access_token",
             new=self.exchange_token,
@@ -47,7 +130,9 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertLess(len(provider._tools_cache), MCP_TOOLS_CACHE_MAX_ENTRIES)
         self.assertNotIn("active-0", provider._tools_cache)
 
-    async def test_provider_forwards_same_keycloak_token_and_filters_allowlist(self) -> None:
+    async def test_provider_forwards_same_keycloak_token_and_filters_allowlist(
+        self,
+    ) -> None:
         """Forward the validated token while exposing only allowed MCP tools."""
         captured = {"calls": 0}
 
@@ -215,7 +300,9 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
                 expected_period_days=30,
             )
 
-    async def test_consumption_summary_keeps_scope_and_only_exposes_period(self) -> None:
+    async def test_consumption_summary_keeps_scope_and_only_exposes_period(
+        self,
+    ) -> None:
         payload = {
             "user_type": "farm_owner",
             "user_id": 42,
@@ -281,9 +368,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         }
 
         self.assertEqual(
-            MCPToolProvider._decode_tool_result(
-                {"structured_content": payload}
-            ),
+            MCPToolProvider._decode_tool_result({"structured_content": payload}),
             payload,
         )
         self.assertEqual(
@@ -304,9 +389,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         payload = {"farm_ids": [11], "data": {}}
 
         self.assertEqual(
-            MCPToolProvider._decode_tool_result(
-                {"structuredContent": payload}
-            ),
+            MCPToolProvider._decode_tool_result({"structuredContent": payload}),
             payload,
         )
         self.assertEqual(
@@ -335,9 +418,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             payload,
         )
 
-        self.assertIsNone(
-            MCPToolProvider._decode_tool_result("not-json")
-        )
+        self.assertIsNone(MCPToolProvider._decode_tool_result("not-json"))
 
     def test_user_scoped_result_contracts_reject_error_payloads(self) -> None:
         """Reject malformed user-scoped results instead of trusting partial data."""
@@ -408,9 +489,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             )
 
         invalid = [
-            event
-            for event in events
-            if event["event"] == "mcp.tool_result_invalid"
+            event for event in events if event["event"] == "mcp.tool_result_invalid"
         ]
         self.assertEqual(len(invalid), 1)
         self.assertEqual(invalid[0]["tool"], "get_consumption_summary")
@@ -460,9 +539,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             )
 
         remote_errors = [
-            event
-            for event in events
-            if event["event"] == "mcp.tool_error"
+            event for event in events if event["event"] == "mcp.tool_error"
         ]
         self.assertEqual(len(remote_errors), 1)
         self.assertGreater(remote_errors[0]["error_chars"], 0)
@@ -531,15 +608,15 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
                 await tools[0].ainvoke({})
 
         invalid = [
-            event
-            for event in events
-            if event["event"] == "mcp.tool_result_invalid"
+            event for event in events if event["event"] == "mcp.tool_result_invalid"
         ]
         self.assertEqual(len(invalid), 1)
         self.assertEqual(invalid[0]["tool"], "get_user_context")
         self.assertEqual(invalid[0]["result_type"], "ToolMessage")
 
-    async def test_provider_exposes_no_mcp_tools_without_forwarded_user_token(self) -> None:
+    async def test_provider_exposes_no_mcp_tools_without_forwarded_user_token(
+        self,
+    ) -> None:
         """Expose no user-scoped MCP tools when no validated token was forwarded."""
         provider = MCPToolProvider(url="http://mcp.test/mcp")
         with patch("langchain_mcp_adapters.client.MultiServerMCPClient") as client:
@@ -564,9 +641,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tools, [])
         client.assert_not_called()
         failures = [
-            event
-            for event in events
-            if event["event"] == "mcp.token_exchange_failed"
+            event for event in events if event["event"] == "mcp.token_exchange_failed"
         ]
         self.assertEqual(len(failures), 1)
         self.assertEqual(failures[0]["agent"], "faq")
@@ -596,9 +671,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(tools, [])
         failures = [
-            event
-            for event in events
-            if event["event"] == "mcp.tools_load_failed"
+            event for event in events if event["event"] == "mcp.tools_load_failed"
         ]
         self.assertEqual(len(failures), 1)
         self.assertEqual(failures[0]["agent"], "sustainability")

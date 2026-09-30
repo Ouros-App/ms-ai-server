@@ -68,6 +68,7 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 | `MCP_URL` | Endpoint Streamable HTTP do servidor MCP externo. |
 | `MCP_TOOLS_CACHE_TTL_SECONDS` | TTL do cache de tools MCP por token validado. |
 | `MCP_KEYCLOAK_TOKEN_EXCHANGE_URL` | Override opcional do token endpoint; por padrão é derivado de `AUTH_JWT_ISSUER`. |
+| `TELEMETRY_KEYCLOAK_TOKEN_EXCHANGE_AUDIENCE` | Audience do token delegado usado pelo MCP para chamar dashboards do usuário; padrão `ms-telemetry-dashboard-service`. |
 | `DEBUG_UI_KEYCLOAK_TOKEN_URL` | Override opcional do token endpoint do painel de debug; por padrão é derivado do mesmo issuer. |
 
 Não versione o arquivo `.env` nem os tokens. Quando o Infisical está totalmente configurado, os secrets carregados do cofre são aplicados antes da criação de `Settings` e prevalecem sobre valores locais com a mesma chave. Sem nenhuma das quatro variáveis de bootstrap, o serviço pode rodar em modo local. Configuração parcial ou ambiente inválido interrompe o startup para evitar fallback silencioso.
@@ -96,7 +97,12 @@ pendências antigas para elas não reaparecerem mais tarde.
 As tools de memória e MCP ficam disponíveis somente para especialistas. O cliente
 MCP usa Streamable HTTP, troca o JWT validado por um token delegado de backend,
 aplica uma allowlist mínima por especialista e faz filtragem adicional dos resultados
-escopados em `app/agents/mcp.py`. O sintetizador não recebe nenhuma dessas tools.
+escopados em `app/agents/mcp.py`. Em pedidos explícitos de painel ou perguntas de
+desempenho com período, o AI Server também
+troca o JWT por um token da audiência Telemetry e o envia somente na chamada MCP.
+O resultado Plotly é removido do contexto do modelo e devolvido no campo
+`visualizations` para o futuro cliente móvel renderizar em WebView. O sintetizador
+não recebe nenhuma dessas tools.
 Sustentabilidade usa preferencialmente `get_consumption_summary(period_days)`: quando
 uma consulta pessoal contém um período explícito, o backend extrai essa janela e faz
 o prefetch determinístico do resumo antes do modelo, evitando carregar registros
@@ -153,7 +159,7 @@ curl -X POST http://localhost:8000/v1/chat \
   -d '{"thread_id":"conversa-1","message":"Como funciona o ranking?"}'
 ```
 
-A resposta contém `thread_id`, `message`, `agents` e `tools`. A identidade efetiva vem sempre do claim assinado `database_id`; `user_id`, quando enviado por clientes antigos, é apenas um campo de compatibilidade e precisa coincidir com o JWT. O `sub` continua sendo a identidade estável do Keycloak. O primeiro chat vincula o `thread_id` ao usuário autenticado e essa posse é imutável.
+A resposta contém `thread_id`, `message`, `agents`, `tools` e `visualizations`. `visualizations` é uma lista vazia por padrão; quando o usuário pede um painel ou pergunta sobre desempenho em um período, contém HTML Plotly por gráfico para o cliente renderizar em WebView. O painel é temporário e combina no máximo quatro gráficos permitidos. A console de debug também renderiza esses gráficos em iframes isolados; o HTML não é persistido no histórico local do navegador. A identidade efetiva vem sempre do claim assinado `database_id`; `user_id`, quando enviado por clientes antigos, é apenas um campo de compatibilidade e precisa coincidir com o JWT. O `sub` continua sendo a identidade estável do Keycloak. O primeiro chat vincula o `thread_id` ao usuário autenticado e essa posse é imutável.
 
 O histórico aceita `limit` entre 1 e 100, com padrão 20, e o cursor `before` para buscar a página anterior:
 

@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     mcp_keycloak_token_exchange_client_id: str = "ms-ai-server-mcp-exchange"
     mcp_keycloak_token_exchange_client_secret: SecretStr | None = None
     mcp_keycloak_token_exchange_audience: str = "ms-mcp-server-ouros-knowledge"
+    telemetry_keycloak_token_exchange_audience: str = "ms-telemetry-dashboard-service"
     mcp_keycloak_token_exchange_timeout_seconds: float = Field(8.0, gt=0)
     debug_ui_enabled: bool = False
     debug_ui_keycloak_token_url: str | None = None
@@ -92,6 +93,11 @@ class Settings(BaseSettings):
         if not self.mcp_keycloak_token_exchange_audience.strip():
             raise ValueError(
                 "MCP_KEYCLOAK_TOKEN_EXCHANGE_AUDIENCE é obrigatório "
+                "quando o exchange está configurado"
+            )
+        if not self.telemetry_keycloak_token_exchange_audience.strip():
+            raise ValueError(
+                "TELEMETRY_KEYCLOAK_TOKEN_EXCHANGE_AUDIENCE é obrigatório "
                 "quando o exchange está configurado"
             )
 

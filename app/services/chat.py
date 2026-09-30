@@ -8,7 +8,7 @@ from langchain_core.messages import HumanMessage
 
 from app.agents.diagnostics import pending_summary, specialist_results_summary
 from app.agents.guardrails import guard_input
-from app.agents.mcp import forward_mcp_access_token
+from app.agents.mcp import capture_mcp_visualizations, forward_mcp_access_token
 from app.core.config import settings
 from app.core.metrics import observe_chat_result, observe_chat_routing
 from app.debug_ui.trace import capture_debug_trace, trace_event
@@ -103,7 +103,10 @@ async def _invoke_graph(
         try:
             trace_event("graph.started")
             async with asyncio.timeout(settings.llm_total_timeout_seconds):
-                with forward_mcp_access_token(principal_token):
+                with (
+                    forward_mcp_access_token(principal_token),
+                    capture_mcp_visualizations() as visualizations,
+                ):
                     result = await graph.ainvoke(
                         {
                             "messages": [HumanMessage(content=safe_payload.message)],
@@ -176,6 +179,7 @@ async def _invoke_graph(
             message=message,
             agents=agents,
             tools=tools,
+            visualizations=visualizations,
         )
         return response, {
             "routes": routes,

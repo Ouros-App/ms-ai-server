@@ -2,6 +2,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
+from app.schemas.chat import ChatVisualization
+
 
 class DebugLoginRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -51,6 +53,7 @@ class DebugChatResponse(BaseModel):
     message: str
     agents: list[str]
     tools: list[str]
+    visualizations: list[ChatVisualization] = Field(default_factory=list, max_length=1)
     routes: list[str]
     route_source: str | None = None
     specialist_results: list[DebugSpecialistResult] = Field(default_factory=list)
