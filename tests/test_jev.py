@@ -106,6 +106,20 @@ class JevProviderTests(unittest.TestCase):
 
 
 class JevProviderRequestTests(unittest.IsolatedAsyncioTestCase):
+    async def test_missing_api_key_has_a_specific_provider_error(self) -> None:
+        """Explain an absent provider credential without attempting a request."""
+        provider = JevDecisionProvider(
+            api_key=None,
+            base_url="https://typesafe.example",
+            model="jev-test",
+            timeout_seconds=1,
+        )
+
+        with self.assertRaises(DecisionProviderError) as raised:
+            await provider.decide(_decision_input())
+
+        self.assertEqual(raised.exception.reason, "api_key_missing")
+
     async def test_request_uses_system_one_contract_and_minimized_state(self) -> None:
         """Send a single minimized request to the configured System One path."""
         captured: dict[str, object] = {}
@@ -168,6 +182,20 @@ class JevProviderRequestTests(unittest.IsolatedAsyncioTestCase):
             ):
                 await provider.decide(state)
 
+        async def connection_error(request: httpx.Request) -> httpx.Response:
+            """Simulate a failed network connection to the provider."""
+            raise httpx.ConnectError("connection refused", request=request)
+
+        transport_provider = JevDecisionProvider(
+            "key",
+            "https://typesafe.example",
+            "jev-test",
+            0.1,
+            transport=httpx.MockTransport(connection_error),
+        )
+        with self.assertRaises(DecisionProviderError):
+            await transport_provider.decide(state)
+
     async def test_invalid_json_and_incomplete_responses_are_rejected(self) -> None:
         """Reject non-JSON and incomplete successful API responses."""
         state = _decision_input()
@@ -191,6 +219,28 @@ class JevProviderRequestTests(unittest.IsolatedAsyncioTestCase):
 
 
 class DecisionServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_shadow_schedule_logs_and_skips_unavailable_configurations(self) -> None:
+        """Skip shadow calls with a clear reason when config cannot call Jev."""
+        cases = (
+            (False, "configured", 1),
+            (True, None, 1),
+            (True, "configured", 0),
+        )
+        for enabled, api_key, max_calls in cases:
+            provider = Mock(api_key=api_key)
+            service = DecisionService(
+                provider,
+                DeterministicFallbackProvider(),
+                enabled=enabled,
+                min_confidence=0.7,
+                max_calls_per_request=max_calls,
+                input_cost_per_million_usd=0,
+                output_cost_per_million_usd=0,
+            )
+
+            with self.subTest(enabled=enabled, api_key=bool(api_key), max_calls=max_calls):
+                self.assertIsNone(service.schedule_shadow(_decision_input()))
+
     async def test_valid_decision_is_accepted_and_usage_is_preserved(self) -> None:
         """Accept an authorized provider decision and preserve token usage."""
         provider = AsyncMock()
@@ -444,6 +494,36 @@ class JevRouterIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["routes"], ["sustainability"])
         self.assertEqual(result["route_source"], "jev")
         self.assertEqual(result["decision_tools"], ["get_consumption_summary"])
+
+    async def test_active_jev_routes_greetings_instead_of_using_fast_path(self) -> None:
+        """Use Jev for greetings when active, matching the all-message policy."""
+        settings.jev_enabled = True
+        settings.jev_shadow_mode = False
+        decision = MidasDecision(
+            agent="faq",
+            tools=[],
+            needs_mcp=False,
+            needs_analytics=False,
+            confidence=0.92,
+        )
+        service = AsyncMock()
+        service.decide.return_value = DecisionOutcome(decision=decision, model="jev")
+
+        with (
+            patch.object(graph, "_build_decision_input", return_value=_decision_input()),
+            patch.object(graph, "_DECISION_SERVICE", service),
+        ):
+            result = await graph.route_request(
+                {
+                    "route": "",
+                    "messages": [HumanMessage(content="Oi")],
+                    "input_guardrail": {"allowed": True},
+                }
+            )
+
+        self.assertEqual(result["routes"], ["faq"])
+        self.assertEqual(result["route_source"], "jev")
+        service.decide.assert_awaited_once()
 
     async def test_shadow_decision_preserves_existing_route(self) -> None:
         """Keep the existing deterministic route while Jev runs in shadow."""

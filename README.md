@@ -64,7 +64,7 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 | `GROQ_API_KEY` / `GROQ_FAST_MODEL` / `GROQ_MODEL` | Provedor Groq e perfis rápido/potente. |
 | `NVIDIA_API_KEY` / `NVIDIA_NIM_FAST_MODEL` / `NVIDIA_NIM_MODEL` / `NVIDIA_NIM_BASE_URL` | Provedor NVIDIA NIM e perfis rápido/potente. |
 | `LLM_TEMPERATURE` / `LLM_TIMEOUT_SECONDS` | Parâmetros das chamadas ao modelo. |
-| `JEV_ENABLED` / `JEV_SHADOW_MODE` | Ativam a decisão Jev. Com `JEV_ENABLED=true` e `JEV_SHADOW_MODE=false` (padrão), Jev escolhe a rota do chat. Use `JEV_SHADOW_MODE=true` somente para comparar decisões mantendo o roteador atual. |
+| `JEV_ENABLED` / `JEV_SHADOW_MODE` | Ativam a decisão Jev. Com `JEV_ENABLED=true` e `JEV_SHADOW_MODE=false` (padrão), Jev escolhe a rota de todas as mensagens normais, inclusive saudações e perguntas de identidade. Use `JEV_SHADOW_MODE=true` somente para comparar decisões mantendo o roteador atual. Bloqueios de guardrail e rotas explicitamente definidas continuam fora do roteamento Jev. |
 | `JEV_API_KEY` | Chave TypeSafe System One; configure no Infisical nos ambientes de deploy. |
 | `JEV_BASE_URL` / `JEV_MODEL` | Endpoint e modelo Jev (`https://api.typesafe.ai` e `jev-latest` por padrão). |
 | `JEV_TIMEOUT_MS` / `JEV_MIN_CONFIDENCE` / `JEV_MAX_CALLS_PER_REQUEST` | Limite de latência, confiança mínima e chamadas permitidas por mensagem. |
