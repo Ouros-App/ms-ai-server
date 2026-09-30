@@ -28,6 +28,16 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.2
     llm_timeout_seconds: float = 30
     llm_total_timeout_seconds: float = 60
+    jev_enabled: bool = False
+    jev_shadow_mode: bool = True
+    jev_api_key: SecretStr | None = None
+    jev_base_url: str = "https://api.typesafe.ai"
+    jev_model: str = "jev-latest"
+    jev_timeout_ms: int = Field(2_500, ge=100, le=10_000)
+    jev_min_confidence: float = Field(0.70, ge=0, le=1)
+    jev_max_calls_per_request: int = Field(1, ge=1, le=3)
+    jev_input_cost_per_million_usd: float = Field(0.042, ge=0)
+    jev_output_cost_per_million_usd: float = Field(0, ge=0)
     auth_jwt_issuer: str = "https://ouros-keycloak.discloud.app/realms/ouros"
     auth_jwt_audience: str = "ms-ai-server"
     auth_jwks_url: str | None = None
@@ -128,11 +138,16 @@ class Settings(BaseSettings):
         self._validate_metrics_contract()
         self._validate_mcp_exchange_contract()
         self._validate_debug_ui_contract()
+        if not self.jev_base_url.startswith("https://"):
+            raise ValueError("JEV_BASE_URL precisa usar HTTPS")
+        if not self.jev_model.strip():
+            raise ValueError("JEV_MODEL é obrigatório")
         return self
 
     @field_validator(
         "groq_api_key",
         "nvidia_api_key",
+        "jev_api_key",
         "mcp_keycloak_token_exchange_client_secret",
         "debug_ui_keycloak_client_secret",
         mode="before",

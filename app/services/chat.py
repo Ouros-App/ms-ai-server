@@ -117,6 +117,8 @@ async def _invoke_graph(
                             "tools": [],
                             "specialist_results": [],
                             "input_guardrail": guardrail_state,
+                            "decision_calls": 0,
+                            "debug_mode": debug,
                         },
                         config=config,
                     )

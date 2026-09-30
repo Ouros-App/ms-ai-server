@@ -14,11 +14,17 @@ from app.agents.diagnostics import (
     pending_summary,
     specialist_result_summary,
 )
-from app.agents.guardrails import guard_input, guard_output, review_output
+from app.agents.guardrails import (
+    anonymize_text,
+    guard_input,
+    guard_output,
+    review_output,
+)
 from app.agents.llms import profile_for
 from app.agents.mcp import (
     DEFAULT_CONSUMPTION_PERIOD_DAYS,
     MAX_CONSUMPTION_PERIOD_DAYS,
+    MCP_TOOL_ALLOWLIST,
     MCPToolProvider,
 )
 from app.agents.model import get_chat_model
@@ -41,6 +47,8 @@ from app.agents.prompts import (
 from app.agents.tools import build_memory_tools
 from app.core.config import settings
 from app.debug_ui.trace import trace_event
+from app.decision.models import DecisionInput
+from app.decision.service import DecisionService
 
 logger = logging.getLogger(__name__)
 SPECIALIST_ROUTES = frozenset(AGENT_PROMPTS)
@@ -88,6 +96,16 @@ class AgentState(MessagesState):
     tools: Annotated[list[str], _merge_tools]
     input_guardrail: dict[str, object]
     specialist_results: Annotated[list[dict[str, object]], _merge_results]
+    decision_tools: list[str]
+    decision_source: str
+    decision_confidence: float
+    decision_needs_mcp: bool
+    decision_needs_analytics: bool
+    decision_calls: int
+    debug_mode: bool
+
+
+_DECISION_SERVICE = DecisionService.from_settings()
 
 
 def _response_content(response: object) -> object:
@@ -320,6 +338,39 @@ def _inheritable_routes(routes: object) -> list[str]:
         if isinstance(route, str)
         and route in SPECIALIST_ROUTES
     ][:MAX_ROUTER_ROUTES]
+
+
+def _build_decision_input(state: AgentState, user_text: object) -> DecisionInput | None:
+    """Build a PII-minimized decision state without conversation history or IDs."""
+    if not isinstance(user_text, str) or not user_text.strip():
+        return None
+    safe_text, _pii_map = anonymize_text(user_text)
+    available_agents = [*AGENT_PROMPTS, "default"]
+    agent_tools = {
+        agent: sorted(MCP_TOOL_ALLOWLIST.get(agent, frozenset()))
+        if settings.mcp_url
+        else []
+        for agent in available_agents
+    }
+    previous_routes = _inheritable_routes(state.get("last_routes"))
+    pending_routes = _inheritable_routes(state.get("pending_routes"))
+    context: dict[str, bool | str] = {
+        "authenticated": bool(state.get("user_id")),
+        "has_mcp": bool(settings.mcp_url),
+        "has_analytics": False,
+        "has_knowledge": bool(settings.mcp_url)
+        and any("search_knowledge" in tools for tools in agent_tools.values()),
+    }
+    if previous_routes:
+        context["previous_route"] = previous_routes[-1]
+    if pending_routes:
+        context["pending_route"] = pending_routes[-1]
+    return DecisionInput(
+        message=safe_text[:4_000],
+        available_agents=available_agents,
+        agent_tools=agent_tools,
+        context=context,
+    )
 
 
 def _is_personal_data_request(agent_name: str, user_text: str) -> bool:
@@ -661,12 +712,95 @@ async def _resolve_model_routes(state: AgentState) -> tuple[list[str], str]:
         return ["fallback"], "router_error"
 
 
+def _empty_decision_metadata() -> dict[str, object]:
+    return {
+        "decision_tools": [],
+        "decision_source": "",
+        "decision_confidence": 0.0,
+        "decision_needs_mcp": False,
+        "decision_needs_analytics": False,
+        "decision_calls": 0,
+    }
+
+
+async def _run_jev_shadow(
+    state: AgentState,
+    decision_input: DecisionInput,
+    routes: list[str] | None,
+    route_source: str | None,
+) -> tuple[list[str], str]:
+    if routes is None:
+        routes, route_source = await _resolve_model_routes(state)
+    task = _DECISION_SERVICE.schedule_shadow(decision_input)
+    if task is not None:
+        active_agent = routes[0]
+        task.add_done_callback(
+            lambda completed: _DECISION_SERVICE.record_shadow_agreement(
+                completed, active_agent
+            )
+        )
+        # The debug console waits only for its own diagnostic trace.
+        if state.get("debug_mode"):
+            await task
+    return routes, route_source or "model"
+
+
+async def _resolve_jev_route(
+    state: AgentState,
+    routes: list[str] | None,
+    route_source: str | None,
+) -> tuple[list[str], str, dict[str, object]]:
+    latest_message = _latest_message(state)
+    decision_input = _build_decision_input(
+        state,
+        getattr(latest_message, "content", latest_message),
+    ) if settings.jev_enabled else None
+    metadata = _empty_decision_metadata()
+
+    if decision_input is None:
+        if routes is None:
+            return (*await _resolve_model_routes(state), metadata)
+        return routes, route_source or "deterministic", metadata
+
+    if settings.jev_shadow_mode:
+        routes, route_source = await _run_jev_shadow(
+            state,
+            decision_input,
+            routes,
+            route_source,
+        )
+        return routes, route_source, metadata
+
+    outcome = await _DECISION_SERVICE.decide(
+        decision_input,
+        call_number=int(state.get("decision_calls", 0)) + 1,
+    )
+    metadata = {
+        "decision_tools": outcome.decision.tools,
+        "decision_source": "jev" if outcome.accepted else "",
+        "decision_confidence": outcome.decision.confidence,
+        "decision_needs_mcp": outcome.decision.needs_mcp,
+        "decision_needs_analytics": outcome.decision.needs_analytics,
+        "decision_calls": int(state.get("decision_calls", 0)) + 1,
+    }
+    if outcome.accepted:
+        return [outcome.decision.agent], "jev", metadata
+    if routes is None:
+        routes, route_source = await _resolve_model_routes(state)
+    return routes, route_source or "no_model", metadata
+
+
 def _route_starts_new_task(
     state: AgentState | None,
     routes: list[str],
     route_source: str,
 ) -> bool:
-    if state is None or route_source not in {"deterministic", "model", "explicit"}:
+    if state is None or route_source not in {
+        "deterministic",
+        "jev",
+        "model",
+        "explicit",
+    }:
         return False
     pending_by_route = _pending_by_route(state)
     previous_routes = set(pending_by_route)
@@ -720,14 +854,19 @@ def _route_update(
 async def route_request(state: AgentState) -> dict:
     """Resolve routing with explicit, deterministic, contextual and model layers."""
     input_guardrail = state.get("input_guardrail")
+    decision_metadata = _empty_decision_metadata()
     if input_guardrail and not input_guardrail.get("allowed", True):
         routes, route_source = ["default"], "guardrail"
     elif state.get("route"):
         routes, route_source = [state["route"]], "explicit"
     else:
         routes, route_source = _resolve_local_routes(state)
-        if routes is None:
-            routes, route_source = await _resolve_model_routes(state)
+        if routes is None or route_source == "deterministic":
+            routes, route_source, decision_metadata = await _resolve_jev_route(
+                state,
+                routes,
+                route_source,
+            )
 
     logger.info(
         "agent_routes_selected source=%s routes=%s",
@@ -735,7 +874,9 @@ async def route_request(state: AgentState) -> dict:
         routes,
     )
     trace_event("router.selected", routes=routes, source=route_source)
-    return _route_update(routes, route_source, state)
+    update = _route_update(routes, route_source, state)
+    update.update(decision_metadata)
+    return update
 
 
 async def default_agent(state: AgentState) -> dict:
@@ -930,6 +1071,21 @@ async def _execute_specialist(
         dashboard_requested=dashboard_requested,
         dashboard_period_days=dashboard_period_days,
     )
+    if state.get("decision_source") == "jev":
+        selected_tools = set(state.get("decision_tools", []))
+        # The deterministic personal-data prefetch remains mandatory when its
+        # policy requires it; all model-invoked tools must be selected by Jev.
+        mcp_tools = [
+            tool
+            for tool in mcp_tools
+            if getattr(tool, "name", None) in selected_tools
+            or getattr(tool, "name", None) == "get_consumption_summary"
+        ]
+        trace_event(
+            "jev.tools.selected",
+            agent=agent_name,
+            tools=sorted(selected_tools),
+        )
     pending_missing_data = _pending_missing_for_route(state, agent_name)
     personal_request = _conversation_is_personal_request(
         state,
