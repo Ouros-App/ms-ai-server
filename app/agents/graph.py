@@ -885,13 +885,14 @@ async def route_request(state: AgentState) -> dict:
 async def default_agent(state: AgentState) -> dict:
     """Sintetiza resultados estruturados sem acessar tools ou MCP."""
     input_guardrail = state.get("input_guardrail")
+    quick_source = _quick_route_source(_latest_message(state))
     if input_guardrail and not input_guardrail["allowed"]:
         content = input_guardrail["message"]
     elif state.get("route_source") == "cancelled":
         content = CANCELLED_RESPONSE
-    elif state.get("route_source") == "greeting":
+    elif state.get("route_source") == "greeting" or quick_source == "greeting":
         content = GREETING_RESPONSE
-    elif state.get("route_source") == "identity":
+    elif state.get("route_source") == "identity" or quick_source == "identity":
         content = IDENTITY_RESPONSE
     elif state.get("routes") == ["fallback"]:
         content = FALLBACK_RESPONSE

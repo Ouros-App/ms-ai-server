@@ -29,7 +29,12 @@ from app.agents.graph import (
     route_request,
 )
 from app.agents.model import get_chat_model
-from app.agents.prompts import DEFAULT_AGENT_RESPONSE, FALLBACK_RESPONSE
+from app.agents.prompts import (
+    DEFAULT_AGENT_RESPONSE,
+    FALLBACK_RESPONSE,
+    GREETING_RESPONSE,
+    IDENTITY_RESPONSE,
+)
 from app.core.config import settings
 from app.schemas.chat import ChatRequest
 from app.services.chat import invoke_graph
@@ -142,6 +147,27 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(identity.agents, ["router", "default"])
         self.assertIn("Midas", greeting.message)
         self.assertIn("Midas", identity.message)
+
+    async def test_default_agent_handles_quick_routes_after_jev_selection(self) -> None:
+        """Keep greeting and identity replies when Jev selects the default route."""
+        cases = (
+            ("Bom dia", GREETING_RESPONSE),
+            ("Quem é você?", IDENTITY_RESPONSE),
+        )
+        for message, expected in cases:
+            result = await default_agent(
+                {
+                    "messages": [HumanMessage(content=message)],
+                    "route_source": "jev",
+                    "routes": ["default"],
+                    "specialist_results": [],
+                    "agents": ["router"],
+                    "tools": [],
+                }
+            )
+
+            with self.subTest(message=message):
+                self.assertEqual(result["messages"][0].content, expected)
 
     async def test_contextual_followup_inherits_route_and_explicit_topic_wins(self) -> None:
         """Carry context only for referential follow-ups, not explicit topic changes."""
