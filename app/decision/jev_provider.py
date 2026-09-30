@@ -28,7 +28,7 @@ class DecisionTimeoutError(DecisionProviderError):
 
 
 class InvalidDecisionError(DecisionProviderError):
-    """The decision provider returned a missing or invalid answer."""
+    """The provider response or decision failed local validation."""
 
     reason = "invalid_schema"
 
@@ -142,7 +142,10 @@ class JevDecisionProvider:
         try:
             body = response.json()
         except ValueError as error:
-            raise InvalidDecisionError("Jev response was not valid JSON") from error
+            raise InvalidDecisionError(
+                "Jev response was not valid JSON",
+                reason="invalid_json",
+            ) from error
 
         return self._parse_response(body, state)
 
@@ -163,28 +166,28 @@ class JevDecisionProvider:
                 ),
                 "criteria": agent_criteria,
             },
-            "needs_mcp": {
-                "type": "noul",
-                "instructions": (
-                    "A tarefa exige consultar uma ou mais ferramentas MCP listadas "
-                    "para responder corretamente?"
-                ),
-            },
-            "needs_analytics": {
-                "type": "noul",
-                "instructions": (
-                    "A tarefa exige uma consulta analítica estruturada além das "
-                    "ferramentas listadas? Respeite a disponibilidade informada."
-                ),
-            },
         }
         for index, tool_name in enumerate(state.available_tools):
+            allowed_agents = [
+                agent
+                for agent, tools in state.agent_tools.items()
+                if tool_name in tools
+            ]
             questions[f"tool_{index}"] = {
                 "type": "noul",
                 "instructions": (
                     f"Usar a ferramenta {tool_name} melhoraria materialmente a "
-                    "resposta desta tarefa? "
+                    "resposta desta tarefa na rota escolhida para esta mensagem? "
+                    f"Ela só pode ser selecionada para estas rotas: {allowed_agents}. "
                     f"Descrição: {_TOOL_DESCRIPTIONS.get(tool_name, 'Ferramenta autorizada.') }"
+                ),
+            }
+        if state.context.get("has_analytics", False):
+            questions["needs_analytics"] = {
+                "type": "noul",
+                "instructions": (
+                    "A tarefa exige uma consulta analítica estruturada além das "
+                    "ferramentas listadas?"
                 ),
             }
         return questions
@@ -193,10 +196,16 @@ class JevDecisionProvider:
     def _probability(answer: object, name: str) -> float:
         """Read one bounded probability from a System One answer."""
         if not isinstance(answer, dict) or answer.get("type") != "noul":
-            raise InvalidDecisionError(f"Jev omitted the {name} decision")
+            raise InvalidDecisionError(
+                f"Jev omitted the {name} decision",
+                reason="probability_missing",
+            )
         probability = answer.get("noul")
         if not isinstance(probability, (int, float)) or not 0 <= probability <= 1:
-            raise InvalidDecisionError(f"Jev returned invalid {name} probability")
+            raise InvalidDecisionError(
+                f"Jev returned invalid {name} probability",
+                reason="probability_invalid",
+            )
         return float(probability)
 
     @classmethod
@@ -207,32 +216,54 @@ class JevDecisionProvider:
     ) -> ProviderResult:
         """Convert the provider response to locally validated decision data."""
         if not isinstance(body, dict):
-            raise InvalidDecisionError("Jev response must be an object")
+            raise InvalidDecisionError(
+                "Jev response must be an object",
+                reason="response_not_object",
+            )
         answers = body.get("answers")
         if not isinstance(answers, dict):
-            raise InvalidDecisionError("Jev response has no answers object")
+            raise InvalidDecisionError(
+                "Jev response has no answers object",
+                reason="answers_missing",
+            )
         route_answer = answers.get("agent")
-        if (
-            not isinstance(route_answer, dict)
-            or route_answer.get("type") != "choice"
-            or route_answer.get("choice") not in state.available_agents
-        ):
-            raise InvalidDecisionError("Jev returned an unavailable agent")
+        if not isinstance(route_answer, dict) or route_answer.get("type") != "choice":
+            raise InvalidDecisionError(
+                "Jev omitted the route decision",
+                reason="agent_answer_missing",
+            )
+        if route_answer.get("choice") not in state.available_agents:
+            raise InvalidDecisionError(
+                "Jev returned an unavailable agent",
+                reason="agent_unavailable",
+            )
         confidence = route_answer.get("confidence")
         if not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
-            raise InvalidDecisionError("Jev returned invalid route confidence")
+            raise InvalidDecisionError(
+                "Jev returned invalid route confidence",
+                reason="confidence_invalid",
+            )
 
         selected_tools = []
+        allowed_tools = set(state.agent_tools.get(route_answer["choice"], []))
         for index, tool_name in enumerate(state.available_tools):
-            if cls._probability(answers.get(f"tool_{index}"), tool_name) >= 0.5:
+            if (
+                tool_name in allowed_tools
+                and cls._probability(answers.get(f"tool_{index}"), tool_name) >= 0.5
+            ):
                 selected_tools.append(tool_name)
-        needs_mcp = cls._probability(answers.get("needs_mcp"), "MCP") >= 0.5
-        needs_analytics = cls._probability(
-            answers.get("needs_analytics"), "analytics"
-        ) >= 0.5
+        needs_mcp = bool(selected_tools)
+        needs_analytics = (
+            cls._probability(answers.get("needs_analytics"), "analytics") >= 0.5
+            if state.context.get("has_analytics", False)
+            else False
+        )
         usage = body.get("usage")
         if not isinstance(usage, dict):
-            raise InvalidDecisionError("Jev response has no usage object")
+            raise InvalidDecisionError(
+                "Jev response has no usage object",
+                reason="usage_missing",
+            )
         input_tokens = usage.get("input_tokens")
         output_tokens = usage.get("output_tokens")
         if (
@@ -241,10 +272,16 @@ class JevDecisionProvider:
             or not isinstance(output_tokens, int)
             or output_tokens < 0
         ):
-            raise InvalidDecisionError("Jev returned invalid token usage")
+            raise InvalidDecisionError(
+                "Jev returned invalid token usage",
+                reason="usage_invalid",
+            )
         model = body.get("model")
         if not isinstance(model, str) or not model.strip():
-            raise InvalidDecisionError("Jev response has no model name")
+            raise InvalidDecisionError(
+                "Jev response has no model name",
+                reason="model_missing",
+            )
         try:
             decision = MidasDecision(
                 agent=route_answer["choice"],
@@ -260,4 +297,7 @@ class JevDecisionProvider:
                 output_tokens=output_tokens,
             )
         except ValidationError as error:
-            raise InvalidDecisionError("Jev decision failed local validation") from error
+            raise InvalidDecisionError(
+                "Jev decision failed local validation",
+                reason="decision_schema_invalid",
+            ) from error

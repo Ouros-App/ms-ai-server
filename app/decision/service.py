@@ -129,14 +129,26 @@ class DecisionService:
         """Enforce available routes, route tools, and backend capabilities."""
         decision = result.decision
         if decision.agent not in state.available_agents:
-            raise InvalidDecisionError("Jev selected an unavailable Midas route")
+            raise InvalidDecisionError(
+                "Jev selected an unavailable Midas route",
+                reason="agent_unavailable",
+            )
         allowed_tools = set(state.agent_tools.get(decision.agent, []))
         if not set(decision.tools).issubset(allowed_tools):
-            raise InvalidDecisionError("Jev selected a tool outside the route allowlist")
+            raise InvalidDecisionError(
+                "Jev selected a tool outside the route allowlist",
+                reason="tool_not_allowed",
+            )
         if decision.needs_mcp != bool(decision.tools):
-            raise InvalidDecisionError("Jev MCP strategy conflicts with tool selection")
+            raise InvalidDecisionError(
+                "Jev MCP strategy conflicts with tool selection",
+                reason="mcp_strategy_mismatch",
+            )
         if decision.needs_analytics and not state.context.get("has_analytics", False):
-            raise InvalidDecisionError("Jev selected an unavailable analytics backend")
+            raise InvalidDecisionError(
+                "Jev selected an unavailable analytics backend",
+                reason="analytics_unavailable",
+            )
 
     def _fallback(
         self,
