@@ -41,7 +41,11 @@ function loadConversations() {
 function saveConversations() {
   const key = storageKey();
   if (!key) return;
-  localStorage.setItem(key, JSON.stringify(conversations.slice(0, 40)));
+  const persistable = conversations.slice(0, 40).map((conversation) => ({
+    ...conversation,
+    messages: conversation.messages.map(({ visualizations, ...message }) => message),
+  }));
+  localStorage.setItem(key, JSON.stringify(persistable));
 }
 
 function restoreConversations() {
@@ -86,6 +90,36 @@ function highlight(container) {
   container.querySelectorAll("pre code").forEach((block) => hljs.highlightElement(block));
 }
 
+function appendVisualizations(container, visualizations, variant = "debug") {
+  if (!Array.isArray(visualizations) || !visualizations.length) return;
+  const section = document.createElement("section");
+  section.className = `${variant}-visualizations`;
+  const heading = document.createElement("h3");
+  heading.textContent = "Gráficos da resposta";
+  section.appendChild(heading);
+
+  for (const dashboard of visualizations) {
+    for (const chart of dashboard.charts || []) {
+      const card = document.createElement("article");
+      card.className = "visualization-card";
+      const title = document.createElement("h4");
+      title.textContent = chart.title || dashboard.title || "Gráfico";
+      card.appendChild(title);
+
+      const frame = document.createElement("iframe");
+      frame.className = "visualization-frame";
+      frame.title = title.textContent;
+      frame.setAttribute("sandbox", "allow-scripts");
+      frame.referrerPolicy = "no-referrer";
+      frame.loading = "lazy";
+      frame.srcdoc = chart.html;
+      card.appendChild(frame);
+      section.appendChild(card);
+    }
+  }
+  if (section.querySelector(".visualization-card")) container.appendChild(section);
+}
+
 function renderMessages() {
   const conversation = currentConversation();
   messages.innerHTML = "";
@@ -108,6 +142,10 @@ function renderMessages() {
     body.className = "markdown";
     body.innerHTML = markdown(item.content);
     bubble.appendChild(body);
+
+    if (item.role === "assistant") {
+      appendVisualizations(bubble, item.visualizations, "message");
+    }
 
     if (item.role === "assistant" && item.meta) {
       const meta = document.createElement("div");
@@ -139,7 +177,7 @@ function renderConversations() {
   }
 }
 
-function renderDebug(data) {
+function renderDebug(data, visualizations = []) {
   if (!data) {
     debugContent.innerHTML = '<div class="debug-empty">Nenhum trace para esta conversa ainda.</div>';
     return;
@@ -207,6 +245,7 @@ function renderDebug(data) {
       <h3>Logs da requisição</h3>
       ${trace || '<div class="debug-empty">Sem eventos.</div>'}
     </section>`;
+  appendVisualizations(debugContent, visualizations);
 }
 
 function renderAll() {
@@ -214,7 +253,10 @@ function renderAll() {
   conversationTitle.textContent = conversation?.title || "Nova conversa";
   renderConversations();
   renderMessages();
-  renderDebug(conversation?.latestDebug || null);
+  const latestAssistant = [...(conversation?.messages || [])]
+    .reverse()
+    .find((item) => item.role === "assistant");
+  renderDebug(conversation?.latestDebug || null, latestAssistant?.visualizations);
 }
 
 function setLoading(active) {
@@ -329,9 +371,11 @@ composer.addEventListener("submit", async (event) => {
     conversation.messages.push({
       role: "assistant",
       content: data.message,
-      meta: data,
+      meta: { agents: data.agents, duration_ms: data.duration_ms },
+      visualizations: data.visualizations || [],
     });
-    conversation.latestDebug = data;
+    const { visualizations, ...debugData } = data;
+    conversation.latestDebug = debugData;
     saveConversations();
   } catch (error) {
     if (error.status === 401) {

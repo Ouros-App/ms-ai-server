@@ -140,6 +140,29 @@ def _normalize_route_text(value: str) -> str:
     )
 
 
+def _dashboard_period_days(message: str) -> int:
+    """Resolve a bounded time window requested for a chat visualization."""
+    text = _normalize_route_text(message)
+    match = _DASHBOARD_PERIOD_PATTERN.search(text)
+    if match:
+        value = int(match.group("value"))
+        unit = match.group("unit")
+        if unit.startswith("semana"):
+            multiplier = 7
+        elif unit.startswith("mes"):
+            multiplier = 30
+        else:
+            multiplier = 1
+        return min(MAX_CONSUMPTION_PERIOD_DAYS, max(1, value * multiplier))
+    if re.search(r"\b(?:ultimo|ultimos|passado|passados)\s+mes(?:es)?\b", text):
+        return 30
+    if re.search(r"\b(?:ultimo|ultimos|passado|passados)\s+ano\b", text):
+        return MAX_CONSUMPTION_PERIOD_DAYS
+    if re.search(r"\b(?:ultimo|ultimos|passado|passados)\s+semana\b", text):
+        return 7
+    return DEFAULT_CONSUMPTION_PERIOD_DAYS
+
+
 _FOLLOWUP_PATTERN = re.compile(
     r"\b(?:isso|isto|aquilo|esse|essa|esses|essas|desse|dessa|desses|dessas|"
     r"disso|nisso|nesse|nessa|anteri\w*|proxim\w*\s+passo|e\s+depois|"
@@ -152,6 +175,16 @@ _PERSONAL_DATA_TOPIC_PATTERN = re.compile(
     r"\b(?:fazenda|consumo|agua|energia|ranking|posi\w*|historico|"
     r"pontua\w*|nivel\w*|desempenh\w*|perform\w*|"
     r"medicao|registro\w*)\b"
+)
+_DASHBOARD_REQUEST_PATTERN = re.compile(
+    r"\b(?:dashboard\w*|painel\w*|grafico\w*|chart\w*|visualiz\w*)\b"
+)
+_DASHBOARD_IMPLICIT_REQUEST_PATTERN = re.compile(
+    r"\b(?:desempenh\w*|perform\w*|resultado\w*|produc\w*)\b"
+    r".*\b(?:ultimo\w*|passad\w*|\d{1,3}\s*(?:dia|dias|semana|semanas|mes|meses))\b"
+)
+_DASHBOARD_PERIOD_PATTERN = re.compile(
+    r"\b(?P<value>\d{1,3})\s*(?P<unit>dia|dias|semana|semanas|mes|meses)\b"
 )
 _PENDING_CANCEL_PATTERN = re.compile(
     r"^(?:esquece|ignora|cancela|cancelar|outro\s+assunto|mudar\s+de\s+assunto|"
@@ -184,7 +217,8 @@ _DETERMINISTIC_ROUTE_PATTERNS = (
     (
         "ranking",
         re.compile(
-            r"\b(?:ranking|pontua\w*|nivel\w*|posi\w*|historico)\b"
+            r"\b(?:ranking|pontua\w*|nivel\w*|posi\w*|historico|"
+            r"desempenh\w*|perform\w*)\b"
         ),
     ),
     (
@@ -787,10 +821,17 @@ async def _resolve_specialist_guardrail(
 async def _load_agent_mcp_tools(
     agent_name: str,
     mcp_provider: MCPToolProvider | None,
+    *,
+    dashboard_requested: bool = False,
+    dashboard_period_days: int = DEFAULT_CONSUMPTION_PERIOD_DAYS,
 ) -> list:
     if mcp_provider is None:
         return []
-    return await mcp_provider.tools_for(agent_name)
+    return await mcp_provider.tools_for(
+        agent_name,
+        dashboard_requested=dashboard_requested,
+        dashboard_period_days=dashboard_period_days,
+    )
 
 
 def _pending_missing_for_route(
@@ -874,9 +915,17 @@ async def _execute_specialist(
     specialist_tools: list,
     mcp_provider: MCPToolProvider | None,
 ) -> tuple[dict[str, object], list[str], bool]:
+    normalized_user_text = _normalize_route_text(user_text)
+    dashboard_requested = bool(
+        _DASHBOARD_REQUEST_PATTERN.search(normalized_user_text)
+        or _DASHBOARD_IMPLICIT_REQUEST_PATTERN.search(normalized_user_text)
+    )
+    dashboard_period_days = _dashboard_period_days(user_text)
     mcp_tools = await _load_agent_mcp_tools(
         agent_name,
         mcp_provider,
+        dashboard_requested=dashboard_requested,
+        dashboard_period_days=dashboard_period_days,
     )
     pending_missing_data = _pending_missing_for_route(state, agent_name)
     personal_request = _conversation_is_personal_request(
@@ -888,7 +937,7 @@ async def _execute_specialist(
         agent_name,
         user_text,
         pending_missing_data,
-        personal_request=personal_request,
+        personal_request=personal_request and not dashboard_requested,
     )
     (
         prefetch_message,
@@ -899,7 +948,7 @@ async def _execute_specialist(
         user_text,
         mcp_tools,
         pending_missing_data,
-        personal_request=personal_request,
+        personal_request=personal_request and not dashboard_requested,
     )
 
     specialist_messages = _build_specialist_messages(

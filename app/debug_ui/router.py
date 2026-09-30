@@ -349,6 +349,7 @@ async def debug_chat(
         message=response.message,
         agents=response.agents,
         tools=response.tools,
+        visualizations=response.visualizations,
         **diagnostics,
     )
 

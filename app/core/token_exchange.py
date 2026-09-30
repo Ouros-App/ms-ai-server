@@ -29,15 +29,16 @@ class MCPTokenExchangeError(RuntimeError):
 async def _exchange_with_client(
     subject_token: str,
     client: httpx.AsyncClient,
+    audience: str,
 ) -> str:
-    """Exchange one validated user token for a downscoped Knowledge MCP token."""
+    """Exchange a validated user token for a downscoped resource token."""
 
     secret = settings.mcp_keycloak_token_exchange_client_secret
     if secret is None:
         logger.error(
             "mcp_token_exchange_failed reason=missing_client_secret client_id=%s audience=%s",
             settings.mcp_keycloak_token_exchange_client_id,
-            settings.mcp_keycloak_token_exchange_audience,
+            audience,
         )
         raise MCPTokenExchangeError(
             "MCP token-exchange client secret is not configured",
@@ -47,7 +48,7 @@ async def _exchange_with_client(
     logger.info(
         "mcp_token_exchange_started client_id=%s audience=%s",
         settings.mcp_keycloak_token_exchange_client_id,
-        settings.mcp_keycloak_token_exchange_audience,
+        audience,
     )
 
     try:
@@ -58,7 +59,7 @@ async def _exchange_with_client(
                 "subject_token": subject_token,
                 "subject_token_type": ACCESS_TOKEN_TYPE,
                 "requested_token_type": ACCESS_TOKEN_TYPE,
-                "audience": settings.mcp_keycloak_token_exchange_audience,
+                "audience": audience,
             },
             auth=httpx.BasicAuth(
                 settings.mcp_keycloak_token_exchange_client_id,
@@ -138,4 +139,19 @@ async def exchange_mcp_access_token(subject_token: str) -> str:
 
     timeout = httpx.Timeout(settings.mcp_keycloak_token_exchange_timeout_seconds)
     async with httpx.AsyncClient(timeout=timeout) as client:
-        return await _exchange_with_client(subject_token, client)
+        return await _exchange_with_client(
+            subject_token,
+            client,
+            settings.mcp_keycloak_token_exchange_audience,
+        )
+
+
+async def exchange_telemetry_access_token(subject_token: str) -> str:
+    """Exchange a validated user token for the scoped Telemetry resource."""
+    timeout = httpx.Timeout(settings.mcp_keycloak_token_exchange_timeout_seconds)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        return await _exchange_with_client(
+            subject_token,
+            client,
+            settings.telemetry_keycloak_token_exchange_audience,
+        )

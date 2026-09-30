@@ -5,27 +5,41 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from hashlib import sha256
 from time import monotonic
+from typing import Literal
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
-from app.core.token_exchange import MCPTokenExchangeError, exchange_mcp_access_token
+from app.core.token_exchange import (
+    MCPTokenExchangeError,
+    exchange_mcp_access_token,
+    exchange_telemetry_access_token,
+)
 from app.debug_ui.trace import trace_event
 
 logger = logging.getLogger(__name__)
 
 MCP_TOOL_ALLOWLIST: dict[str, frozenset[str]] = {
-    "faq": frozenset({"search_knowledge", "get_user_context"}),
-    "sustainability": frozenset(
-        {"search_knowledge", "get_user_context", "get_consumption_summary"}
+    "faq": frozenset(
+        {"search_knowledge", "get_user_context", "create_custom_dashboard"}
     ),
-    "ranking": frozenset({"search_knowledge", "get_user_context"}),
+    "sustainability": frozenset(
+        {
+            "search_knowledge",
+            "get_user_context",
+            "get_consumption_summary",
+            "create_custom_dashboard",
+        }
+    ),
+    "ranking": frozenset(
+        {"search_knowledge", "get_user_context", "create_custom_dashboard"}
+    ),
     "support": frozenset({"search_knowledge", "get_user_context"}),
 }
 MCP_USER_SCOPED_TOOLS = frozenset(
-    {"get_user_context", "get_consumption_summary"}
+    {"get_user_context", "get_consumption_summary", "create_custom_dashboard"}
 )
 MCP_TOOLS_CACHE_MAX_ENTRIES = 256
 DEFAULT_CONSUMPTION_PERIOD_DAYS = 30
@@ -34,6 +48,27 @@ _FORWARDED_ACCESS_TOKEN: ContextVar[str | None] = ContextVar(
     "mcp_forwarded_access_token",
     default=None,
 )
+_MCP_VISUALIZATIONS: ContextVar[list[dict] | None] = ContextVar(
+    "mcp_chat_visualizations",
+    default=None,
+)
+
+
+@contextmanager
+def capture_mcp_visualizations():
+    """Collect dashboard artifacts created during one chat request."""
+    visualizations: list[dict] = []
+    marker = _MCP_VISUALIZATIONS.set(visualizations)
+    try:
+        yield visualizations
+    finally:
+        _MCP_VISUALIZATIONS.reset(marker)
+
+
+def _record_visualization(visualization: dict) -> None:
+    current = _MCP_VISUALIZATIONS.get()
+    if current is not None and not current:
+        current.append(visualization)
 
 
 @contextmanager
@@ -66,6 +101,35 @@ class _ConsumptionSummaryArguments(BaseModel):
             "Janela de consulta em dias, limitada pelo contrato da tool."
         ),
     )
+
+
+class _CustomDashboardChartArguments(BaseModel):
+    chart_id: str = Field(
+        min_length=1,
+        max_length=64,
+        description="ID de um gráfico permitido pelo catálogo.",
+    )
+    render_as: Literal[
+        "auto",
+        "indicator",
+        "bar",
+        "line",
+        "pie",
+        "donut",
+        "histogram",
+    ] = Field(
+        default="auto",
+        description=(
+            "Tipo pedido pelo usuário quando compatível. Histogramas usam séries "
+            "numéricas; pizza só está disponível em goal-status. Use auto quando "
+            "nenhum tipo for pedido."
+        ),
+    )
+
+
+class _CustomDashboardArguments(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    charts: list[_CustomDashboardChartArguments] = Field(min_length=1, max_length=4)
 
 
 class MCPToolProvider:
@@ -118,10 +182,10 @@ class MCPToolProvider:
             oldest_key = next(iter(self._tools_cache))
             self._tools_cache.pop(oldest_key, None)
 
-    async def _load_tools(self, token: str) -> list:
+    async def _load_tools(self, token: str, *, include_dashboard: bool = False) -> list:
         """Exchange a user token, discover MCP tools, and cache the result."""
         now = monotonic()
-        cache_key = self._token_cache_key(token)
+        cache_key = f"{self._token_cache_key(token)}:{int(include_dashboard)}"
         cached = self._tools_cache.get(cache_key)
         if cached and now - cached[1] < self.cache_ttl_seconds:
             return cached[0]
@@ -134,7 +198,18 @@ class MCPToolProvider:
             self._prune_tools_cache(now)
 
             logger.info("mcp_tools_load_started server=%s", self.server_name)
-            delegated_token = await exchange_mcp_access_token(token)
+            if include_dashboard:
+                delegated_token, telemetry_token = await asyncio.gather(
+                    exchange_mcp_access_token(token),
+                    exchange_telemetry_access_token(token),
+                )
+                headers = {
+                    "Authorization": f"Bearer {delegated_token}",
+                    "X-Ouros-Telemetry-Token": f"Bearer {telemetry_token}",
+                }
+            else:
+                delegated_token = await exchange_mcp_access_token(token)
+                headers = {"Authorization": f"Bearer {delegated_token}"}
 
             from langchain_mcp_adapters.client import MultiServerMCPClient
 
@@ -143,7 +218,7 @@ class MCPToolProvider:
                     self.server_name: {
                         "transport": "http",
                         "url": self.url,
-                        "headers": {"Authorization": f"Bearer {delegated_token}"},
+                        "headers": headers,
                     },
                 },
                 handle_tool_errors=True,
@@ -160,6 +235,9 @@ class MCPToolProvider:
     async def tools_for(
         self,
         agent_name: str,
+        *,
+        dashboard_requested: bool = False,
+        dashboard_period_days: int = DEFAULT_CONSUMPTION_PERIOD_DAYS,
     ) -> list:
         """Return only MCP tools authorized for one specialist."""
 
@@ -183,7 +261,10 @@ class MCPToolProvider:
             return []
 
         try:
-            tools = await self._load_tools(token)
+            tools = await self._load_tools(
+                token,
+                include_dashboard=dashboard_requested,
+            )
         except MCPTokenExchangeError as error:
             logger.warning(
                 "mcp_token_exchange_unavailable agent=%s reason=%s status=%s",
@@ -211,16 +292,25 @@ class MCPToolProvider:
         for tool in tools:
             if tool.name not in allowed:
                 continue
+            if tool.name == "create_custom_dashboard" and not dashboard_requested:
+                continue
             if tool.name not in MCP_USER_SCOPED_TOOLS:
                 selected.append(tool)
                 continue
-            selected.append(self._bind_user_tool(tool))
+            selected.append(
+                self._bind_user_tool(
+                    tool,
+                    dashboard_period_days=dashboard_period_days,
+                )
+            )
         logger.info("mcp_tools_loaded agent=%s count=%d", agent_name, len(selected))
         return selected
 
     def _bind_user_tool(
         self,
         tool,
+        *,
+        dashboard_period_days: int = DEFAULT_CONSUMPTION_PERIOD_DAYS,
     ) -> StructuredTool:
         """Bind authenticated identity without exposing identifiers to the model."""
 
@@ -247,6 +337,40 @@ class MCPToolProvider:
                 )
 
             args_schema = _ConsumptionSummaryArguments
+        elif tool.name == "create_custom_dashboard":
+
+            async def invoke(
+                title: str,
+                charts: list[dict[str, str]],
+                period_days: int = dashboard_period_days,
+            ) -> object:
+                chart_selections = [
+                    chart.model_dump() if isinstance(chart, BaseModel) else chart
+                    for chart in charts
+                ]
+                chart_ids = [chart["chart_id"] for chart in chart_selections]
+                result = await self._invoke_remote_tool(
+                    tool,
+                    {
+                        "title": title,
+                        "charts": chart_selections,
+                        "period_days": period_days,
+                    },
+                )
+                dashboard = self._filter_custom_dashboard(
+                    result,
+                    expected_chart_ids=chart_ids,
+                )
+                _record_visualization(dashboard)
+                return {
+                    "title": dashboard["title"],
+                    "charts": [
+                        {"id": item["id"], "title": item["title"]}
+                        for item in dashboard["charts"]
+                    ],
+                }
+
+            args_schema = _CustomDashboardArguments
         else:
             raise ValueError(f"unsupported user-scoped MCP tool: {tool.name}")
 
@@ -263,6 +387,68 @@ class MCPToolProvider:
             description=description,
             args_schema=args_schema,
         )
+
+    @classmethod
+    def _filter_custom_dashboard(
+        cls,
+        result: object,
+        *,
+        expected_chart_ids: list[str],
+    ) -> dict:
+        """Keep only the bounded, expected visual payload for the chat client."""
+        dashboard = cls._require_decoded_result(
+            result,
+            tool_name="create_custom_dashboard",
+        )
+        title = dashboard.get("title")
+        charts = dashboard.get("charts")
+        if (
+            not isinstance(title, str)
+            or not title.strip()
+            or len(title) > 120
+            or not isinstance(charts, list)
+            or len(charts) != len(expected_chart_ids)
+        ):
+            raise MCPToolResultError("invalid custom dashboard result")
+
+        chart_by_id = {
+            item.get("id"): item
+            for item in charts
+            if isinstance(item, dict)
+        }
+        if set(chart_by_id) != set(expected_chart_ids):
+            raise MCPToolResultError("custom dashboard chart ids do not match")
+
+        filtered_charts = []
+        html_chars = 0
+        for chart_id in expected_chart_ids:
+            item = chart_by_id[chart_id]
+            chart_title = item.get("title")
+            render_as = item.get("render_as")
+            html = item.get("html")
+            if (
+                not isinstance(chart_title, str)
+                or not isinstance(render_as, str)
+                or not isinstance(html, str)
+                or len(html) > 1_500_000
+            ):
+                raise MCPToolResultError("invalid custom dashboard chart")
+            html_chars += len(html)
+            filtered_charts.append(
+                {
+                    "id": chart_id,
+                    "title": chart_title[:200],
+                    "render_as": render_as,
+                    "html": html,
+                }
+            )
+        if html_chars > 2_000_000:
+            raise MCPToolResultError("custom dashboard result is too large")
+        return {
+            "type": "ouros_dashboard",
+            "title": title.strip(),
+            "charts": filtered_charts,
+        }
 
     @staticmethod
     async def _invoke_remote_tool(tool, arguments: dict[str, object]) -> object:
@@ -582,4 +768,3 @@ class MCPToolProvider:
                 return MCPToolProvider._decode_tool_result(dumped)
 
         return None
-
