@@ -103,21 +103,23 @@ async def _invoke_graph(
         try:
             trace_event("graph.started")
             async with asyncio.timeout(settings.llm_total_timeout_seconds):
-                with forward_mcp_access_token(principal_token):
-                    with capture_mcp_visualizations() as visualizations:
-                        result = await graph.ainvoke(
-                            {
-                                "messages": [HumanMessage(content=safe_payload.message)],
-                                "user_id": principal_id,
-                                "route": "",
-                                "routes": [],
-                                "agents": [],
-                                "tools": [],
-                                "specialist_results": [],
-                                "input_guardrail": guardrail_state,
-                            },
-                            config=config,
-                        )
+                with (
+                    forward_mcp_access_token(principal_token),
+                    capture_mcp_visualizations() as visualizations,
+                ):
+                    result = await graph.ainvoke(
+                        {
+                            "messages": [HumanMessage(content=safe_payload.message)],
+                            "user_id": principal_id,
+                            "route": "",
+                            "routes": [],
+                            "agents": [],
+                            "tools": [],
+                            "specialist_results": [],
+                            "input_guardrail": guardrail_state,
+                        },
+                        config=config,
+                    )
         except TimeoutError as error:
             trace_event(
                 "graph.timeout",
