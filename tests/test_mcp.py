@@ -8,6 +8,7 @@ from app.agents.mcp import (
     MCP_TOOLS_CACHE_MAX_ENTRIES,
     MCPToolProvider,
     MCPToolResultError,
+    capture_mcp_visualizations,
     forward_mcp_access_token,
 )
 from app.core.token_exchange import MCPTokenExchangeError
@@ -15,6 +16,89 @@ from app.debug_ui.trace import capture_debug_trace
 
 
 class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
+    async def test_custom_dashboard_tool_returns_summary_and_records_visualization(
+        self,
+    ) -> None:
+        payload = {
+            "title": "Metas da fazenda",
+            "charts": [
+                {
+                    "id": "goal-status",
+                    "title": "Status das metas",
+                    "render_as": "pie",
+                    "html": "<html>chart</html>",
+                }
+            ],
+        }
+        remote_tool = SimpleNamespace(
+            name="create_custom_dashboard",
+            description="Cria um painel",
+            ainvoke=AsyncMock(return_value=payload),
+        )
+        provider = MCPToolProvider()
+        tool = provider._bind_user_tool(remote_tool, dashboard_period_days=14)
+
+        with capture_mcp_visualizations() as visualizations:
+            result = await tool.ainvoke(
+                {
+                    "title": "Metas da fazenda",
+                    "charts": [{"chart_id": "goal-status", "render_as": "pie"}],
+                }
+            )
+
+        self.assertEqual(
+            result,
+            {
+                "title": "Metas da fazenda",
+                "charts": [{"id": "goal-status", "title": "Status das metas"}],
+            },
+        )
+        self.assertEqual(visualizations[0]["charts"][0]["render_as"], "pie")
+        self.assertEqual(visualizations[0]["charts"][0]["html"], "<html>chart</html>")
+        remote_tool.ainvoke.assert_awaited_once()
+
+    def test_custom_dashboard_filter_rejects_invalid_chart_payloads(self) -> None:
+        valid_chart = {
+            "id": "goal-status",
+            "title": "Status das metas",
+            "render_as": "pie",
+            "html": "<html>chart</html>",
+        }
+        invalid_payloads = (
+            {"title": " ", "charts": [valid_chart]},
+            {"title": "Painel", "charts": [{**valid_chart, "title": " "}]},
+            {"title": "Painel", "charts": [{**valid_chart, "render_as": "auto"}]},
+            {"title": "Painel", "charts": [{**valid_chart, "html": ""}]},
+            {"title": "Painel", "charts": [{**valid_chart, "html": "x" * 1_500_001}]},
+            {"title": "Painel", "charts": [{**valid_chart, "id": "other"}]},
+        )
+        for index, payload in enumerate(invalid_payloads):
+            with self.subTest(index=index), self.assertRaises(MCPToolResultError):
+                MCPToolProvider._filter_custom_dashboard(
+                    payload,
+                    expected_chart_ids=["goal-status"],
+                )
+
+    def test_custom_dashboard_filter_rejects_oversized_combined_html(self) -> None:
+        chart = {
+            "id": "monthly-consumption",
+            "title": "Consumo mensal",
+            "render_as": "histogram",
+            "html": "x" * 1_100_000,
+        }
+        payload = {
+            "title": "Consumo",
+            "charts": [
+                chart,
+                {**chart, "id": "resource-efficiency"},
+            ],
+        }
+        with self.assertRaises(MCPToolResultError):
+            MCPToolProvider._filter_custom_dashboard(
+                payload,
+                expected_chart_ids=["monthly-consumption", "resource-efficiency"],
+            )
+
     def setUp(self) -> None:
         """Replace token exchange with a deterministic delegated-token stub."""
         self.exchange_token = AsyncMock(
