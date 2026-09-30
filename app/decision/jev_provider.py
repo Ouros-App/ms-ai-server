@@ -208,31 +208,17 @@ class JevDecisionProvider:
             )
         return float(probability)
 
-    @classmethod
-    def _parse_response(
-        cls,
-        body: object,
-        state: DecisionInput,
-    ) -> ProviderResult:
-        """Convert the provider response to locally validated decision data."""
-        if not isinstance(body, dict):
-            raise InvalidDecisionError(
-                "Jev response must be an object",
-                reason="response_not_object",
-            )
-        answers = body.get("answers")
-        if not isinstance(answers, dict):
-            raise InvalidDecisionError(
-                "Jev response has no answers object",
-                reason="answers_missing",
-            )
+    @staticmethod
+    def _route(answers: dict, state: DecisionInput) -> tuple[str, float]:
+        """Validate the selected route and its confidence."""
         route_answer = answers.get("agent")
         if not isinstance(route_answer, dict) or route_answer.get("type") != "choice":
             raise InvalidDecisionError(
                 "Jev omitted the route decision",
                 reason="agent_answer_missing",
             )
-        if route_answer.get("choice") not in state.available_agents:
+        agent = route_answer.get("choice")
+        if agent not in state.available_agents:
             raise InvalidDecisionError(
                 "Jev returned an unavailable agent",
                 reason="agent_unavailable",
@@ -243,21 +229,29 @@ class JevDecisionProvider:
                 "Jev returned invalid route confidence",
                 reason="confidence_invalid",
             )
+        return agent, float(confidence)
 
+    @classmethod
+    def _selected_tools(
+        cls,
+        answers: dict,
+        state: DecisionInput,
+        agent: str,
+    ) -> list[str]:
+        """Select only tools permitted for the chosen agent."""
         selected_tools = []
-        allowed_tools = set(state.agent_tools.get(route_answer["choice"], []))
+        allowed_tools = set(state.agent_tools.get(agent, []))
         for index, tool_name in enumerate(state.available_tools):
             if (
                 tool_name in allowed_tools
                 and cls._probability(answers.get(f"tool_{index}"), tool_name) >= 0.5
             ):
                 selected_tools.append(tool_name)
-        needs_mcp = bool(selected_tools)
-        needs_analytics = (
-            cls._probability(answers.get("needs_analytics"), "analytics") >= 0.5
-            if state.context.get("has_analytics", False)
-            else False
-        )
+        return selected_tools
+
+    @staticmethod
+    def _usage(body: dict) -> tuple[int, int]:
+        """Validate and return provider token usage."""
         usage = body.get("usage")
         if not isinstance(usage, dict):
             raise InvalidDecisionError(
@@ -276,19 +270,54 @@ class JevDecisionProvider:
                 "Jev returned invalid token usage",
                 reason="usage_invalid",
             )
+        return input_tokens, output_tokens
+
+    @staticmethod
+    def _model_name(body: dict) -> str:
+        """Validate and return the provider model name."""
         model = body.get("model")
         if not isinstance(model, str) or not model.strip():
             raise InvalidDecisionError(
                 "Jev response has no model name",
                 reason="model_missing",
             )
+        return model
+
+    @classmethod
+    def _parse_response(
+        cls,
+        body: object,
+        state: DecisionInput,
+    ) -> ProviderResult:
+        """Convert the provider response to locally validated decision data."""
+        if not isinstance(body, dict):
+            raise InvalidDecisionError(
+                "Jev response must be an object",
+                reason="response_not_object",
+            )
+        answers = body.get("answers")
+        if not isinstance(answers, dict):
+            raise InvalidDecisionError(
+                "Jev response has no answers object",
+                reason="answers_missing",
+            )
+        agent, confidence = cls._route(answers, state)
+        selected_tools = cls._selected_tools(answers, state, agent)
+        needs_mcp = bool(selected_tools)
+        needs_analytics = (
+            cls._probability(answers.get("needs_analytics"), "analytics") >= 0.5
+            if state.context.get("has_analytics", False)
+            else False
+        )
+        input_tokens, output_tokens = cls._usage(body)
+        model = cls._model_name(body)
         try:
             decision = MidasDecision(
-                agent=route_answer["choice"],
+                agent=agent,
                 tools=selected_tools,
                 needs_mcp=needs_mcp,
                 needs_analytics=needs_analytics,
-                confidence=float(confidence),
+                confidence=confidence,
             )
             return ProviderResult(
                 decision=decision,

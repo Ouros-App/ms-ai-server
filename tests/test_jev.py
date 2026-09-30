@@ -81,6 +81,7 @@ class JevProviderTests(unittest.TestCase):
 
     def test_provider_classifies_malformed_decision_fields(self) -> None:
         """Assign a specific reason to every malformed provider response field."""
+        state = _decision_input()
         cases = (
             ([], "response_not_object"),
             ({"answers": []}, "answers_missing"),
@@ -89,7 +90,7 @@ class JevProviderTests(unittest.TestCase):
         for body, expected_reason in cases:
             with self.subTest(reason=expected_reason):
                 with self.assertRaises(InvalidDecisionError) as raised:
-                    JevDecisionProvider._parse_response(body, _decision_input())
+                    JevDecisionProvider._parse_response(body, state)
                 self.assertEqual(raised.exception.reason, expected_reason)
 
         invalid_fields = (
@@ -101,7 +102,7 @@ class JevProviderTests(unittest.TestCase):
             body["answers"][answer_name][field_name] = value
             with self.subTest(reason=expected_reason):
                 with self.assertRaises(InvalidDecisionError) as raised:
-                    JevDecisionProvider._parse_response(body, _decision_input())
+                    JevDecisionProvider._parse_response(body, state)
                 self.assertEqual(raised.exception.reason, expected_reason)
 
         invalid_bodies = []
@@ -120,7 +121,7 @@ class JevProviderTests(unittest.TestCase):
         for body, expected_reason in invalid_bodies:
             with self.subTest(reason=expected_reason):
                 with self.assertRaises(InvalidDecisionError) as raised:
-                    JevDecisionProvider._parse_response(body, _decision_input())
+                    JevDecisionProvider._parse_response(body, state)
                 self.assertEqual(raised.exception.reason, expected_reason)
 
     def test_analytics_question_and_decision_when_backend_is_available(self) -> None:
