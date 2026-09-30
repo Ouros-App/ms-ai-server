@@ -68,6 +68,7 @@ class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
             {"title": " ", "charts": [valid_chart]},
             {"title": "Painel", "charts": [{**valid_chart, "title": " "}]},
             {"title": "Painel", "charts": [{**valid_chart, "render_as": ""}]},
+            {"title": "Painel", "charts": [{**valid_chart, "render_as": "auto"}]},
             {"title": "Painel", "charts": [{**valid_chart, "html": ""}]},
             {"title": "Painel", "charts": [{**valid_chart, "html": "x" * 1_500_001}]},
             {"title": "Painel", "charts": [{**valid_chart, "id": "other"}]},
