@@ -1050,6 +1050,23 @@ def _personal_data_error_result() -> dict[str, object]:
     return result
 
 
+def _model_mcp_tools(
+    mcp_tools: list,
+    prefetched_names: set[str],
+    selected_tools: set[str] | None,
+) -> list:
+    """Keep prefetched tools out of model calls and honor Jev selection."""
+    return [
+        tool
+        for tool in mcp_tools
+        if getattr(tool, "name", None) not in prefetched_names
+        and (
+            selected_tools is None
+            or getattr(tool, "name", None) in selected_tools
+        )
+    ]
+
+
 async def _execute_specialist(
     state: AgentState,
     prompt: str,
@@ -1065,6 +1082,7 @@ async def _execute_specialist(
         or _DASHBOARD_IMPLICIT_REQUEST_PATTERN.search(normalized_user_text)
     )
     dashboard_period_days = _dashboard_period_days(user_text)
+    selected_tools: set[str] | None = None
     mcp_tools = await _load_agent_mcp_tools(
         agent_name,
         mcp_provider,
@@ -1117,12 +1135,11 @@ async def _execute_specialist(
         mcp_tools,
         prefetch_message,
     )
-    prefetched_names = set(prefetched_tools)
-    remaining_mcp_tools = [
-        tool
-        for tool in mcp_tools
-        if getattr(tool, "name", None) not in prefetched_names
-    ]
+    remaining_mcp_tools = _model_mcp_tools(
+        mcp_tools,
+        set(prefetched_tools),
+        selected_tools,
+    )
     response, model_used_tools = await _invoke_model(
         model,
         specialist_messages,

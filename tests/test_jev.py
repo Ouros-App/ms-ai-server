@@ -6,6 +6,7 @@ import httpx
 from langchain_core.messages import HumanMessage
 
 from app.agents import graph
+from app.agents.graph import _model_mcp_tools
 from app.core.config import settings
 from app.decision.fallback import DeterministicFallbackProvider
 from app.decision.jev_provider import (
@@ -493,3 +494,33 @@ class JevRouterIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["route_source"], "deterministic")
         self.assertEqual(result["routes"], ["sustainability"])
+
+
+class JevToolSelectionTests(unittest.TestCase):
+    def test_unselected_consumption_tool_is_not_passed_to_model(self) -> None:
+        consumption_tool = Mock()
+        consumption_tool.name = "get_consumption_summary"
+        knowledge_tool = Mock()
+        knowledge_tool.name = "search_knowledge"
+
+        available_for_model = _model_mcp_tools(
+            [consumption_tool, knowledge_tool],
+            prefetched_names=set(),
+            selected_tools=set(),
+        )
+
+        self.assertEqual(available_for_model, [])
+
+    def test_selected_tools_remain_available_unless_already_prefetched(self) -> None:
+        consumption_tool = Mock()
+        consumption_tool.name = "get_consumption_summary"
+        knowledge_tool = Mock()
+        knowledge_tool.name = "search_knowledge"
+
+        available_for_model = _model_mcp_tools(
+            [consumption_tool, knowledge_tool],
+            prefetched_names={"get_consumption_summary"},
+            selected_tools={"get_consumption_summary", "search_knowledge"},
+        )
+
+        self.assertEqual(available_for_model, [knowledge_tool])
