@@ -5,7 +5,6 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from hashlib import sha256
 from time import monotonic
-from typing import Literal
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import StructuredTool
@@ -40,9 +39,6 @@ MCP_TOOL_ALLOWLIST: dict[str, frozenset[str]] = {
 }
 MCP_USER_SCOPED_TOOLS = frozenset(
     {"get_user_context", "get_consumption_summary", "create_custom_dashboard"}
-)
-_CUSTOM_DASHBOARD_RENDER_TYPES = frozenset(
-    {"indicator", "bar", "line", "pie", "donut", "histogram"}
 )
 MCP_TOOLS_CACHE_MAX_ENTRIES = 256
 DEFAULT_CONSUMPTION_PERIOD_DAYS = 30
@@ -100,9 +96,7 @@ class _ConsumptionSummaryArguments(BaseModel):
         default=DEFAULT_CONSUMPTION_PERIOD_DAYS,
         ge=1,
         le=MAX_CONSUMPTION_PERIOD_DAYS,
-        description=(
-            "Janela de consulta em dias, limitada pelo contrato da tool."
-        ),
+        description=("Janela de consulta em dias, limitada pelo contrato da tool."),
     )
 
 
@@ -112,20 +106,13 @@ class _CustomDashboardChartArguments(BaseModel):
         max_length=64,
         description="ID de um gráfico permitido pelo catálogo.",
     )
-    render_as: Literal[
-        "auto",
-        "indicator",
-        "bar",
-        "line",
-        "pie",
-        "donut",
-        "histogram",
-    ] = Field(
+    render_as: str = Field(
         default="auto",
+        min_length=1,
+        max_length=32,
         description=(
-            "Tipo pedido pelo usuário quando compatível. Histogramas usam séries "
-            "numéricas; pizza só está disponível em goal-status. Use auto quando "
-            "nenhum tipo for pedido."
+            "Trace Plotly solicitado pelo usuário. O Telemetry verifica se ele "
+            "está em render_options para o gráfico selecionado. Use auto sem preferência."
         ),
     )
 
@@ -415,9 +402,7 @@ class MCPToolProvider:
             raise MCPToolResultError("invalid custom dashboard result")
 
         chart_by_id = {
-            item.get("id"): item
-            for item in charts
-            if isinstance(item, dict)
+            item.get("id"): item for item in charts if isinstance(item, dict)
         }
         if set(chart_by_id) != set(expected_chart_ids):
             raise MCPToolResultError("custom dashboard chart ids do not match")
@@ -433,7 +418,7 @@ class MCPToolProvider:
                 not isinstance(chart_title, str)
                 or not chart_title.strip()
                 or not isinstance(render_as, str)
-                or render_as not in _CUSTOM_DASHBOARD_RENDER_TYPES
+                or not 1 <= len(render_as) <= 32
                 or not isinstance(html, str)
                 or not html
                 or len(html) > 1_500_000
@@ -482,9 +467,7 @@ class MCPToolProvider:
                 tool=tool_name,
                 error_chars=len(message),
             )
-            raise MCPToolResultError(
-                f"remote MCP tool {tool_name} returned an error"
-            )
+            raise MCPToolResultError(f"remote MCP tool {tool_name} returned an error")
 
         decoded = MCPToolProvider._decode_tool_result(result)
         if decoded is not None and MCPToolProvider._result_contract_is_valid(
@@ -550,8 +533,7 @@ class MCPToolProvider:
                 and isinstance(period_days, int)
                 and not isinstance(period_days, bool)
                 and (
-                    expected_period_days is None
-                    or period_days == expected_period_days
+                    expected_period_days is None or period_days == expected_period_days
                 )
                 and isinstance(farm_ids, list)
                 and all(
@@ -593,10 +575,7 @@ class MCPToolProvider:
                 if key not in MCPToolProvider._INTERNAL_ID_KEYS
             }
         if isinstance(value, list):
-            return [
-                MCPToolProvider._without_internal_ids(item)
-                for item in value
-            ]
+            return [MCPToolProvider._without_internal_ids(item) for item in value]
         return value
 
     @staticmethod
@@ -675,11 +654,7 @@ class MCPToolProvider:
             if not isinstance(row, dict) or row.get("id_farm") not in authorized_ids:
                 continue
             summaries.append(
-                {
-                    key: value
-                    for key, value in row.items()
-                    if key != "id_farm"
-                }
+                {key: value for key, value in row.items() if key != "id_farm"}
             )
         return {
             "authorized": True,
@@ -717,10 +692,7 @@ class MCPToolProvider:
                 if artifact_result is not None:
                     return artifact_result
 
-            if (
-                result.get("type") == "text"
-                and isinstance(result.get("text"), str)
-            ):
+            if result.get("type") == "text" and isinstance(result.get("text"), str):
                 return MCPToolProvider._decode_tool_result(result["text"])
 
             return result

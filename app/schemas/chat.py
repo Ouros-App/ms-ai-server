@@ -9,15 +9,15 @@ class ChatRequest(BaseModel):
 
     user_id: str | None = Field(default=None, min_length=1, max_length=128)
     message: str = Field(min_length=1, max_length=8_000)
-    thread_id: str = Field(default_factory=lambda: str(uuid4()), min_length=1, max_length=128)
+    thread_id: str = Field(
+        default_factory=lambda: str(uuid4()), min_length=1, max_length=128
+    )
 
 
 class ChatVisualizationChart(BaseModel):
     id: str = Field(min_length=1, max_length=64)
     title: str = Field(min_length=1, max_length=200)
-    render_as: Literal[
-        "indicator", "bar", "line", "pie", "donut", "histogram"
-    ]
+    render_as: str = Field(min_length=1, max_length=32)
     html: str = Field(min_length=1, max_length=1_500_000)
 
 
