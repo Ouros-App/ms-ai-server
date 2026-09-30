@@ -7,9 +7,11 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app.agents.graph import (
+    _DASHBOARD_IMPLICIT_REQUEST_PATTERN,
     _RESET_TOOLS,
     _collect_pending_state,
     _conversation_is_personal_request,
+    _dashboard_period_days,
     _deterministic_routes,
     _execute_tool_call,
     _extract_period_days,
@@ -460,6 +462,15 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIsNone(_extract_period_days("30"))
         self.assertIsNone(_extract_period_days("13 meses"))
+
+    def test_dashboard_period_understands_feminine_relative_periods(self) -> None:
+        for message in ("desempenho da ultima semana", "desempenho da semana passada"):
+            with self.subTest(message=message):
+                self.assertEqual(_dashboard_period_days(message), 7)
+                self.assertRegex(
+                    message,
+                    _DASHBOARD_IMPLICIT_REQUEST_PATTERN,
+                )
 
     def test_legacy_league_names_are_not_hardcoded_into_routing(self) -> None:
         self.assertIsNone(

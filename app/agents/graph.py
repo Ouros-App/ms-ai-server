@@ -154,11 +154,14 @@ def _dashboard_period_days(message: str) -> int:
         else:
             multiplier = 1
         return min(MAX_CONSUMPTION_PERIOD_DAYS, max(1, value * multiplier))
-    if re.search(r"\b(?:ultimo|ultimos|passado|passados)\s+mes(?:es)?\b", text):
+    if re.search(r"\b(?:ultim\w*|passad\w*)\s+mes(?:es)?\b", text):
         return 30
-    if re.search(r"\b(?:ultimo|ultimos|passado|passados)\s+ano\b", text):
+    if re.search(r"\b(?:ultim\w*|passad\w*)\s+ano\b", text):
         return MAX_CONSUMPTION_PERIOD_DAYS
-    if re.search(r"\b(?:ultimo|ultimos|passado|passados)\s+semana\b", text):
+    if re.search(
+        r"\b(?:ultim\w*|passad\w*)\s+semanas?\b|\bsemanas?\s+passad\w*\b",
+        text,
+    ):
         return 7
     return DEFAULT_CONSUMPTION_PERIOD_DAYS
 
@@ -181,7 +184,7 @@ _DASHBOARD_REQUEST_PATTERN = re.compile(
 )
 _DASHBOARD_IMPLICIT_REQUEST_PATTERN = re.compile(
     r"\b(?:desempenh\w*|perform\w*|resultado\w*|produc\w*)\b"
-    r".*\b(?:ultimo\w*|passad\w*|\d{1,3}\s*(?:dia|dias|semana|semanas|mes|meses))\b"
+    r".*\b(?:ultim\w*|passad\w*|\d{1,3}\s*(?:dia|dias|semana|semanas|mes|meses))\b"
 )
 _DASHBOARD_PERIOD_PATTERN = re.compile(
     r"\b(?P<value>\d{1,3})\s*(?P<unit>dia|dias|semana|semanas|mes|meses)\b"

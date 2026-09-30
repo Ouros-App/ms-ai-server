@@ -41,6 +41,9 @@ MCP_TOOL_ALLOWLIST: dict[str, frozenset[str]] = {
 MCP_USER_SCOPED_TOOLS = frozenset(
     {"get_user_context", "get_consumption_summary", "create_custom_dashboard"}
 )
+_CUSTOM_DASHBOARD_RENDER_TYPES = frozenset(
+    {"indicator", "bar", "line", "pie", "donut", "histogram"}
+)
 MCP_TOOLS_CACHE_MAX_ENTRIES = 256
 DEFAULT_CONSUMPTION_PERIOD_DAYS = 30
 MAX_CONSUMPTION_PERIOD_DAYS = 366
@@ -428,8 +431,11 @@ class MCPToolProvider:
             html = item.get("html")
             if (
                 not isinstance(chart_title, str)
+                or not chart_title.strip()
                 or not isinstance(render_as, str)
+                or render_as not in _CUSTOM_DASHBOARD_RENDER_TYPES
                 or not isinstance(html, str)
+                or not html
                 or len(html) > 1_500_000
             ):
                 raise MCPToolResultError("invalid custom dashboard chart")
