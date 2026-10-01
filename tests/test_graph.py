@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi import HTTPException
@@ -12,13 +13,17 @@ from app.agents.graph import (
     _collect_pending_state,
     _conversation_is_personal_request,
     _dashboard_period_days,
+    _dashboard_period_days_for_state,
     _deterministic_routes,
     _execute_tool_call,
     _extract_period_days,
     _extract_route,
     _invoke_model,
+    _is_dashboard_creation_request,
     _is_pending_followup,
+    _is_visualization_subject_reply,
     _merge_tools,
+    _resolve_jev_route,
     _resolve_local_routes,
     _route_update,
     _run_agent,
@@ -58,6 +63,169 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(_merge_tools(["get_user_context"], []), ["get_user_context"])
         self.assertEqual(_merge_tools(["old"], [_RESET_TOOLS]), [])
         self.assertEqual(_merge_tools(["old"], [_RESET_TOOLS, "new"]), ["new"])
+
+    def test_chart_followup_keeps_period_only_for_visualization_continuation(self) -> None:
+        history = [
+            HumanMessage(content="Como foi meu consumo nos últimos 3 meses?"),
+            AIMessage(content="O período consultado foi de 90 dias."),
+            HumanMessage(content="Pode gerar um gráfico?"),
+        ]
+
+        self.assertEqual(
+            _dashboard_period_days_for_state(
+                {
+                    "messages": history,
+                    "route_source": "context",
+                    "routes": ["visualization"],
+                },
+                "Pode gerar um gráfico?",
+            ),
+            90,
+        )
+        self.assertEqual(
+            _dashboard_period_days_for_state(
+                {
+                    "messages": history,
+                    "route_source": "deterministic",
+                    "routes": ["visualization"],
+                },
+                "3 dias",
+            ),
+            3,
+        )
+        self.assertEqual(
+            _dashboard_period_days_for_state(
+                {
+                    "messages": [HumanMessage(content="Gere um gráfico")],
+                    "route_source": "context",
+                    "routes": ["visualization"],
+                },
+                "Gere um gráfico",
+            ),
+            30,
+        )
+
+    def test_visualization_subject_replies_are_limited_to_chart_prompts(self) -> None:
+        missing = ["assunto do gráfico"]
+
+        self.assertFalse(_is_dashboard_creation_request(None))
+        self.assertFalse(_is_visualization_subject_reply(None, missing))
+        self.assertFalse(_is_visualization_subject_reply("água", []))
+        self.assertFalse(_is_visualization_subject_reply("Qual consumo?", missing))
+        self.assertFalse(_is_visualization_subject_reply("cancela", missing))
+        self.assertTrue(_is_visualization_subject_reply("consumo de água", missing))
+        self.assertTrue(_is_pending_followup("consumo de água", missing))
+
+    def test_explicit_chart_request_routes_to_visualization_with_context(self) -> None:
+        missing = ["assunto do gráfico"]
+        request = HumanMessage(content="Pode gerar um gráfico?")
+        routes, source = _resolve_local_routes(
+            {
+                "messages": [request],
+                "last_routes": ["sustainability"],
+            }
+        )
+        self.assertEqual((routes, source), (["visualization"], "context"))
+
+        routes, source = _resolve_local_routes(
+            {"messages": [HumanMessage(content="Gere um gráfico de água")]}
+        )
+        self.assertEqual(
+            (routes, source),
+            (["sustainability", "visualization"], "deterministic"),
+        )
+
+        routes, source = _resolve_local_routes(
+            {
+                "messages": [
+                    HumanMessage(content="Como foi meu desempenho no último mês?")
+                ]
+            }
+        )
+        self.assertEqual((routes, source), (["ranking", "visualization"], "deterministic"))
+
+        routes, source = _resolve_local_routes(
+            {
+                "messages": [HumanMessage(content="água")],
+                "pending_by_route": {"visualization": missing},
+            }
+        )
+        self.assertEqual((routes, source), (["visualization"], "pending"))
+
+    async def test_jev_cannot_override_explicit_chart_route_without_chart_tool(self) -> None:
+        decision = SimpleNamespace(
+            agent="default",
+            tools=[],
+            confidence=0.95,
+            needs_mcp=False,
+            needs_analytics=False,
+        )
+        outcome = SimpleNamespace(accepted=True, decision=decision)
+        state = {
+            "messages": [HumanMessage(content="Pode gerar um gráfico?")],
+            "last_routes": ["sustainability"],
+        }
+
+        with (
+            patch.object(settings, "jev_enabled", True),
+            patch.object(settings, "jev_shadow_mode", False),
+            patch("app.agents.graph._DECISION_SERVICE.decide", new=AsyncMock(return_value=outcome)),
+        ):
+            routes, source, metadata = await _resolve_jev_route(
+                state,
+                ["visualization"],
+                "context",
+            )
+
+        self.assertEqual((routes, source), (["visualization"], "context"))
+        self.assertEqual(metadata["decision_source"], "")
+
+    async def test_jev_chart_route_preserves_followup_period_context(self) -> None:
+        decision = SimpleNamespace(
+            agent="visualization",
+            tools=["create_custom_dashboard"],
+            confidence=0.95,
+            needs_mcp=True,
+            needs_analytics=False,
+        )
+        outcome = SimpleNamespace(accepted=True, decision=decision)
+
+        with (
+            patch.object(settings, "jev_enabled", True),
+            patch.object(settings, "jev_shadow_mode", False),
+            patch("app.agents.graph._DECISION_SERVICE.decide", new=AsyncMock(return_value=outcome)),
+        ):
+            routes, source, metadata = await _resolve_jev_route(
+                {
+                    "messages": [HumanMessage(content="Pode gerar um gráfico?")],
+                    "last_routes": ["sustainability"],
+                },
+                ["visualization"],
+                "context",
+            )
+
+        self.assertEqual((routes, source), (["visualization"], "context"))
+        self.assertEqual(metadata["decision_source"], "jev")
+
+    async def test_implicit_performance_request_adds_visualization_route(self) -> None:
+        with patch(
+            "app.agents.graph._resolve_jev_route",
+            new=AsyncMock(return_value=(["ranking"], "context", {})),
+        ):
+            result = await route_request(
+                {
+                    "messages": [
+                        HumanMessage(
+                            content="Como foi meu desempenho no último mês?"
+                        )
+                    ],
+                    "input_guardrail": {"allowed": True},
+                    "route": "",
+                    "pending_by_route": {},
+                }
+            )
+
+        self.assertEqual(result["routes"], ["ranking", "visualization"])
 
     async def test_unknown_tool_call_gets_a_matching_error_tool_message(self) -> None:
         conversation = []
