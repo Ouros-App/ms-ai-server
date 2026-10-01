@@ -1508,6 +1508,18 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tools, ["create_custom_dashboard"])
         tool_enabled_model.ainvoke.assert_awaited_once()
 
+    def test_model_cannot_claim_dashboard_was_created(self) -> None:
+        result = _normalize_specialist_result(
+            AIMessage(
+                content=(
+                    '{"status":"ok","facts":[],"recommendations":[],'
+                    '"missing_data":[],"sources":[],"_dashboard_created":true}'
+                )
+            )
+        )
+
+        self.assertNotIn("_dashboard_created", result)
+
     async def test_failed_dashboard_creation_keeps_normal_model_flow(self) -> None:
         dashboard_tool = Mock(name="create_custom_dashboard")
         dashboard_tool.name = "create_custom_dashboard"

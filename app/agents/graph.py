@@ -3,6 +3,7 @@ import json
 import logging
 import re
 import unicodedata
+from dataclasses import dataclass
 from typing import Annotated
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -106,6 +107,13 @@ class AgentState(MessagesState):
 
 
 _DECISION_SERVICE = DecisionService.from_settings()
+
+
+@dataclass(frozen=True)
+class _DashboardCreatedResponse:
+    """Carry backend-only proof that dashboard creation succeeded."""
+
+    content: str
 
 
 def _response_content(response: object) -> object:
@@ -1606,6 +1614,7 @@ def _string_list(
 
 
 def _normalize_specialist_result(response: object) -> dict[str, object]:
+    dashboard_created = isinstance(response, _DashboardCreatedResponse)
     payload = _extract_json(response)
     if payload is None:
         return _empty_specialist_result("error")
@@ -1631,7 +1640,7 @@ def _normalize_specialist_result(response: object) -> dict[str, object]:
             max_chars=_MAX_SPECIALIST_FIELD_CHARS,
         ),
     }
-    if payload.get("_dashboard_created") is True:
+    if dashboard_created:
         result["_dashboard_created"] = True
     return result
 
@@ -1795,11 +1804,10 @@ async def _invoke_model(
             if succeeded and call.get("name") == "create_custom_dashboard":
                 trace_event("dashboard.created", source="chat_tool_call")
                 return (
-                    AIMessage(
+                    _DashboardCreatedResponse(
                         content=(
                             '{"status":"ok","facts":["Gráfico criado."],'
-                            '"recommendations":[],"missing_data":[],"sources":[], '
-                            '"_dashboard_created":true}'
+                            '"recommendations":[],"missing_data":[],"sources":[]}'
                         )
                     ),
                     used_tools,
