@@ -158,7 +158,10 @@ class JevDecisionProvider:
     def _questions(state: DecisionInput) -> dict[str, dict[str, object]]:
         """Build one combined route, tool, and strategy questionnaire."""
         agent_criteria = {
-            agent: _AGENT_DESCRIPTIONS.get(agent, f"Rota {agent} disponível no Midas.")
+            agent: _AGENT_DESCRIPTIONS.get(
+                agent,
+                f"Rota {agent} disponível para o assistente.",
+            )
             for agent in state.available_agents
         }
         questions: dict[str, dict[str, object]] = {
