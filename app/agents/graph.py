@@ -735,6 +735,30 @@ def _has_deterministic_route_match(message: object) -> bool:
     )
 
 
+def _explicit_visualization_routes(
+    message: object,
+    deterministic: list[str] | None,
+    inherited_routes: list[str],
+) -> tuple[list[str], str] | None:
+    """Resolve explicit and implied chart requests before semantic routing."""
+    if _is_dashboard_creation_request(message):
+        domain_routes = [route for route in (deterministic or []) if route != "faq"]
+        if domain_routes:
+            return list(dict.fromkeys([*domain_routes, "visualization"])), "deterministic"
+        source = "context" if inherited_routes else "deterministic"
+        return ["visualization"], source
+
+    content = getattr(message, "content", "")
+    if (
+        deterministic
+        and isinstance(content, str)
+        and _DASHBOARD_IMPLICIT_REQUEST_PATTERN.search(_normalize_route_text(content))
+    ):
+        routes = list(dict.fromkeys([*deterministic, "visualization"]))
+        return routes, "deterministic"
+    return None
+
+
 def _resolve_local_routes(state: AgentState) -> tuple[list[str] | None, str | None]:
     latest_message = _latest_message(state)
     if latest_message is None:
@@ -755,18 +779,13 @@ def _resolve_local_routes(state: AgentState) -> tuple[list[str] | None, str | No
 
     inherited_routes = _inheritable_routes(state.get("last_routes"))
     deterministic = _deterministic_routes(latest_message)
-    if _is_dashboard_creation_request(latest_message):
-        domain_routes = [route for route in (deterministic or []) if route != "faq"]
-        if domain_routes:
-            return list(dict.fromkeys([*domain_routes, "visualization"])), "deterministic"
-        return ["visualization"], "context" if inherited_routes else "deterministic"
-    content = getattr(latest_message, "content", "")
-    if (
-        deterministic
-        and isinstance(content, str)
-        and _DASHBOARD_IMPLICIT_REQUEST_PATTERN.search(_normalize_route_text(content))
-    ):
-        return list(dict.fromkeys([*deterministic, "visualization"])), "deterministic"
+    visualization_routes = _explicit_visualization_routes(
+        latest_message,
+        deterministic,
+        inherited_routes,
+    )
+    if visualization_routes is not None:
+        return visualization_routes
     if deterministic is not None:
         return deterministic, "deterministic"
 
@@ -879,18 +898,35 @@ async def _resolve_jev_route(
         "decision_needs_analytics": outcome.decision.needs_analytics,
         "decision_calls": int(state.get("decision_calls", 0)) + 1,
     }
+    return await _apply_jev_outcome(state, routes, route_source, outcome, metadata)
+
+
+def _explicit_visualization_route_is_constrained(
+    state: AgentState,
+    routes: list[str] | None,
+    outcome,
+) -> bool:
+    """Keep an explicit chart request on a route capable of creating charts."""
+    if routes is None or "visualization" not in routes:
+        return False
+    if not _is_dashboard_creation_request(_latest_message(state)):
+        return False
+    return (
+        outcome.decision.agent != "visualization"
+        or "create_custom_dashboard" not in outcome.decision.tools
+    )
+
+
+async def _apply_jev_outcome(
+    state: AgentState,
+    routes: list[str] | None,
+    route_source: str | None,
+    outcome,
+    metadata: dict[str, object],
+) -> tuple[list[str], str, dict[str, object]]:
+    """Apply a Jev result while preserving locally enforced chart intent."""
     if outcome.accepted:
-        latest_message = _latest_message(state)
-        dashboard_creation_request = _is_dashboard_creation_request(latest_message)
-        if (
-            dashboard_creation_request
-            and routes is not None
-            and "visualization" in routes
-            and (
-                outcome.decision.agent != "visualization"
-                or "create_custom_dashboard" not in outcome.decision.tools
-            )
-        ):
+        if _explicit_visualization_route_is_constrained(state, routes, outcome):
             logger.warning(
                 "jev.decision.constrained reason=explicit_visualization_request "
                 "selected_agent=%s selected_tools=%s required_agent=visualization",
@@ -905,14 +941,14 @@ async def _resolve_jev_route(
                 required_agent="visualization",
             )
             return routes, route_source or "deterministic", _empty_decision_metadata()
-        selected_route_source = (
-            "context"
-            if dashboard_creation_request
+
+        is_chart_followup = (
+            _is_dashboard_creation_request(_latest_message(state))
             and route_source == "context"
             and outcome.decision.agent == "visualization"
-            else "jev"
         )
-        return [outcome.decision.agent], selected_route_source, metadata
+        return [outcome.decision.agent], "context" if is_chart_followup else "jev", metadata
+
     if routes is None:
         routes, route_source = await _resolve_model_routes(state)
     return routes, route_source or "no_model", metadata
