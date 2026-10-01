@@ -97,6 +97,7 @@ function appendVisualizations(container, visualizations, variant = "debug") {
   const heading = document.createElement("h3");
   heading.textContent = "Gráficos da resposta";
   section.appendChild(heading);
+  const renderJobs = [];
 
   for (const dashboard of visualizations) {
     for (const chart of dashboard.charts || []) {
@@ -109,15 +110,32 @@ function appendVisualizations(container, visualizations, variant = "debug") {
       const frame = document.createElement("iframe");
       frame.className = "visualization-frame";
       frame.title = title.textContent;
+      frame.name = `visualization-${crypto.randomUUID()}`;
       frame.setAttribute("sandbox", "allow-scripts");
       frame.referrerPolicy = "no-referrer";
-      frame.loading = "lazy";
-      frame.srcdoc = chart.html;
       card.appendChild(frame);
       section.appendChild(card);
+      renderJobs.push({ frame, html: chart.html });
     }
   }
-  if (section.querySelector(".visualization-card")) container.appendChild(section);
+  if (!section.querySelector(".visualization-card")) return;
+  container.appendChild(section);
+
+  for (const { frame, html } of renderJobs) {
+    const form = document.createElement("form");
+    form.method = "post";
+    form.action = "/debug/api/visualization";
+    form.target = frame.name;
+    form.hidden = true;
+    const payload = document.createElement("input");
+    payload.type = "hidden";
+    payload.name = "html";
+    payload.value = html;
+    form.appendChild(payload);
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
+  }
 }
 
 function renderMessages() {
