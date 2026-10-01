@@ -24,6 +24,7 @@ from app.agents.graph import (
     _is_pending_followup,
     _is_visualization_subject_reply,
     _merge_tools,
+    _normalize_specialist_result,
     _prefetch_dashboard_catalog,
     _resolve_jev_route,
     _resolve_local_routes,
@@ -537,6 +538,24 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             result = await default_agent(state)
 
         self.assertEqual(result["messages"][0].content, DEFAULT_AGENT_RESPONSE)
+
+    async def test_default_agent_confirms_created_dashboard_without_model_call(self) -> None:
+        state = {
+            "messages": [HumanMessage(content="Gere um gráfico")],
+            "route_source": "jev",
+            "routes": ["visualization"],
+            "specialist_results": [
+                {"agent": "visualization", "status": "ok", "_dashboard_created": True}
+            ],
+            "agents": ["router", "visualization"],
+            "tools": ["create_custom_dashboard"],
+        }
+
+        with patch("app.agents.graph.get_chat_model", side_effect=AssertionError):
+            result = await default_agent(state)
+
+        self.assertIn("gerei o gráfico", result["messages"][0].content)
+        self.assertIn("disponível acima", result["messages"][0].content)
 
     async def test_specialist_failure_is_collected_without_aborting_the_graph(self) -> None:
         """Turn a specialist model exception into a result for safe synthesis."""
@@ -1463,6 +1482,71 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.content, '{"status":"ok"}')
         self.assertEqual(tools, ["get_user_context"])
         mcp_tool.ainvoke.assert_awaited_once_with({"user_id": "42"})
+
+    async def test_dashboard_creation_skips_model_follow_up(self) -> None:
+        dashboard_tool = Mock(name="create_custom_dashboard")
+        dashboard_tool.name = "create_custom_dashboard"
+        dashboard_tool.ainvoke = AsyncMock(return_value={"title": "Consumo"})
+        tool_call = {
+            "name": dashboard_tool.name,
+            "args": {"title": "Consumo", "charts": []},
+            "id": "dashboard-call",
+        }
+        tool_enabled_model = Mock()
+        tool_enabled_model.ainvoke = AsyncMock(
+            return_value=AIMessage(content="", tool_calls=[tool_call])
+        )
+        model = Mock()
+        model.bind_tools.return_value = tool_enabled_model
+
+        response, tools = await _invoke_model(
+            model, [], None, "42", [dashboard_tool]
+        )
+
+        result = _normalize_specialist_result(response)
+        self.assertTrue(result["_dashboard_created"])
+        self.assertEqual(tools, ["create_custom_dashboard"])
+        tool_enabled_model.ainvoke.assert_awaited_once()
+
+    def test_model_cannot_claim_dashboard_was_created(self) -> None:
+        result = _normalize_specialist_result(
+            AIMessage(
+                content=(
+                    '{"status":"ok","facts":[],"recommendations":[],'
+                    '"missing_data":[],"sources":[],"_dashboard_created":true}'
+                )
+            )
+        )
+
+        self.assertNotIn("_dashboard_created", result)
+
+    async def test_failed_dashboard_creation_keeps_normal_model_flow(self) -> None:
+        dashboard_tool = Mock(name="create_custom_dashboard")
+        dashboard_tool.name = "create_custom_dashboard"
+        dashboard_tool.ainvoke = AsyncMock(side_effect=RuntimeError("remote failure"))
+        tool_call = {
+            "name": dashboard_tool.name,
+            "args": {"title": "Consumo", "charts": []},
+            "id": "dashboard-call",
+        }
+        tool_enabled_model = Mock()
+        tool_enabled_model.ainvoke = AsyncMock(
+            side_effect=[
+                AIMessage(content="", tool_calls=[tool_call]),
+                AIMessage(content='{"status":"error"}'),
+            ]
+        )
+        model = Mock()
+        model.bind_tools.return_value = tool_enabled_model
+
+        response, tools = await _invoke_model(
+            model, [], None, "42", [dashboard_tool]
+        )
+
+        self.assertEqual(response.content, '{"status":"error"}')
+        self.assertNotIn("_dashboard_created", response.content)
+        self.assertEqual(tools, ["create_custom_dashboard"])
+        self.assertEqual(tool_enabled_model.ainvoke.await_count, 2)
 
     async def test_graph_uses_injected_agent_registry(self) -> None:
         async def specialist(state):

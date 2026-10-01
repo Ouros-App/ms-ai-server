@@ -3,6 +3,7 @@ import json
 import logging
 import re
 import unicodedata
+from dataclasses import dataclass
 from typing import Annotated
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -106,6 +107,13 @@ class AgentState(MessagesState):
 
 
 _DECISION_SERVICE = DecisionService.from_settings()
+
+
+@dataclass(frozen=True)
+class _DashboardCreatedResponse:
+    """Carry backend-only proof that dashboard creation succeeded."""
+
+    content: str
 
 
 def _response_content(response: object) -> object:
@@ -1235,7 +1243,15 @@ async def _synthesize_default_response(state: AgentState) -> str:
 
 async def default_agent(state: AgentState) -> dict:
     """Sintetiza resultados estruturados sem acessar tools ou MCP."""
-    content = _default_quick_response(state)
+    dashboard_created = any(
+        result.get("_dashboard_created") is True
+        for result in state.get("specialist_results", [])
+    )
+    content = (
+        "Pronto, gerei o gráfico que você pediu. Ele já está disponível acima."
+        if dashboard_created
+        else _default_quick_response(state)
+    )
     if content is None:
         content = await _synthesize_default_response(state)
 
@@ -1598,11 +1614,12 @@ def _string_list(
 
 
 def _normalize_specialist_result(response: object) -> dict[str, object]:
+    dashboard_created = isinstance(response, _DashboardCreatedResponse)
     payload = _extract_json(response)
     if payload is None:
         return _empty_specialist_result("error")
     status = payload.get("status")
-    return {
+    result = {
         "status": status if status in {"ok", "needs_input", "unsupported", "error"} else "error",
         "facts": _string_list(
             payload.get("facts", []),
@@ -1623,6 +1640,9 @@ def _normalize_specialist_result(response: object) -> dict[str, object]:
             max_chars=_MAX_SPECIALIST_FIELD_CHARS,
         ),
     }
+    if dashboard_created:
+        result["_dashboard_created"] = True
+    return result
 
 
 def _tool_args_trace(arguments: object) -> dict[str, object]:
@@ -1678,7 +1698,7 @@ async def _execute_tool_call(
     tool_map: dict,
     conversation: list,
     used_tools: list[str],
-) -> None:
+) -> bool:
     selected_tool = tool_map.get(call.get("name"))
     if selected_tool is None:
         trace_event("tool.rejected", reason="unknown_tool")
@@ -1691,7 +1711,7 @@ async def _execute_tool_call(
                 tool_call_id=call.get("id", f"tool-call-{len(conversation)}"),
             ),
         )
-        return
+        return False
 
     if selected_tool.name not in used_tools:
         used_tools.append(selected_tool.name)
@@ -1723,6 +1743,7 @@ async def _execute_tool_call(
             },
             separators=(",", ":"),
         )
+        succeeded = False
     else:
         trace_event(
             "tool.result",
@@ -1730,6 +1751,7 @@ async def _execute_tool_call(
             result=_tool_result_trace(result),
         )
         content = _tool_result_content(result)
+        succeeded = True
 
     conversation.append(
         ToolMessage(
@@ -1737,6 +1759,7 @@ async def _execute_tool_call(
             tool_call_id=call.get("id", f"tool-call-{len(conversation)}"),
         ),
     )
+    return succeeded
 
 
 async def _invoke_model(
@@ -1772,12 +1795,23 @@ async def _invoke_model(
 
         conversation.append(response)
         for call in tool_calls:
-            await _execute_tool_call(
+            succeeded = await _execute_tool_call(
                 call,
                 tool_map,
                 conversation,
                 used_tools,
             )
+            if succeeded and call.get("name") == "create_custom_dashboard":
+                trace_event("dashboard.created", source="chat_tool_call")
+                return (
+                    _DashboardCreatedResponse(
+                        content=(
+                            '{"status":"ok","facts":["Gráfico criado."],'
+                            '"recommendations":[],"missing_data":[],"sources":[]}'
+                        )
+                    ),
+                    used_tools,
+                )
 
     return await model.ainvoke(conversation), used_tools
 
