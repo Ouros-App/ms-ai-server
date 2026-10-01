@@ -18,7 +18,6 @@ class ThreadOwnershipStore:
         self,
         thread_id: str,
         user_id: str,
-        title: str | None = None,
     ) -> bool:
         now = datetime.now(timezone.utc)
         owner = {
@@ -26,8 +25,6 @@ class ThreadOwnershipStore:
             "user_id": user_id,
             "created_at": now,
         }
-        if title:
-            owner["title"] = " ".join(title.split())[:48]
         document = await self.collection.find_one_and_update(
             {"thread_id": thread_id},
             {
@@ -39,6 +36,25 @@ class ThreadOwnershipStore:
             upsert=True,
         )
         return document is not None and document.get("user_id") == user_id
+
+    async def set_title_if_missing(
+        self,
+        thread_id: str,
+        user_id: str,
+        title: str,
+    ) -> bool:
+        normalized_title = " ".join(title.split())[:48]
+        if not normalized_title:
+            return False
+        result = await self.collection.update_one(
+            {
+                "thread_id": thread_id,
+                "user_id": user_id,
+                "title": {"$exists": False},
+            },
+            {"$set": {"title": normalized_title}},
+        )
+        return result.modified_count > 0
 
     async def list_for_user(self, user_id: str, limit: int = 40) -> list[dict]:
         cursor = (

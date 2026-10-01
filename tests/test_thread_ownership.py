@@ -11,8 +11,8 @@ class ThreadOwnershipTest(unittest.IsolatedAsyncioTestCase):
         collection.find_one_and_update = AsyncMock(return_value={"user_id": "user-1"})
         store = ThreadOwnershipStore({"thread_owners": collection})
 
-        self.assertTrue(await store.claim("thread", "user-1", "  Água   mensal "))
-        self.assertFalse(await store.claim("thread", "user-2", "Título"))
+        self.assertTrue(await store.claim("thread", "user-1"))
+        self.assertFalse(await store.claim("thread", "user-2"))
         self.assertEqual(collection.find_one_and_update.await_count, 2)
         update = collection.find_one_and_update.await_args.args[1]
         self.assertEqual(
@@ -21,7 +21,6 @@ class ThreadOwnershipTest(unittest.IsolatedAsyncioTestCase):
                 "thread_id": "thread",
                 "user_id": "user-2",
                 "created_at": update["$setOnInsert"]["created_at"],
-                "title": "Título",
             },
         )
         self.assertIsInstance(update["$setOnInsert"]["created_at"], datetime)
@@ -36,6 +35,33 @@ class ThreadOwnershipTest(unittest.IsolatedAsyncioTestCase):
             return_document=1,
             upsert=True,
         )
+
+    async def test_set_title_only_when_missing_for_the_owner(self) -> None:
+        collection = Mock()
+        collection.update_one = AsyncMock(return_value=Mock(modified_count=1))
+        store = ThreadOwnershipStore({"thread_owners": collection})
+
+        self.assertTrue(
+            await store.set_title_if_missing("thread", "user-1", "  Água   mensal ")
+        )
+
+        collection.update_one.assert_awaited_once_with(
+            {
+                "thread_id": "thread",
+                "user_id": "user-1",
+                "title": {"$exists": False},
+            },
+            {"$set": {"title": "Água mensal"}},
+        )
+
+    async def test_set_title_rejects_blank_value(self) -> None:
+        collection = Mock()
+        collection.update_one = AsyncMock()
+        store = ThreadOwnershipStore({"thread_owners": collection})
+
+        self.assertFalse(await store.set_title_if_missing("thread", "user-1", "  "))
+
+        collection.update_one.assert_not_awaited()
 
     async def test_list_for_user_returns_recent_owned_threads(self) -> None:
         class Cursor:

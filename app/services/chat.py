@@ -42,7 +42,6 @@ async def _invoke_graph(
         if thread_ownership is not None and not await thread_ownership.claim(
             payload.thread_id,
             principal_id,
-            title=payload.message,
         ):
             trace_event("thread.denied", reason="owned_by_another_user")
             raise HTTPException(
@@ -98,6 +97,13 @@ async def _invoke_graph(
                 "trace": trace,
                 "duration_ms": round((perf_counter() - started_at) * 1000, 1),
             }
+
+        if thread_ownership is not None:
+            await thread_ownership.set_title_if_missing(
+                payload.thread_id,
+                principal_id,
+                input_guardrail.sanitized_text,
+            )
 
         safe_payload = payload.model_copy(
             update={"message": input_guardrail.sanitized_text}
