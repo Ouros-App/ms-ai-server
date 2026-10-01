@@ -41,17 +41,56 @@ function loadConversations() {
 function saveConversations() {
   const key = storageKey();
   if (!key) return;
-  const persistable = conversations.slice(0, 40).map((conversation) => ({
-    ...conversation,
-    messages: conversation.messages.map(({ visualizations, ...message }) => message),
-  }));
-  localStorage.setItem(key, JSON.stringify(persistable));
+  const persistable = conversations.slice(0, 40);
+  try {
+    localStorage.setItem(key, JSON.stringify(persistable));
+  } catch {
+    const compact = persistable.map((conversation) => ({
+      ...conversation,
+      messages: conversation.messages.map(({ visualizations, ...message }) => message),
+    }));
+    try { localStorage.setItem(key, JSON.stringify(compact)); } catch {}
+  }
 }
 
-function restoreConversations() {
+async function restoreConversationHistory(conversation) {
+  if (!conversation?.serverBacked || conversation.historyLoaded) return;
+  try {
+    const history = await api(
+      `/debug/api/conversations/${encodeURIComponent(conversation.id)}`
+    );
+    conversation.messages = history.messages || [];
+    conversation.historyLoaded = true;
+    saveConversations();
+  } catch (error) {
+    if (error.status === 401) showLogin();
+  }
+}
+
+async function restoreConversations() {
   localStorage.removeItem(STORAGE_PREFIX);
-  conversations = loadConversations();
+  const cached = loadConversations();
+  conversations = cached;
+  try {
+    const saved = await api("/debug/api/conversations");
+    const serverConversations = (saved.conversations || []).map((item) => {
+      const existing = cached.find((conversation) => conversation.id === item.id);
+      return {
+        id: item.id,
+        title: item.title,
+        messages: existing?.messages || [],
+        latestDebug: existing?.latestDebug || null,
+        createdAt: existing?.createdAt || Date.now(),
+        serverBacked: true,
+        historyLoaded: false,
+      };
+    });
+    const serverIds = new Set(serverConversations.map(({ id }) => id));
+    const localDrafts = cached.filter(({ id }) => !serverIds.has(id));
+    conversations = [...serverConversations, ...localDrafts].slice(0, 40);
+  } catch {}
   currentId = conversations[0]?.id || null;
+  await restoreConversationHistory(currentConversation());
 }
 
 function newConversation() {
@@ -61,6 +100,8 @@ function newConversation() {
     messages: [],
     latestDebug: null,
     createdAt: Date.now(),
+    serverBacked: false,
+    historyLoaded: true,
   };
   conversations.unshift(conversation);
   currentId = conversation.id;
@@ -187,8 +228,9 @@ function renderConversations() {
     button.type = "button";
     button.className = "conversation-item" + (conversation.id === currentId ? " active" : "");
     button.textContent = conversation.title || "Conversa";
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       currentId = conversation.id;
+      await restoreConversationHistory(conversation);
       renderAll();
     });
     conversationList.appendChild(button);
@@ -321,11 +363,11 @@ function showLogin() {
   $("#password").value = "";
 }
 
-function showApp() {
-  restoreConversations();
+async function showApp() {
   loginScreen.hidden = true;
   appShell.hidden = false;
   $("#session-label").textContent = `${session.account_type} · DB #${session.user_id}`;
+  await restoreConversations();
   if (!currentId) newConversation();
   else renderAll();
 }
@@ -343,7 +385,7 @@ loginForm.addEventListener("submit", async (event) => {
         password: $("#password").value,
       }),
     });
-    showApp();
+    await showApp();
   } catch (error) {
     loginError.textContent = error.message;
     loginError.hidden = false;
@@ -392,6 +434,8 @@ composer.addEventListener("submit", async (event) => {
       meta: { agents: data.agents, duration_ms: data.duration_ms },
       visualizations: data.visualizations || [],
     });
+    conversation.serverBacked = true;
+    conversation.historyLoaded = true;
     const { visualizations, ...debugData } = data;
     conversation.latestDebug = debugData;
     saveConversations();
@@ -426,8 +470,8 @@ $("#toggle-debug").addEventListener("click", () => debugPanel.classList.add("ope
 $("#close-debug").addEventListener("click", () => debugPanel.classList.remove("open"));
 
 api("/debug/api/session")
-  .then((restoredSession) => {
+  .then(async (restoredSession) => {
     session = restoredSession;
-    showApp();
+    await showApp();
   })
   .catch(() => showLogin());

@@ -1,4 +1,5 @@
 from time import time
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -19,6 +20,7 @@ from app.debug_ui.router import (
 )
 from app.debug_ui.trace import capture_debug_trace, trace_event
 from app.schemas.chat import ChatResponse
+from app.schemas.history import HistoryMessage, HistoryResponse
 
 
 def _debug_client_secret_patch():
@@ -582,6 +584,106 @@ def test_debug_visualization_rejects_malformed_form_body() -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Formulário de gráfico inválido."
+
+
+def test_debug_conversation_list_restores_owned_threads_from_server() -> None:
+    principal = Principal(
+        subject="keycloak-user",
+        user_id="42",
+        user_type="admin",
+        access_token="signed-access-token",
+    )
+    ownership = SimpleNamespace(
+        list_for_user=AsyncMock(
+            return_value=[
+                {"thread_id": "thread-1", "title": "Consumo mensal"}
+            ]
+        )
+    )
+
+    with (
+        patch.object(settings, "debug_ui_enabled", True),
+        patch.object(settings, "debug_ui_cookie_secure", False),
+        patch(
+            "app.debug_ui.router.principal_from_token",
+            new=AsyncMock(return_value=principal),
+        ),
+    ):
+        app = build_debug_app()
+        app.state.thread_ownership = ownership
+        with TestClient(app) as client:
+            client.cookies.set(COOKIE_NAME, "signed-access-token", path="/debug")
+            response = client.get("/debug/api/conversations")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "conversations": [{"id": "thread-1", "title": "Consumo mensal"}]
+    }
+    ownership.list_for_user.assert_awaited_once_with("42", limit=40)
+
+
+def test_debug_conversation_history_returns_saved_chart_message() -> None:
+    principal = Principal(
+        subject="keycloak-user",
+        user_id="42",
+        user_type="admin",
+        access_token="signed-access-token",
+    )
+    history = HistoryResponse(
+        thread_id="thread-1",
+        messages=[
+            HistoryMessage(
+                role="assistant",
+                content="Pronto, gerei o gráfico.",
+                visualizations=[
+                    {
+                        "type": "ouros_dashboard",
+                        "title": "Consumo mensal",
+                        "charts": [
+                            {
+                                "id": "chart-1",
+                                "title": "Consumo mensal",
+                                "render_as": "bar",
+                                "html": "<html>chart</html>",
+                            }
+                        ],
+                    }
+                ],
+            )
+        ],
+    )
+
+    with (
+        patch.object(settings, "debug_ui_enabled", True),
+        patch.object(settings, "debug_ui_cookie_secure", False),
+        patch(
+            "app.debug_ui.router.principal_from_token",
+            new=AsyncMock(return_value=principal),
+        ),
+        patch(
+            "app.debug_ui.router.get_thread_history",
+            new=AsyncMock(return_value=history),
+        ) as get_history,
+    ):
+        app = build_debug_app()
+        app.state.checkpointer = object()
+        app.state.visualization_store = object()
+        with TestClient(app) as client:
+            client.cookies.set(COOKIE_NAME, "signed-access-token", path="/debug")
+            response = client.get("/debug/api/conversations/thread-1")
+
+    assert response.status_code == 200
+    assert response.json()["messages"][0]["visualizations"][0]["charts"][0]["html"] == (
+        "<html>chart</html>"
+    )
+    get_history.assert_awaited_once_with(
+        app.state.checkpointer,
+        "thread-1",
+        "42",
+        limit=100,
+        before=None,
+        visualization_store=app.state.visualization_store,
+    )
 
 
 def test_trace_capture_is_request_local_and_sanitized() -> None:

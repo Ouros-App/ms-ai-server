@@ -23,6 +23,7 @@ async def _invoke_graph(
     principal_id: str,
     thread_ownership=None,
     principal_token: str | None = None,
+    visualization_store=None,
     *,
     debug: bool = False,
 ) -> tuple[ChatResponse, dict]:
@@ -97,6 +98,13 @@ async def _invoke_graph(
                 "duration_ms": round((perf_counter() - started_at) * 1000, 1),
             }
 
+        if thread_ownership is not None:
+            await thread_ownership.set_title_if_missing(
+                payload.thread_id,
+                principal_id,
+                input_guardrail.sanitized_text,
+            )
+
         safe_payload = payload.model_copy(
             update={"message": input_guardrail.sanitized_text}
         )
@@ -137,6 +145,14 @@ async def _invoke_graph(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="O provedor de IA demorou para responder. Tente novamente.",
             ) from error
+
+        await _persist_visualizations(
+            visualization_store,
+            visualizations,
+            result["messages"][-1],
+            payload.thread_id,
+            principal_id,
+        )
 
         message = result["messages"][-1].content
         tools = result.get("tools", [])
@@ -198,12 +214,49 @@ async def _invoke_graph(
         }
 
 
+async def _persist_visualizations(
+    visualization_store,
+    visualizations: list[dict],
+    final_message,
+    thread_id: str,
+    user_id: str,
+) -> None:
+    if not visualizations or visualization_store is None:
+        return
+    additional_kwargs = getattr(final_message, "additional_kwargs", {})
+    visualization_id = (
+        additional_kwargs.get("visualization_id")
+        if isinstance(additional_kwargs, dict)
+        else None
+    )
+    if not isinstance(visualization_id, str):
+        return
+    try:
+        await visualization_store.save(
+            thread_id,
+            user_id,
+            visualization_id,
+            visualizations,
+        )
+    except Exception as error:  # noqa: BLE001 - chat still has the chart
+        logger.warning(
+            "chat_visualization_persistence_failed thread_id=%s error_type=%s",
+            thread_id,
+            type(error).__name__,
+        )
+        trace_event(
+            "visualization.persistence_failed",
+            error=type(error).__name__,
+        )
+
+
 async def invoke_graph(
     graph,
     payload: ChatRequest,
     principal_id: str,
     thread_ownership=None,
     principal_token: str | None = None,
+    visualization_store=None,
 ) -> ChatResponse:
     """Validate ownership, execute the graph and return the product response."""
 
@@ -213,6 +266,7 @@ async def invoke_graph(
         principal_id,
         thread_ownership,
         principal_token,
+        visualization_store,
         debug=False,
     )
     return response
@@ -224,6 +278,7 @@ async def invoke_graph_debug(
     principal_id: str,
     thread_ownership=None,
     principal_token: str | None = None,
+    visualization_store=None,
 ) -> tuple[ChatResponse, dict]:
     """Run the same product path while collecting request-local diagnostics."""
 
@@ -233,5 +288,6 @@ async def invoke_graph_debug(
         principal_id,
         thread_ownership,
         principal_token,
+        visualization_store,
         debug=True,
     )

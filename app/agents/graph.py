@@ -5,6 +5,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from typing import Annotated
+from uuid import uuid4
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.graph import END, START, MessagesState, StateGraph
@@ -27,6 +28,7 @@ from app.agents.mcp import (
     MAX_CONSUMPTION_PERIOD_DAYS,
     MCP_TOOL_ALLOWLIST,
     MCPToolProvider,
+    current_mcp_visualizations,
 )
 from app.agents.model import get_chat_model
 from app.agents.prompts import (
@@ -1260,10 +1262,19 @@ async def default_agent(state: AgentState) -> dict:
         response_type=type(content).__name__,
         response_chars=len(content) if isinstance(content, str) else 0,
     )
+    visualizations = current_mcp_visualizations()
+    message_metadata = (
+        {"visualization_id": str(uuid4())} if visualizations else {}
+    )
     return {
         "agents": [*state["agents"], "default"],
         "tools": state.get("tools", []),
-        "messages": [AIMessage(content=guard_output(content))],
+        "messages": [
+            AIMessage(
+                content=guard_output(content),
+                additional_kwargs=message_metadata,
+            )
+        ],
     }
 
 

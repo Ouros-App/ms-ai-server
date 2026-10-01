@@ -16,6 +16,7 @@ from app.debug_ui.router import install_debug_ui
 from app.repositories.checkpointer import get_checkpointer
 from app.repositories.memory import UserMemoryStore
 from app.repositories.thread_ownership import ThreadOwnershipStore
+from app.repositories.visualizations import ChatVisualizationStore
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -31,6 +32,9 @@ async def lifespan(app: FastAPI):
         database = memory_client[settings.mongodb_database]
         memory_store = UserMemoryStore(database)
         thread_ownership = ThreadOwnershipStore(database)
+        visualization_store = ChatVisualizationStore(database)
+        await thread_ownership.ensure_indexes()
+        await visualization_store.ensure_indexes()
         logger.info("database_configured database=%s", settings.mongodb_database)
         logger.info(
             "jev.configuration enabled=%s mode=%s api_key_configured=%s "
@@ -53,6 +57,7 @@ async def lifespan(app: FastAPI):
         with get_checkpointer() as checkpointer:
             app.state.checkpointer = checkpointer
             app.state.thread_ownership = thread_ownership
+            app.state.visualization_store = visualization_store
             app.state.graph = build_graph(
                 checkpointer,
                 memory_store=memory_store,
