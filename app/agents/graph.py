@@ -653,6 +653,96 @@ async def _prefetch_consumption_summary(
     )
 
 
+async def _prefetch_dashboard_catalog(
+    mcp_tools: list,
+) -> tuple[dict | None, list[str]]:
+    """Load the account-authorized chart catalog before visualization reasoning."""
+    catalog_tool = _find_tool(mcp_tools, "get_custom_dashboard_catalog")
+    if catalog_tool is None:
+        return (
+            {
+                "role": "system",
+                "content": (
+                    "O catálogo de gráficos autorizados não está disponível. "
+                    "Não invente chart_id nem peça identificadores técnicos ao "
+                    "usuário. Informe que não foi possível acessar as opções de "
+                    "gráficos no momento."
+                ),
+            },
+            [],
+        )
+
+    trace_event(
+        "tool.call",
+        tool="get_custom_dashboard_catalog",
+        args={},
+        source="required_prefetch",
+    )
+    try:
+        async with asyncio.timeout(settings.mcp_tool_timeout_seconds):
+            result = await catalog_tool.ainvoke({})
+    except Exception as error:  # noqa: BLE001 - catalog errors must not reach the user
+        logger.warning(
+            "mcp_dashboard_catalog_prefetch_failed error_type=%s",
+            type(error).__name__,
+        )
+        trace_event(
+            "tool.error",
+            tool="get_custom_dashboard_catalog",
+            source="required_prefetch",
+            error=type(error).__name__,
+        )
+        return (
+            {
+                "role": "system",
+                "content": (
+                    "A consulta do catálogo de gráficos falhou. Não invente "
+                    "chart_id nem peça identificadores técnicos ao usuário. "
+                    "Informe que não foi possível acessar as opções de gráficos "
+                    "no momento."
+                ),
+            },
+            [],
+        )
+
+    if (
+        not isinstance(result, dict)
+        or not isinstance(result.get("charts"), list)
+        or not result["charts"]
+    ):
+        trace_event(
+            "mcp.dashboard_catalog_invalid",
+            result_type=type(result).__name__,
+        )
+        return (
+            {
+                "role": "system",
+                "content": (
+                    "A consulta do catálogo de gráficos retornou dados inválidos. "
+                    "Não invente chart_id nem peça identificadores técnicos ao "
+                    "usuário. Informe que as opções de gráficos estão indisponíveis."
+                ),
+            },
+            [],
+        )
+
+    trace_event(
+        "tool.result",
+        tool="get_custom_dashboard_catalog",
+        result=_tool_result_trace(result),
+        source="required_prefetch",
+    )
+    content = (
+        "Catálogo autorizado para este usuário, recebido do Telemetry. Use os "
+        "IDs somente nos argumentos internos de create_custom_dashboard; nunca "
+        "os solicite nem os mostre ao usuário. Escolha pelo título e significado.\n"
+        + json.dumps(result, ensure_ascii=False)
+    )
+    return {"role": "system", "content": content}, [
+        "get_custom_dashboard_catalog"
+    ]
+
+
 def _latest_message(state: AgentState) -> object | None:
     messages = state.get("messages", [])
     return messages[-1] if messages else None
@@ -1309,6 +1399,7 @@ async def _execute_specialist(
             for tool in mcp_tools
             if getattr(tool, "name", None) in selected_tools
             or getattr(tool, "name", None) == "get_consumption_summary"
+            or getattr(tool, "name", None) == "get_custom_dashboard_catalog"
         ]
         trace_event(
             "jev.tools.selected",
@@ -1337,6 +1428,33 @@ async def _execute_specialist(
         mcp_tools,
         pending_missing_data,
         personal_request=personal_request and not dashboard_requested,
+    )
+    catalog_prefetch_message = None
+    catalog_prefetched_tools = []
+    if dashboard_requested:
+        catalog_prefetch_message, catalog_prefetched_tools = (
+            await _prefetch_dashboard_catalog(mcp_tools)
+        )
+        if "get_custom_dashboard_catalog" not in catalog_prefetched_tools:
+            mcp_tools = [
+                tool
+                for tool in mcp_tools
+                if getattr(tool, "name", None) != "create_custom_dashboard"
+            ]
+    prefetch_messages = [
+        message
+        for message in (catalog_prefetch_message, prefetch_message)
+        if message is not None
+    ]
+    if prefetch_messages:
+        prefetch_message = {
+            "role": "system",
+            "content": "\n\n".join(
+                message["content"] for message in prefetch_messages
+            ),
+        }
+    prefetched_tools = list(
+        dict.fromkeys([*catalog_prefetched_tools, *prefetched_tools])
     )
 
     specialist_messages = _build_specialist_messages(

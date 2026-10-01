@@ -45,7 +45,12 @@ _TOOL_DESCRIPTIONS = {
     "search_knowledge": "Consultar conteúdo oficial sobre o produto.",
     "get_user_context": "Ler contexto legível da conta autenticada.",
     "get_consumption_summary": "Consultar consumo autenticado por período.",
-    "create_custom_dashboard": "Criar gráfico usando o catálogo permitido.",
+    "get_custom_dashboard_catalog": (
+        "Consultar gráficos disponíveis para escolher por assunto e título."
+    ),
+    "create_custom_dashboard": (
+        "Criar gráficos usando as opções escolhidas internamente do catálogo."
+    ),
 }
 
 
@@ -153,7 +158,10 @@ class JevDecisionProvider:
     def _questions(state: DecisionInput) -> dict[str, dict[str, object]]:
         """Build one combined route, tool, and strategy questionnaire."""
         agent_criteria = {
-            agent: _AGENT_DESCRIPTIONS.get(agent, f"Rota {agent} disponível no Midas.")
+            agent: _AGENT_DESCRIPTIONS.get(
+                agent,
+                f"Rota {agent} disponível para o assistente.",
+            )
             for agent in state.available_agents
         }
         questions: dict[str, dict[str, object]] = {

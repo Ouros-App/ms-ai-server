@@ -32,11 +32,18 @@ MCP_TOOL_ALLOWLIST: dict[str, frozenset[str]] = {
     "ranking": frozenset(
         {"search_knowledge", "get_user_context"}
     ),
-    "visualization": frozenset({"create_custom_dashboard"}),
+    "visualization": frozenset(
+        {"get_custom_dashboard_catalog", "create_custom_dashboard"}
+    ),
     "support": frozenset({"search_knowledge", "get_user_context"}),
 }
 MCP_USER_SCOPED_TOOLS = frozenset(
-    {"get_user_context", "get_consumption_summary", "create_custom_dashboard"}
+    {
+        "get_user_context",
+        "get_consumption_summary",
+        "get_custom_dashboard_catalog",
+        "create_custom_dashboard",
+    }
 )
 MCP_TOOLS_CACHE_MAX_ENTRIES = 256
 DEFAULT_CONSUMPTION_PERIOD_DAYS = 30
@@ -277,10 +284,19 @@ class MCPToolProvider:
             return []
 
         selected = []
+        catalog_available = any(
+            tool.name == "get_custom_dashboard_catalog" for tool in tools
+        )
         for tool in tools:
             if tool.name not in allowed:
                 continue
             if tool.name == "create_custom_dashboard" and not dashboard_requested:
+                continue
+            if tool.name == "create_custom_dashboard" and not catalog_available:
+                trace_event(
+                    "mcp.dashboard_creation_unavailable",
+                    reason="catalog_tool_not_available",
+                )
                 continue
             if tool.name not in MCP_USER_SCOPED_TOOLS:
                 selected.append(tool)
@@ -308,6 +324,13 @@ class MCPToolProvider:
             async def invoke() -> object:
                 result = await self._invoke_remote_tool(tool, {})
                 return self._filter_user_context(result)
+
+            args_schema = _NoArguments
+        elif tool.name == "get_custom_dashboard_catalog":
+
+            async def invoke() -> object:
+                result = await self._invoke_remote_tool(tool, {})
+                return self._filter_custom_dashboard_catalog(result)
 
             args_schema = _NoArguments
         elif tool.name == "get_consumption_summary":
@@ -440,6 +463,59 @@ class MCPToolProvider:
             "charts": filtered_charts,
         }
 
+    @classmethod
+    def _filter_custom_dashboard_catalog(cls, result: object) -> dict:
+        """Expose only bounded, user-authorized chart labels and render options."""
+        catalog = cls._require_decoded_result(
+            result,
+            tool_name="get_custom_dashboard_catalog",
+        )
+        charts = catalog.get("charts")
+        if not isinstance(charts, list) or len(charts) > 128:
+            raise MCPToolResultError("invalid custom dashboard catalog")
+
+        filtered = []
+        seen_ids = set()
+        for chart in charts:
+            if not isinstance(chart, dict):
+                raise MCPToolResultError("invalid custom dashboard catalog chart")
+            chart_id = chart.get("chart_id")
+            title = chart.get("title")
+            dashboard = chart.get("dashboard")
+            default_render_as = chart.get("default_render_as")
+            render_options = chart.get("render_options")
+            if (
+                not isinstance(chart_id, str)
+                or not chart_id
+                or len(chart_id) > 64
+                or chart_id in seen_ids
+                or not isinstance(title, str)
+                or not title.strip()
+                or not isinstance(dashboard, str)
+                or not dashboard.strip()
+                or not isinstance(default_render_as, str)
+                or not 1 <= len(default_render_as) <= 32
+                or not isinstance(render_options, list)
+                or not render_options
+                or len(render_options) > 64
+                or any(
+                    not isinstance(option, str) or not 1 <= len(option) <= 32
+                    for option in render_options
+                )
+            ):
+                raise MCPToolResultError("invalid custom dashboard catalog chart")
+            seen_ids.add(chart_id)
+            filtered.append(
+                {
+                    "chart_id": chart_id,
+                    "title": title[:200],
+                    "dashboard": dashboard[:200],
+                    "default_render_as": default_render_as,
+                    "render_options": list(dict.fromkeys(render_options)),
+                }
+            )
+        return {"charts": filtered}
+
     @staticmethod
     async def _invoke_remote_tool(tool, arguments: dict[str, object]) -> object:
         """Invoke an MCP LangChain tool while preserving its structured artifact."""
@@ -541,6 +617,9 @@ class MCPToolProvider:
                 )
                 and isinstance(result.get("summaries"), list)
             )
+
+        if tool_name == "get_custom_dashboard_catalog":
+            return isinstance(result.get("charts"), list)
 
         return isinstance(result, dict)
 

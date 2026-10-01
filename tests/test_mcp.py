@@ -16,6 +16,94 @@ from app.debug_ui.trace import capture_debug_trace
 
 
 class MCPProviderTest(unittest.IsolatedAsyncioTestCase):
+    def test_dashboard_catalog_filter_bounds_and_deduplicates_render_options(self) -> None:
+        payload = {
+            "charts": [{
+                "chart_id": "daily-water",
+                "title": " Consumo diário ",
+                "dashboard": " Água ",
+                "default_render_as": "scatter",
+                "render_options": ["scatter", "bar", "scatter"],
+                "untrusted_internal_field": "ignored",
+            }]
+        }
+
+        self.assertEqual(
+            MCPToolProvider._filter_custom_dashboard_catalog(payload),
+            {"charts": [{
+                "chart_id": "daily-water",
+                "title": " Consumo diário ",
+                "dashboard": " Água ",
+                "default_render_as": "scatter",
+                "render_options": ["scatter", "bar"],
+            }]},
+        )
+
+    def test_dashboard_catalog_filter_rejects_invalid_payloads(self) -> None:
+        valid_chart = {
+            "chart_id": "daily-water",
+            "title": "Consumo",
+            "dashboard": "Água",
+            "default_render_as": "bar",
+            "render_options": ["bar"],
+        }
+        invalid_payloads = (
+            None,
+            {"charts": "bad"},
+            {"charts": [None]},
+            {"charts": [{**valid_chart, "chart_id": ""}]},
+            {"charts": [{**valid_chart, "title": " "}]},
+            {"charts": [{**valid_chart, "dashboard": " "}]},
+            {"charts": [{**valid_chart, "default_render_as": ""}]},
+            {"charts": [{**valid_chart, "render_options": []}]},
+            {"charts": [{**valid_chart, "render_options": [""]}]},
+            {"charts": [valid_chart, valid_chart]},
+            {"charts": [valid_chart] * 129},
+        )
+        for index, payload in enumerate(invalid_payloads):
+            with self.subTest(index=index), self.assertRaises(MCPToolResultError):
+                MCPToolProvider._filter_custom_dashboard_catalog(payload)
+
+    async def test_dashboard_creation_tool_requires_catalog(self) -> None:
+        remote_tools = [SimpleNamespace(name="create_custom_dashboard")]
+
+        class FakeClient:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            async def get_tools(self, _server_name):
+                return remote_tools
+
+        provider = MCPToolProvider(url="http://mcp.test/mcp")
+        with (
+            forward_mcp_access_token("signed-keycloak-token"),
+            patch("langchain_mcp_adapters.client.MultiServerMCPClient", FakeClient),
+        ):
+            tools = await provider.tools_for("visualization", dashboard_requested=True)
+
+        self.assertEqual(tools, [])
+
+    async def test_bound_dashboard_catalog_tool_filters_remote_result(self) -> None:
+        remote = SimpleNamespace(
+            name="get_custom_dashboard_catalog",
+            description="Catálogo de gráficos",
+            ainvoke=AsyncMock(return_value={
+                "charts": [{
+                    "chart_id": "daily-water",
+                    "title": "Consumo diário",
+                    "dashboard": "Água",
+                    "default_render_as": "line",
+                    "render_options": ["line"],
+                }]
+            }),
+        )
+
+        tool = MCPToolProvider()._bind_user_tool(remote)
+        result = await tool.ainvoke({})
+
+        self.assertEqual(result["charts"][0]["chart_id"], "daily-water")
+        remote.ainvoke.assert_awaited_once()
+
     async def test_custom_dashboard_tool_returns_summary_and_records_visualization(
         self,
     ) -> None:
