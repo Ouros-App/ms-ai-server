@@ -354,13 +354,12 @@ def _is_pending_followup(message: object, missing_data: object) -> bool:
     text = _normalize_route_text(content).strip()
     if not text or len(text) > _MAX_PENDING_REPLY_CHARS or _is_cancel_request(message):
         return False
-    if _is_contextual_followup(message):
-        return True
-
     if any(
         "assunto do grafico" in _normalize_route_text(item)
         for item in _string_list(missing_data)
     ):
+        return _is_visualization_subject_reply(message, missing_data)
+    if _is_contextual_followup(message):
         return True
 
     kinds = _missing_slot_kinds(missing_data)
@@ -760,6 +759,7 @@ def _explicit_visualization_routes(
 
 
 def _resolve_local_routes(state: AgentState) -> tuple[list[str] | None, str | None]:
+    """Resolve greetings, explicit topics, pending answers, and follow-ups."""
     latest_message = _latest_message(state)
     if latest_message is None:
         return None, None
@@ -942,12 +942,18 @@ async def _apply_jev_outcome(
             )
             return routes, route_source or "deterministic", _empty_decision_metadata()
 
-        is_chart_followup = (
-            _is_dashboard_creation_request(_latest_message(state))
-            and route_source == "context"
-            and outcome.decision.agent == "visualization"
+        keeps_local_source = (
+            outcome.decision.agent == "visualization"
+            and (
+                route_source == "pending"
+                or (
+                    route_source == "context"
+                    and _is_dashboard_creation_request(_latest_message(state))
+                )
+            )
         )
-        return [outcome.decision.agent], "context" if is_chart_followup else "jev", metadata
+        source = route_source if keeps_local_source else "jev"
+        return [outcome.decision.agent], source, metadata
 
     if routes is None:
         routes, route_source = await _resolve_model_routes(state)

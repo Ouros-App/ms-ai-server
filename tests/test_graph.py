@@ -65,6 +65,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(_merge_tools(["old"], [_RESET_TOOLS, "new"]), ["new"])
 
     def test_chart_followup_keeps_period_only_for_visualization_continuation(self) -> None:
+        """Keep earlier periods only for an active chart continuation."""
         history = [
             HumanMessage(content="Como foi meu consumo nos últimos 3 meses?"),
             AIMessage(content="O período consultado foi de 90 dias."),
@@ -106,6 +107,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_visualization_subject_replies_are_limited_to_chart_prompts(self) -> None:
+        """Reject unrelated questions when the chart topic is still missing."""
         missing = ["assunto do gráfico"]
 
         self.assertFalse(_is_dashboard_creation_request(None))
@@ -115,8 +117,17 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(_is_visualization_subject_reply("cancela", missing))
         self.assertTrue(_is_visualization_subject_reply("consumo de água", missing))
         self.assertTrue(_is_pending_followup("consumo de água", missing))
+        self.assertFalse(_is_pending_followup("Como faço isso?", missing))
+        self.assertFalse(
+            _is_pending_followup(
+                "Qual abordagem devo priorizar neste caso?",
+                missing,
+            )
+        )
+        self.assertTrue(_is_pending_followup("E depois?", ["periodo de analise"]))
 
     def test_explicit_chart_request_routes_to_visualization_with_context(self) -> None:
+        """Route chart requests to visualization and inherit their domain."""
         missing = ["assunto do gráfico"]
         request = HumanMessage(content="Pode gerar um gráfico?")
         routes, source = _resolve_local_routes(
@@ -153,6 +164,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((routes, source), (["visualization"], "pending"))
 
     async def test_jev_cannot_override_explicit_chart_route_without_chart_tool(self) -> None:
+        """Keep explicit chart creation out of a Jev route without the tool."""
         decision = SimpleNamespace(
             agent="default",
             tools=[],
@@ -181,6 +193,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(metadata["decision_source"], "")
 
     async def test_jev_chart_route_preserves_followup_period_context(self) -> None:
+        """Preserve local chart follow-up sources after Jev confirms visualization."""
         decision = SimpleNamespace(
             agent="visualization",
             tools=["create_custom_dashboard"],
@@ -207,7 +220,25 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((routes, source), (["visualization"], "context"))
         self.assertEqual(metadata["decision_source"], "jev")
 
+        with (
+            patch.object(settings, "jev_enabled", True),
+            patch.object(settings, "jev_shadow_mode", False),
+            patch("app.agents.graph._DECISION_SERVICE.decide", new=AsyncMock(return_value=outcome)),
+        ):
+            routes, source, metadata = await _resolve_jev_route(
+                {
+                    "messages": [HumanMessage(content="consumo de água")],
+                    "last_routes": ["visualization"],
+                },
+                ["visualization"],
+                "pending",
+            )
+
+        self.assertEqual((routes, source), (["visualization"], "pending"))
+        self.assertEqual(metadata["decision_source"], "jev")
+
     async def test_implicit_performance_request_adds_visualization_route(self) -> None:
+        """Append charts to implicit requests about performance over time."""
         with patch(
             "app.agents.graph._resolve_jev_route",
             new=AsyncMock(return_value=(["ranking"], "context", {})),
