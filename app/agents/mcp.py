@@ -21,20 +21,18 @@ from app.debug_ui.trace import trace_event
 logger = logging.getLogger(__name__)
 
 MCP_TOOL_ALLOWLIST: dict[str, frozenset[str]] = {
-    "faq": frozenset(
-        {"search_knowledge", "get_user_context", "create_custom_dashboard"}
-    ),
+    "faq": frozenset({"search_knowledge", "get_user_context"}),
     "sustainability": frozenset(
         {
             "search_knowledge",
             "get_user_context",
             "get_consumption_summary",
-            "create_custom_dashboard",
         }
     ),
     "ranking": frozenset(
-        {"search_knowledge", "get_user_context", "create_custom_dashboard"}
+        {"search_knowledge", "get_user_context"}
     ),
+    "visualization": frozenset({"create_custom_dashboard"}),
     "support": frozenset({"search_knowledge", "get_user_context"}),
 }
 MCP_USER_SCOPED_TOOLS = frozenset(

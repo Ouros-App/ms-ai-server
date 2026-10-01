@@ -20,7 +20,7 @@ O serviço está implementado com:
 
 - endpoints de saúde, chat e histórico de conversas;
 - endpoint Prometheus autenticado em `/metrics`;
-- roteamento entre os agentes `faq`, `sustainability`, `ranking`, `support` e `fallback`;
+- roteamento entre os agentes `faq`, `sustainability`, `ranking`, `visualization`, `support` e `fallback`;
 - especialistas com contrato JSON e um agente `default` dedicado à síntese da resposta;
 - resposta padrão quando nenhum provedor de IA está configurado;
 - camada opcional de decisão Jev, com modo shadow e fallback para o roteador atual;
@@ -83,7 +83,8 @@ Em deploy, `INFISICAL_TOKEN` é o único bootstrap secreto que precisa existir f
 
 O roteador, guardrails, FAQ, suporte, fallback e o sintetizador default usam os perfis rápidos
 `GROQ_FAST_MODEL` e `NVIDIA_NIM_FAST_MODEL`. Ranking e sustentabilidade usam os
-perfis potentes `GROQ_MODEL` e `NVIDIA_NIM_MODEL`. Se o
+perfis potentes `GROQ_MODEL` e `NVIDIA_NIM_MODEL`. Visualização usa o mesmo perfil
+potente para selecionar gráficos e interpretar o contexto. Se o
 Groq falhar, o NVIDIA NIM é usado como fallback do mesmo perfil.
 
 O fluxo é `router → especialistas → fan-in → default`. O roteador pode selecionar
