@@ -45,7 +45,12 @@ _TOOL_DESCRIPTIONS = {
     "search_knowledge": "Consultar conteúdo oficial sobre o produto.",
     "get_user_context": "Ler contexto legível da conta autenticada.",
     "get_consumption_summary": "Consultar consumo autenticado por período.",
-    "create_custom_dashboard": "Criar gráfico usando o catálogo permitido.",
+    "get_custom_dashboard_catalog": (
+        "Consultar gráficos disponíveis para escolher por assunto e título."
+    ),
+    "create_custom_dashboard": (
+        "Criar gráficos usando as opções escolhidas internamente do catálogo."
+    ),
 }
 
 
