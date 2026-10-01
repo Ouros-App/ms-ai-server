@@ -189,7 +189,7 @@ input:focus, textarea:focus { border-color: var(--gold); box-shadow: 0 0 0 2px r
 }
 .visualization-frame {
   display: block; width: 100%; height: auto; min-height: 320px; max-height: 560px;
-  aspect-ratio: 16 / 10; border: 0; background: transparent;
+  aspect-ratio: 16 / 10; border: 0; background: #fff;
 }
 
 .markdown > :first-child { margin-top: 0; }
