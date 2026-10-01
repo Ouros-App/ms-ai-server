@@ -140,33 +140,13 @@ async def _invoke_graph(
                 detail="O provedor de IA demorou para responder. Tente novamente.",
             ) from error
 
-        final_message = result["messages"][-1]
-        if visualizations and visualization_store is not None:
-            additional_kwargs = getattr(final_message, "additional_kwargs", {})
-            visualization_id = (
-                additional_kwargs.get("visualization_id")
-                if isinstance(additional_kwargs, dict)
-                else None
-            )
-            if isinstance(visualization_id, str):
-                try:
-                    await visualization_store.save(
-                        payload.thread_id,
-                        principal_id,
-                        visualization_id,
-                        visualizations,
-                    )
-                except Exception as error:  # noqa: BLE001 - chat still has the chart
-                    logger.warning(
-                        "chat_visualization_persistence_failed "
-                        "thread_id=%s error_type=%s",
-                        payload.thread_id,
-                        type(error).__name__,
-                    )
-                    trace_event(
-                        "visualization.persistence_failed",
-                        error=type(error).__name__,
-                    )
+        await _persist_visualizations(
+            visualization_store,
+            visualizations,
+            result["messages"][-1],
+            payload.thread_id,
+            principal_id,
+        )
 
         message = result["messages"][-1].content
         tools = result.get("tools", [])
@@ -226,6 +206,42 @@ async def _invoke_graph(
             "trace": trace,
             "duration_ms": duration_ms,
         }
+
+
+async def _persist_visualizations(
+    visualization_store,
+    visualizations: list[dict],
+    final_message,
+    thread_id: str,
+    user_id: str,
+) -> None:
+    if not visualizations or visualization_store is None:
+        return
+    additional_kwargs = getattr(final_message, "additional_kwargs", {})
+    visualization_id = (
+        additional_kwargs.get("visualization_id")
+        if isinstance(additional_kwargs, dict)
+        else None
+    )
+    if not isinstance(visualization_id, str):
+        return
+    try:
+        await visualization_store.save(
+            thread_id,
+            user_id,
+            visualization_id,
+            visualizations,
+        )
+    except Exception as error:  # noqa: BLE001 - chat still has the chart
+        logger.warning(
+            "chat_visualization_persistence_failed thread_id=%s error_type=%s",
+            thread_id,
+            type(error).__name__,
+        )
+        trace_event(
+            "visualization.persistence_failed",
+            error=type(error).__name__,
+        )
 
 
 async def invoke_graph(

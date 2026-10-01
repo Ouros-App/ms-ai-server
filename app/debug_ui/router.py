@@ -326,7 +326,7 @@ async def debug_logout(response: Response) -> None:
     _delete_session_cookies(response)
 
 
-@router.get("/api/conversations", response_model=DebugConversationListResponse)
+@router.get("/api/conversations")
 async def debug_conversations(
     request: Request,
     principal: Annotated[Principal, Depends(_debug_principal)],
@@ -349,7 +349,7 @@ async def debug_conversations(
     )
 
 
-@router.get("/api/conversations/{thread_id}", response_model=HistoryResponse)
+@router.get("/api/conversations/{thread_id}")
 async def debug_conversation_history(
     thread_id: str,
     request: Request,

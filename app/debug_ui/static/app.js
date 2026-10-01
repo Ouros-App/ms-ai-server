@@ -76,7 +76,6 @@ async function restoreConversations() {
     const serverConversations = (saved.conversations || []).map((item) => {
       const existing = cached.find((conversation) => conversation.id === item.id);
       return {
-        ...(existing || {}),
         id: item.id,
         title: item.title,
         messages: existing?.messages || [],
