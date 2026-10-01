@@ -23,6 +23,7 @@ async def _invoke_graph(
     principal_id: str,
     thread_ownership=None,
     principal_token: str | None = None,
+    visualization_store=None,
     *,
     debug: bool = False,
 ) -> tuple[ChatResponse, dict]:
@@ -41,6 +42,7 @@ async def _invoke_graph(
         if thread_ownership is not None and not await thread_ownership.claim(
             payload.thread_id,
             principal_id,
+            title=payload.message,
         ):
             trace_event("thread.denied", reason="owned_by_another_user")
             raise HTTPException(
@@ -138,6 +140,34 @@ async def _invoke_graph(
                 detail="O provedor de IA demorou para responder. Tente novamente.",
             ) from error
 
+        final_message = result["messages"][-1]
+        if visualizations and visualization_store is not None:
+            additional_kwargs = getattr(final_message, "additional_kwargs", {})
+            visualization_id = (
+                additional_kwargs.get("visualization_id")
+                if isinstance(additional_kwargs, dict)
+                else None
+            )
+            if isinstance(visualization_id, str):
+                try:
+                    await visualization_store.save(
+                        payload.thread_id,
+                        principal_id,
+                        visualization_id,
+                        visualizations,
+                    )
+                except Exception as error:  # noqa: BLE001 - chat still has the chart
+                    logger.warning(
+                        "chat_visualization_persistence_failed "
+                        "thread_id=%s error_type=%s",
+                        payload.thread_id,
+                        type(error).__name__,
+                    )
+                    trace_event(
+                        "visualization.persistence_failed",
+                        error=type(error).__name__,
+                    )
+
         message = result["messages"][-1].content
         tools = result.get("tools", [])
         agents = result.get("agents", [])
@@ -204,6 +234,7 @@ async def invoke_graph(
     principal_id: str,
     thread_ownership=None,
     principal_token: str | None = None,
+    visualization_store=None,
 ) -> ChatResponse:
     """Validate ownership, execute the graph and return the product response."""
 
@@ -213,6 +244,7 @@ async def invoke_graph(
         principal_id,
         thread_ownership,
         principal_token,
+        visualization_store,
         debug=False,
     )
     return response
@@ -224,6 +256,7 @@ async def invoke_graph_debug(
     principal_id: str,
     thread_ownership=None,
     principal_token: str | None = None,
+    visualization_store=None,
 ) -> tuple[ChatResponse, dict]:
     """Run the same product path while collecting request-local diagnostics."""
 
@@ -233,5 +266,6 @@ async def invoke_graph_debug(
         principal_id,
         thread_ownership,
         principal_token,
+        visualization_store,
         debug=True,
     )

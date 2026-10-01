@@ -36,6 +36,7 @@ class MainTest(unittest.IsolatedAsyncioTestCase):
     async def test_lifespan_isolated_from_external_services(self) -> None:
         client = MagicMock()
         database = MagicMock()
+        database.__getitem__.return_value.create_index = AsyncMock()
         client.__getitem__.return_value = database
         client.close = AsyncMock()
 
@@ -61,11 +62,13 @@ class MainTest(unittest.IsolatedAsyncioTestCase):
             mcp_provider=ANY,
         )
         self.assertIsNotNone(main.app.state.thread_ownership)
+        self.assertIsNotNone(main.app.state.visualization_store)
         client.close.assert_awaited_once()
 
     async def test_lifespan_closes_client_when_startup_fails(self) -> None:
         client = MagicMock()
         database = MagicMock()
+        database.__getitem__.return_value.create_index = AsyncMock()
         client.__getitem__.return_value = database
         client.close = AsyncMock()
         checkpointer_context = MagicMock()

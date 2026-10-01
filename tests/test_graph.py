@@ -37,6 +37,7 @@ from app.agents.graph import (
     default_agent,
     route_request,
 )
+from app.agents.mcp import capture_mcp_visualizations
 from app.agents.model import get_chat_model
 from app.agents.prompts import (
     DEFAULT_AGENT_RESPONSE,
@@ -551,11 +552,16 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             "tools": ["create_custom_dashboard"],
         }
 
-        with patch("app.agents.graph.get_chat_model", side_effect=AssertionError):
+        with (
+            patch("app.agents.graph.get_chat_model", side_effect=AssertionError),
+            capture_mcp_visualizations() as visualizations,
+        ):
+            visualizations.append({"type": "ouros_dashboard", "charts": []})
             result = await default_agent(state)
 
         self.assertIn("gerei o gráfico", result["messages"][0].content)
         self.assertIn("disponível acima", result["messages"][0].content)
+        self.assertTrue(result["messages"][0].additional_kwargs["visualization_id"])
 
     async def test_specialist_failure_is_collected_without_aborting_the_graph(self) -> None:
         """Turn a specialist model exception into a result for safe synthesis."""

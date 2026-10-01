@@ -26,6 +26,15 @@ class DebugSessionResponse(BaseModel):
     account_type: str
 
 
+class DebugConversationSummary(BaseModel):
+    id: str
+    title: str
+
+
+class DebugConversationListResponse(BaseModel):
+    conversations: list[DebugConversationSummary]
+
+
 class DebugChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

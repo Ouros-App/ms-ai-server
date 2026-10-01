@@ -60,6 +60,11 @@ async def chat(
         user_id,
         getattr(request.app.state, "thread_ownership", None),
         principal_token=principal.access_token,
+        visualization_store=getattr(
+            request.app.state,
+            "visualization_store",
+            None,
+        ),
     )
 
 
@@ -80,4 +85,5 @@ async def chat_history(
         user_id,
         limit,
         before,
+        getattr(request.app.state, "visualization_store", None),
     )

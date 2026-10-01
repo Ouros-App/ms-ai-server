@@ -69,6 +69,11 @@ def capture_mcp_visualizations():
         _MCP_VISUALIZATIONS.reset(marker)
 
 
+def current_mcp_visualizations() -> list[dict]:
+    """Return visualization payloads created during the active chat request."""
+    return _MCP_VISUALIZATIONS.get() or []
+
+
 def _record_visualization(visualization: dict) -> None:
     current = _MCP_VISUALIZATIONS.get()
     if current is not None and not current:

@@ -9,6 +9,7 @@ async def get_thread_history(
     user_id: str,
     limit: int,
     before: str | None,
+    visualization_store=None,
 ) -> HistoryResponse:
     """Busca uma pagina do historico persistido de uma thread pertencente ao usuario."""
     checkpoint = await checkpointer.aget_tuple(
@@ -27,12 +28,36 @@ async def get_thread_history(
             detail="Esta conversa pertence a outro usuario.",
         )
 
-    messages = _visible_messages(values.get("messages", []))
-    end = len(messages) if before is None else _parse_cursor(before, len(messages))
+    checkpoint_messages = [
+        message
+        for message in values.get("messages", [])
+        if message.type in {"human", "ai"}
+        and isinstance(message.content, str)
+        and message.content
+    ]
+    end = (
+        len(checkpoint_messages)
+        if before is None
+        else _parse_cursor(before, len(checkpoint_messages))
+    )
     start = max(0, end - limit)
+    checkpoint_page = checkpoint_messages[start:end]
+    visualization_ids = [
+        message.additional_kwargs.get("visualization_id")
+        for message in checkpoint_page
+        if message.type == "ai"
+        and isinstance(message.additional_kwargs, dict)
+        and isinstance(message.additional_kwargs.get("visualization_id"), str)
+    ]
+    visualizations_by_id = (
+        await visualization_store.get_many(thread_id, user_id, visualization_ids)
+        if visualization_store is not None and visualization_ids
+        else {}
+    )
+    messages = _visible_messages(checkpoint_page, visualizations_by_id)
     return HistoryResponse(
         thread_id=thread_id,
-        messages=messages[start:end],
+        messages=messages,
         next_cursor=str(start) if start else None,
     )
 
@@ -53,10 +78,31 @@ def _parse_cursor(cursor: str, message_count: int) -> int:
     return position
 
 
-def _visible_messages(messages: list) -> list[HistoryMessage]:
+def _visible_messages(
+    messages: list,
+    visualizations_by_id: dict[str, list[dict]] | None = None,
+) -> list[HistoryMessage]:
     roles = {"human": "user", "ai": "assistant"}
-    return [
-        HistoryMessage(role=roles[message.type], content=message.content)
-        for message in messages
-        if message.type in roles and isinstance(message.content, str) and message.content
-    ]
+    visualizations_by_id = visualizations_by_id or {}
+    visible = []
+    for message in messages:
+        if (
+            message.type not in roles
+            or not isinstance(message.content, str)
+            or not message.content
+        ):
+            continue
+        additional_kwargs = getattr(message, "additional_kwargs", {})
+        visualization_id = (
+            additional_kwargs.get("visualization_id")
+            if isinstance(additional_kwargs, dict)
+            else None
+        )
+        visible.append(
+            HistoryMessage(
+                role=roles[message.type],
+                content=message.content,
+                visualizations=visualizations_by_id.get(visualization_id, []),
+            )
+        )
+    return visible

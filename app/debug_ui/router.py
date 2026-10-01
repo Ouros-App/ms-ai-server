@@ -22,11 +22,14 @@ from app.core.config import settings
 from app.debug_ui.schemas import (
     DebugChatRequest,
     DebugChatResponse,
+    DebugConversationListResponse,
     DebugLoginRequest,
     DebugSessionResponse,
 )
 from app.schemas.chat import ChatRequest
+from app.schemas.history import HistoryResponse
 from app.services.chat import invoke_graph_debug
+from app.services.history import get_thread_history
 
 COOKIE_NAME = "ouros_debug_session"
 REFRESH_COOKIE_NAME = "ouros_debug_refresh"
@@ -323,6 +326,45 @@ async def debug_logout(response: Response) -> None:
     _delete_session_cookies(response)
 
 
+@router.get("/api/conversations", response_model=DebugConversationListResponse)
+async def debug_conversations(
+    request: Request,
+    principal: Annotated[Principal, Depends(_debug_principal)],
+) -> DebugConversationListResponse:
+    owner_store = getattr(request.app.state, "thread_ownership", None)
+    records = (
+        await owner_store.list_for_user(principal.user_id, limit=40)
+        if owner_store is not None
+        else []
+    )
+    return DebugConversationListResponse(
+        conversations=[
+            {
+                "id": record["thread_id"],
+                "title": record.get("title") or f"Conversa {record['thread_id'][:8]}",
+            }
+            for record in records
+            if isinstance(record.get("thread_id"), str)
+        ]
+    )
+
+
+@router.get("/api/conversations/{thread_id}", response_model=HistoryResponse)
+async def debug_conversation_history(
+    thread_id: str,
+    request: Request,
+    principal: Annotated[Principal, Depends(_debug_principal)],
+) -> HistoryResponse:
+    return await get_thread_history(
+        request.app.state.checkpointer,
+        thread_id,
+        principal.user_id,
+        limit=100,
+        before=None,
+        visualization_store=getattr(request.app.state, "visualization_store", None),
+    )
+
+
 @router.get("/api/session")
 async def debug_session(
     principal: Annotated[Principal, Depends(_debug_principal)],
@@ -346,6 +388,11 @@ async def debug_chat(
         principal.user_id,
         getattr(request.app.state, "thread_ownership", None),
         principal_token=principal.access_token,
+        visualization_store=getattr(
+            request.app.state,
+            "visualization_store",
+            None,
+        ),
     )
     return DebugChatResponse(
         thread_id=response.thread_id,

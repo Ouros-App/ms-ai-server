@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from pymongo import ReturnDocument
 
 
@@ -7,12 +9,49 @@ class ThreadOwnershipStore:
     def __init__(self, database) -> None:
         self.collection = database["thread_owners"]
 
-    async def claim(self, thread_id: str, user_id: str) -> bool:
+    async def ensure_indexes(self) -> None:
+        await self.collection.create_index(
+            [("user_id", 1), ("last_activity_at", -1)]
+        )
+
+    async def claim(
+        self,
+        thread_id: str,
+        user_id: str,
+        title: str | None = None,
+    ) -> bool:
+        now = datetime.now(timezone.utc)
+        owner = {
+            "thread_id": thread_id,
+            "user_id": user_id,
+            "created_at": now,
+        }
+        if title:
+            owner["title"] = " ".join(title.split())[:48]
         document = await self.collection.find_one_and_update(
             {"thread_id": thread_id},
-            {"$setOnInsert": {"thread_id": thread_id, "user_id": user_id}},
+            {
+                "$setOnInsert": owner,
+                "$set": {"last_activity_at": now},
+            },
             projection={"_id": 0, "user_id": 1},
             return_document=ReturnDocument.AFTER,
             upsert=True,
         )
         return document is not None and document.get("user_id") == user_id
+
+    async def list_for_user(self, user_id: str, limit: int = 40) -> list[dict]:
+        cursor = (
+            self.collection.find(
+                {"user_id": user_id},
+                projection={
+                    "_id": 0,
+                    "thread_id": 1,
+                    "title": 1,
+                    "last_activity_at": 1,
+                },
+            )
+            .sort([("last_activity_at", -1), ("thread_id", 1)])
+            .limit(limit)
+        )
+        return [item async for item in cursor]
