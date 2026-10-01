@@ -15,6 +15,7 @@ from app.agents.graph import (
     _dashboard_period_days,
     _dashboard_period_days_for_state,
     _deterministic_routes,
+    _execute_specialist,
     _execute_tool_call,
     _extract_period_days,
     _extract_route,
@@ -23,6 +24,7 @@ from app.agents.graph import (
     _is_pending_followup,
     _is_visualization_subject_reply,
     _merge_tools,
+    _prefetch_dashboard_catalog,
     _resolve_jev_route,
     _resolve_local_routes,
     _route_update,
@@ -125,6 +127,126 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             )
         )
         self.assertTrue(_is_pending_followup("E depois?", ["periodo de analise"]))
+
+    async def test_dashboard_catalog_prefetch_handles_missing_failed_and_invalid_tools(self) -> None:
+        missing_message, missing_tools = await _prefetch_dashboard_catalog([])
+        self.assertEqual(missing_tools, [])
+        self.assertIn("não está disponível", missing_message["content"])
+
+        failing_tool = SimpleNamespace(
+            name="get_custom_dashboard_catalog",
+            ainvoke=AsyncMock(side_effect=RuntimeError("offline")),
+        )
+        failed_message, failed_tools = await _prefetch_dashboard_catalog([failing_tool])
+        self.assertEqual(failed_tools, [])
+        self.assertIn("consulta do catálogo de gráficos falhou", failed_message["content"])
+
+        for invalid_result in (None, [], {"charts": []}, {"charts": "invalid"}):
+            tool = SimpleNamespace(
+                name="get_custom_dashboard_catalog",
+                ainvoke=AsyncMock(return_value=invalid_result),
+            )
+            invalid_message, used_tools = await _prefetch_dashboard_catalog([tool])
+            self.assertEqual(used_tools, [])
+            self.assertIn("dados inválidos", invalid_message["content"])
+
+    async def test_dashboard_catalog_prefetch_returns_authorized_catalog_context(self) -> None:
+        catalog = {"charts": [{"chart_id": "daily-water", "title": "Consumo diário"}]}
+        tool = SimpleNamespace(
+            name="get_custom_dashboard_catalog",
+            ainvoke=AsyncMock(return_value=catalog),
+        )
+
+        message, used_tools = await _prefetch_dashboard_catalog([tool])
+
+        self.assertEqual(used_tools, ["get_custom_dashboard_catalog"])
+        self.assertIn('"chart_id": "daily-water"', message["content"])
+        tool.ainvoke.assert_awaited_once_with({})
+
+    async def test_dashboard_prefetch_timeout_disables_catalog(self) -> None:
+        tool = SimpleNamespace(
+            name="get_custom_dashboard_catalog",
+            ainvoke=AsyncMock(side_effect=TimeoutError()),
+        )
+
+        with patch("app.agents.graph.settings.mcp_tool_timeout_seconds", 0):
+            message, used_tools = await _prefetch_dashboard_catalog([tool])
+
+        self.assertEqual(used_tools, [])
+        self.assertIn("consulta do catálogo de gráficos falhou", message["content"])
+
+    async def test_visualization_prefetches_catalog_and_keeps_creation_tool(self) -> None:
+        catalog = SimpleNamespace(
+            name="get_custom_dashboard_catalog",
+            ainvoke=AsyncMock(return_value={"charts": [{"chart_id": "daily-water"}]}),
+        )
+        create = SimpleNamespace(name="create_custom_dashboard")
+        observed = {}
+
+        async def invoke(_model, messages, _store, _user_id, tools):
+            observed["messages"] = messages
+            observed["tools"] = tools
+            return AIMessage(content='{"status":"ok","facts":[]}'), []
+
+        state = {
+            "messages": [HumanMessage(content="gere um gráfico de consumo")],
+            "user_id": "user",
+            "routes": ["visualization"],
+            "decision_source": "jev",
+            "decision_tools": ["create_custom_dashboard"],
+        }
+        with (
+            patch("app.agents.graph._load_agent_mcp_tools", new=AsyncMock(return_value=[catalog, create])),
+            patch("app.agents.graph._prefetch_consumption_summary", new=AsyncMock(return_value=(None, [], None))),
+            patch("app.agents.graph._invoke_model", side_effect=invoke),
+        ):
+            result, used_tools, personal_request = await _execute_specialist(
+                state, "visualization prompt", "visualization", "gere um gráfico de consumo",
+                Mock(), [], None,
+            )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(used_tools, ["get_custom_dashboard_catalog"])
+        self.assertFalse(personal_request)
+        self.assertEqual([tool.name for tool in observed["tools"]], ["create_custom_dashboard"])
+        self.assertIn(
+            "daily-water",
+            " ".join(
+                message.get("content", "")
+                if isinstance(message, dict)
+                else getattr(message, "content", "")
+                for message in observed["messages"]
+            ),
+        )
+
+    async def test_visualization_removes_creation_tool_when_catalog_is_unavailable(self) -> None:
+        create = SimpleNamespace(name="create_custom_dashboard")
+        observed = {}
+
+        async def invoke(_model, _messages, _store, _user_id, tools):
+            observed["tools"] = tools
+            return AIMessage(content='{"status":"ok","facts":[]}'), []
+
+        state = {
+            "messages": [HumanMessage(content="gere um gráfico de consumo")],
+            "user_id": "user",
+            "routes": ["visualization"],
+            "decision_source": "jev",
+            "decision_tools": ["create_custom_dashboard"],
+        }
+        with (
+            patch("app.agents.graph._load_agent_mcp_tools", new=AsyncMock(return_value=[create])),
+            patch("app.agents.graph._prefetch_consumption_summary", new=AsyncMock(return_value=(None, [], None))),
+            patch("app.agents.graph._invoke_model", side_effect=invoke),
+        ):
+            result, used_tools, _ = await _execute_specialist(
+                state, "visualization prompt", "visualization", "gere um gráfico de consumo",
+                Mock(), [], None,
+            )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(used_tools, [])
+        self.assertEqual(observed["tools"], [])
 
     def test_explicit_chart_request_routes_to_visualization_with_context(self) -> None:
         """Route chart requests to visualization and inherit their domain."""

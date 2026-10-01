@@ -351,7 +351,7 @@ FALLBACK_RESPONSE = (
 )
 
 CANCELLED_RESPONSE = "Certo. O que voce quer fazer agora?"
-GREETING_RESPONSE = "Oi! Como posso te ajudar?"
+GREETING_RESPONSE = "Oi! Sou o Midas. Como posso te ajudar?"
 IDENTITY_RESPONSE = (
     "Sou o Midas, assistente do Ouros. Posso ajudar com o uso do aplicativo, "
     "consumo e sustentabilidade, ranking e suporte tecnico."
