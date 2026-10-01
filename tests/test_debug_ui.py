@@ -519,6 +519,71 @@ def test_debug_chat_uses_authenticated_identity_and_returns_trace() -> None:
     assert invoke.await_args.kwargs["principal_token"] == "signed-access-token"
 
 
+def test_debug_visualization_renders_plotly_html_with_isolated_csp() -> None:
+    principal = Principal(
+        subject="keycloak-user",
+        user_id="42",
+        user_type="admin",
+        access_token="signed-access-token",
+    )
+    html = (
+        "<!doctype html><html><body><div id='plot'></div>"
+        "<script src='https://cdn.plot.ly/plotly-latest.min.js'></script>"
+        "<script>Plotly.newPlot('plot', []);</script></body></html>"
+    )
+
+    with (
+        patch.object(settings, "debug_ui_enabled", True),
+        patch.object(settings, "debug_ui_cookie_secure", False),
+        patch(
+            "app.debug_ui.router.principal_from_token",
+            new=AsyncMock(return_value=principal),
+        ),
+    ):
+        app = build_debug_app()
+        with TestClient(app) as client:
+            client.cookies.set(COOKIE_NAME, "signed-access-token", path="/debug")
+            response = client.post("/debug/api/visualization", data={"html": html})
+
+    assert response.status_code == 200
+    assert response.text == html
+    assert response.headers["content-type"].startswith("text/html")
+    csp = response.headers["content-security-policy"]
+    assert "script-src 'unsafe-inline' 'unsafe-eval' https://cdn.plot.ly" in csp
+    assert "connect-src 'none'" in csp
+    assert "frame-ancestors 'self'" in csp
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_debug_visualization_rejects_malformed_form_body() -> None:
+    principal = Principal(
+        subject="keycloak-user",
+        user_id="42",
+        user_type="admin",
+        access_token="signed-access-token",
+    )
+
+    with (
+        patch.object(settings, "debug_ui_enabled", True),
+        patch.object(settings, "debug_ui_cookie_secure", False),
+        patch(
+            "app.debug_ui.router.principal_from_token",
+            new=AsyncMock(return_value=principal),
+        ),
+    ):
+        app = build_debug_app()
+        with TestClient(app) as client:
+            client.cookies.set(COOKIE_NAME, "signed-access-token", path="/debug")
+            response = client.post(
+                "/debug/api/visualization",
+                content=b"\xff",
+                headers={"content-type": "application/x-www-form-urlencoded"},
+            )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Formulário de gráfico inválido."
+
+
 def test_trace_capture_is_request_local_and_sanitized() -> None:
     trace_event("ignored", token="secret")
     with capture_debug_trace() as events:

@@ -1,6 +1,7 @@
 from pathlib import Path
 from time import time
 from typing import Annotated
+from urllib.parse import parse_qs
 
 import httpx
 from fastapi import (
@@ -13,7 +14,7 @@ from fastapi import (
     Response,
     status,
 )
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.core.auth import Principal, principal_from_token
@@ -31,6 +32,8 @@ COOKIE_NAME = "ouros_debug_session"
 REFRESH_COOKIE_NAME = "ouros_debug_refresh"
 DEBUG_PREFIX = "/debug"
 REFRESH_LEEWAY_SECONDS = 60
+MAX_DEBUG_VISUALIZATION_HTML_CHARS = 1_500_000
+MAX_DEBUG_VISUALIZATION_FORM_BYTES = 6_000_000
 STATIC_DIR = Path(__file__).with_name("static")
 
 router = APIRouter(prefix=DEBUG_PREFIX, include_in_schema=False)
@@ -351,6 +354,57 @@ async def debug_chat(
         tools=response.tools,
         visualizations=response.visualizations,
         **diagnostics,
+    )
+
+
+@router.post("/api/visualization")
+async def debug_visualization(
+    request: Request,
+    _principal: Annotated[Principal, Depends(_debug_principal)],
+) -> HTMLResponse:
+    """Render a chart in an isolated iframe with a Plotly-compatible CSP."""
+    content_type = request.headers.get("content-type", "").split(";", 1)[0]
+    if content_type.strip().lower() != "application/x-www-form-urlencoded":
+        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
+
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > MAX_DEBUG_VISUALIZATION_FORM_BYTES:
+            raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE)
+    try:
+        form = parse_qs(
+            body.decode("utf-8"),
+            keep_blank_values=True,
+            strict_parsing=True,
+            max_num_fields=1,
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Formulário de gráfico inválido.",
+        ) from error
+    html_values = form.get("html", [])
+    html = html_values[0] if len(html_values) == 1 else None
+    if not isinstance(html, str) or not html or len(html) > MAX_DEBUG_VISUALIZATION_HTML_CHARS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="HTML de gráfico inválido.",
+        )
+
+    return HTMLResponse(
+        html,
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Security-Policy": (
+                "default-src 'none'; "
+                "script-src 'unsafe-inline' 'unsafe-eval' https://cdn.plot.ly; "
+                "style-src 'unsafe-inline'; img-src data: blob:; "
+                "font-src data:; connect-src 'none'; object-src 'none'; "
+                "base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
+            ),
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 
