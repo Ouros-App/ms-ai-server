@@ -560,8 +560,8 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             result = await default_agent(state)
 
         self.assertEqual(
-            "Pronto, gerei o gráfico solicitado.",
             result["messages"][0].content,
+            "Pronto, gerei o gráfico solicitado.",
         )
         self.assertTrue(result["messages"][0].additional_kwargs["visualization_id"])
 

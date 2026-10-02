@@ -134,6 +134,7 @@ function highlight(container) {
 window.addEventListener("message", (event) => {
   const message = event.data;
   if (
+    event.origin !== "null" ||
     !message ||
     typeof message !== "object" ||
     message.type !== "ouros-chart-resize" ||
