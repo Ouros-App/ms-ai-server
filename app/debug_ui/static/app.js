@@ -131,52 +131,69 @@ function highlight(container) {
   container.querySelectorAll("pre code").forEach((block) => hljs.highlightElement(block));
 }
 
+window.addEventListener("message", (event) => {
+  const message = event.data;
+  if (
+    event.origin !== "null" ||
+    !message ||
+    typeof message !== "object" ||
+    message.type !== "ouros-chart-resize" ||
+    typeof message.height !== "number" ||
+    !Number.isFinite(message.height)
+  ) return;
+
+  const frame = [...document.querySelectorAll("iframe.visualization-frame")]
+    .find((item) => item.contentWindow === event.source);
+  if (!frame) return;
+
+  const height = Math.min(1200, Math.max(260, Math.ceil(message.height)));
+  frame.style.height = `${height}px`;
+});
+
 function appendVisualizations(container, visualizations, variant = "debug") {
   if (!Array.isArray(visualizations) || !visualizations.length) return;
   const section = document.createElement("section");
   section.className = `${variant}-visualizations`;
-  const heading = document.createElement("h3");
-  heading.textContent = "Gráficos da resposta";
-  section.appendChild(heading);
-  const renderJobs = [];
-
   for (const dashboard of visualizations) {
     for (const chart of dashboard.charts || []) {
       const card = document.createElement("article");
       card.className = "visualization-card";
-      const title = document.createElement("h4");
-      title.textContent = chart.title || dashboard.title || "Gráfico";
-      card.appendChild(title);
 
       const frame = document.createElement("iframe");
       frame.className = "visualization-frame";
-      frame.title = title.textContent;
+      frame.title = chart.title || dashboard.title || "Gráfico";
       frame.name = `visualization-${crypto.randomUUID()}`;
       frame.setAttribute("sandbox", "allow-scripts");
       frame.referrerPolicy = "no-referrer";
+
+      const form = document.createElement("form");
+      form.method = "post";
+      form.action = "/debug/api/visualization";
+      form.target = frame.name;
+      form.hidden = true;
+      const payload = document.createElement("input");
+      payload.type = "hidden";
+      payload.name = "html";
+      payload.value = chart.html;
+      form.appendChild(payload);
+
+      let submitted = false;
+      frame.addEventListener("load", () => {
+        if (!submitted) {
+          submitted = true;
+          document.body.appendChild(form);
+          form.submit();
+          return;
+        }
+        form.remove();
+      });
+
       card.appendChild(frame);
       section.appendChild(card);
-      renderJobs.push({ frame, html: chart.html });
     }
   }
   if (!section.querySelector(".visualization-card")) return;
   container.appendChild(section);
-
-  for (const { frame, html } of renderJobs) {
-    const form = document.createElement("form");
-    form.method = "post";
-    form.action = "/debug/api/visualization";
-    form.target = frame.name;
-    form.hidden = true;
-    const payload = document.createElement("input");
-    payload.type = "hidden";
-    payload.name = "html";
-    payload.value = html;
-    form.appendChild(payload);
-    document.body.appendChild(form);
-    form.submit();
-    form.remove();
-  }
 }
 
 function renderMessages() {
