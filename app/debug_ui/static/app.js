@@ -15,6 +15,25 @@ const debugContent = $("#debug-content");
 const debugPanel = $("#debug-panel");
 const STORAGE_PREFIX = "ouros-ai-debug-conversations-v1";
 
+function createUuid() {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+
+  const bytes = new Uint8Array(16);
+  if (typeof globalThis.crypto?.getRandomValues === "function") {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 let session = null;
 let conversations = [];
 let currentId = null;
@@ -95,7 +114,7 @@ async function restoreConversations() {
 
 function newConversation() {
   const conversation = {
-    id: crypto.randomUUID(),
+    id: createUuid(),
     title: "Nova conversa",
     messages: [],
     latestDebug: null,
@@ -108,6 +127,16 @@ function newConversation() {
   saveConversations();
   renderAll();
   input.focus();
+
+  api("/debug/api/conversations", {
+    method: "POST",
+    body: JSON.stringify({ id: conversation.id }),
+  }).then(() => {
+    conversation.serverBacked = true;
+    saveConversations();
+  }).catch((error) => {
+    if (error.status === 401) showLogin();
+  });
 }
 
 function currentConversation() {
@@ -151,7 +180,7 @@ function appendVisualizations(container, visualizations, variant = "debug") {
       const frame = document.createElement("iframe");
       frame.className = "visualization-frame";
       frame.title = title.textContent;
-      frame.name = `visualization-${crypto.randomUUID()}`;
+      frame.name = `visualization-${createUuid()}`;
       frame.setAttribute("sandbox", "allow-scripts");
       frame.referrerPolicy = "no-referrer";
       card.appendChild(frame);
@@ -173,9 +202,16 @@ function appendVisualizations(container, visualizations, variant = "debug") {
     payload.name = "html";
     payload.value = html;
     form.appendChild(payload);
+    let submitted = false;
+    frame.addEventListener("load", () => {
+      if (!submitted) {
+        submitted = true;
+        form.submit();
+      } else {
+        form.remove();
+      }
+    });
     document.body.appendChild(form);
-    form.submit();
-    form.remove();
   }
 }
 
@@ -237,7 +273,7 @@ function renderConversations() {
   }
 }
 
-function renderDebug(data, visualizations = []) {
+function renderDebug(data) {
   if (!data) {
     debugContent.innerHTML = '<div class="debug-empty">Nenhum trace para esta conversa ainda.</div>';
     return;
@@ -305,7 +341,6 @@ function renderDebug(data, visualizations = []) {
       <h3>Logs da requisição</h3>
       ${trace || '<div class="debug-empty">Sem eventos.</div>'}
     </section>`;
-  appendVisualizations(debugContent, visualizations);
 }
 
 function renderAll() {
@@ -313,10 +348,7 @@ function renderAll() {
   conversationTitle.textContent = conversation?.title || "Nova conversa";
   renderConversations();
   renderMessages();
-  const latestAssistant = [...(conversation?.messages || [])]
-    .reverse()
-    .find((item) => item.role === "assistant");
-  renderDebug(conversation?.latestDebug || null, latestAssistant?.visualizations);
+  renderDebug(conversation?.latestDebug || null);
 }
 
 function setLoading(active) {
@@ -428,6 +460,9 @@ composer.addEventListener("submit", async (event) => {
       method: "POST",
       body: JSON.stringify({ message: text, thread_id: conversation.id }),
     });
+    if (data.conversation_title) {
+      conversation.title = data.conversation_title;
+    }
     conversation.messages.push({
       role: "assistant",
       content: data.message,

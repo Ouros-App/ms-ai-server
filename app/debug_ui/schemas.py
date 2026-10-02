@@ -31,6 +31,12 @@ class DebugConversationSummary(BaseModel):
     title: str
 
 
+class DebugConversationCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default_factory=lambda: str(uuid4()), min_length=1, max_length=128)
+
+
 class DebugConversationListResponse(BaseModel):
     conversations: list[DebugConversationSummary]
 
@@ -60,6 +66,7 @@ class DebugSpecialistResult(BaseModel):
 class DebugChatResponse(BaseModel):
     thread_id: str
     message: str
+    conversation_title: str | None = None
     agents: list[str]
     tools: list[str]
     visualizations: list[ChatVisualization] = Field(default_factory=list, max_length=1)
