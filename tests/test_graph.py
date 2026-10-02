@@ -559,8 +559,10 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             visualizations.append({"type": "ouros_dashboard", "charts": []})
             result = await default_agent(state)
 
-        self.assertIn("gerei o gráfico", result["messages"][0].content)
-        self.assertIn("disponível acima", result["messages"][0].content)
+        self.assertEqual(
+            "Pronto, gerei o gráfico solicitado.",
+            result["messages"][0].content,
+        )
         self.assertTrue(result["messages"][0].additional_kwargs["visualization_id"])
 
     async def test_specialist_failure_is_collected_without_aborting_the_graph(self) -> None:
