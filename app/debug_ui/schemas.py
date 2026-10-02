@@ -60,6 +60,7 @@ class DebugSpecialistResult(BaseModel):
 class DebugChatResponse(BaseModel):
     thread_id: str
     message: str
+    conversation_title: str | None = None
     agents: list[str]
     tools: list[str]
     visualizations: list[ChatVisualization] = Field(default_factory=list, max_length=1)

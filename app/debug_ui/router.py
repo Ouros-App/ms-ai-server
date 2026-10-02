@@ -397,6 +397,7 @@ async def debug_chat(
     return DebugChatResponse(
         thread_id=response.thread_id,
         message=response.message,
+        conversation_title=response.conversation_title,
         agents=response.agents,
         tools=response.tools,
         visualizations=response.visualizations,

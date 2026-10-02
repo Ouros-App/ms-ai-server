@@ -428,6 +428,9 @@ composer.addEventListener("submit", async (event) => {
       method: "POST",
       body: JSON.stringify({ message: text, thread_id: conversation.id }),
     });
+    if (data.conversation_title) {
+      conversation.title = data.conversation_title;
+    }
     conversation.messages.push({
       role: "assistant",
       content: data.message,
