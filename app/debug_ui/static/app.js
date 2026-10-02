@@ -202,9 +202,16 @@ function appendVisualizations(container, visualizations, variant = "debug") {
     payload.name = "html";
     payload.value = html;
     form.appendChild(payload);
+    let submitted = false;
+    frame.addEventListener("load", () => {
+      if (!submitted) {
+        submitted = true;
+        form.submit();
+      } else {
+        form.remove();
+      }
+    });
     document.body.appendChild(form);
-    form.submit();
-    form.remove();
   }
 }
 
@@ -266,7 +273,7 @@ function renderConversations() {
   }
 }
 
-function renderDebug(data, visualizations = []) {
+function renderDebug(data) {
   if (!data) {
     debugContent.innerHTML = '<div class="debug-empty">Nenhum trace para esta conversa ainda.</div>';
     return;
@@ -334,7 +341,6 @@ function renderDebug(data, visualizations = []) {
       <h3>Logs da requisição</h3>
       ${trace || '<div class="debug-empty">Sem eventos.</div>'}
     </section>`;
-  appendVisualizations(debugContent, visualizations);
 }
 
 function renderAll() {
@@ -342,10 +348,7 @@ function renderAll() {
   conversationTitle.textContent = conversation?.title || "Nova conversa";
   renderConversations();
   renderMessages();
-  const latestAssistant = [...(conversation?.messages || [])]
-    .reverse()
-    .find((item) => item.role === "assistant");
-  renderDebug(conversation?.latestDebug || null, latestAssistant?.visualizations);
+  renderDebug(conversation?.latestDebug || null);
 }
 
 function setLoading(active) {
