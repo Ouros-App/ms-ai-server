@@ -1250,7 +1250,7 @@ async def default_agent(state: AgentState) -> dict:
         for result in state.get("specialist_results", [])
     )
     content = (
-        "Pronto, gerei o gráfico que você pediu. Ele já está disponível acima."
+        "Pronto, gerei o gráfico solicitado."
         if dashboard_created
         else _default_quick_response(state)
     )
