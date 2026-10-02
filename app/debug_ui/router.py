@@ -31,8 +31,9 @@ from app.schemas.history import HistoryResponse
 from app.services.chat import invoke_graph_debug
 from app.services.history import get_thread_history
 
-COOKIE_NAME = "ouros_debug_session"
-REFRESH_COOKIE_NAME = "ouros_debug_refresh"
+COOKIE_SUFFIX = "" if settings.debug_ui_cookie_secure else "_local"
+COOKIE_NAME = f"ouros_debug_session{COOKIE_SUFFIX}"
+REFRESH_COOKIE_NAME = f"ouros_debug_refresh{COOKIE_SUFFIX}"
 DEBUG_PREFIX = "/debug"
 REFRESH_LEEWAY_SECONDS = 60
 MAX_DEBUG_VISUALIZATION_HTML_CHARS = 1_500_000
