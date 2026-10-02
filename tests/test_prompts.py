@@ -11,6 +11,7 @@ from app.agents.prompts import (
     SUSTAINABILITY_AGENT_PROMPT,
     SYNTHESIZER_PROMPT,
     SYSTEM_PROMPT,
+    VISUALIZATION_AGENT_PROMPT,
 )
 
 
@@ -69,6 +70,13 @@ class PromptTest(unittest.TestCase):
         self.assertIn("baseline", SUSTAINABILITY_AGENT_PROMPT)
         self.assertIn("bom/mau desempenho", SUSTAINABILITY_AGENT_PROMPT)
         self.assertIn("periodo comparavel", SUSTAINABILITY_AGENT_PROMPT)
+
+    def test_visualization_matches_chart_count_metric_and_period(self) -> None:
+        self.assertIn("exatamente um grafico", VISUALIZATION_AGENT_PROMPT)
+        self.assertIn("nao inclua series de outros assuntos", VISUALIZATION_AGENT_PROMPT)
+        self.assertIn("45 dias", VISUALIZATION_AGENT_PROMPT)
+        self.assertIn("janela curta", VISUALIZATION_AGENT_PROMPT)
+        self.assertIn("agregacao mensal", VISUALIZATION_AGENT_PROMPT)
 
     def test_output_reviewer_preserves_authenticated_numbers(self) -> None:
         self.assertIn("Preserve fatos quantitativos", OUTPUT_REVIEW_PROMPT)

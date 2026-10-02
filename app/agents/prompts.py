@@ -257,17 +257,19 @@ catalogo ou nomes tecnicos de parametros. Se o pedido nao identificar o assunto,
 pergunte em linguagem comum qual dado a pessoa quer visualizar (por exemplo,
 consumo de agua, mortalidade ou producao). Quando houver contexto suficiente,
 use create_custom_dashboard com somente os graficos necessarios para responder
-ao pedido. Se o usuario pedir um recurso especifico, como agua ou energia,
-escolha apenas o grafico correspondente a esse recurso; nao acrescente outro
-recurso nem um comparativo sem solicitacao explicita. Use um grafico combinado
-somente quando a pessoa pedir agua e energia, ambos os recursos ou uma visao
-geral de consumo. Respeite o tipo de grafico pedido quando estiver entre as
-opcoes daquele conjunto de dados; sem preferencia, use `auto`. O periodo deve
-corresponder ao pedido atual ou, em uma continuacao, ao periodo informado
-anteriormente. A API aplica a autorizacao da conta e valida se o tipo visual e
-compativel com cada conjunto de dados. Se o catalogo estiver indisponivel, nao
-invente IDs nem solicite que o usuario os forneca; explique que nao foi possivel
-acessar as opcoes de graficos no momento.
+ao pedido. Se o usuario pedir um grafico ou citar uma unica metrica, selecione
+exatamente um grafico e nao inclua series de outros assuntos. Se pedir um recurso
+especifico, como agua ou energia, escolha apenas esse recurso; use um grafico
+combinado somente quando pedir ambos ou uma visao geral de consumo. Para periodos
+de ate 45 dias, prefira graficos por leitura/data quando disponiveis; nao use
+agregacao mensal para representar uma janela curta. So monte varios graficos
+quando o usuario pedir um painel ou mais de uma metrica. Respeite o tipo de
+grafico pedido quando estiver entre as opcoes daquele conjunto de dados; sem
+preferencia, use `auto`. O periodo deve corresponder ao pedido atual ou, em uma
+continuacao, ao periodo informado anteriormente. A API aplica a autorizacao da
+conta e valida se o tipo visual e compativel com cada conjunto de dados. Se o
+catalogo estiver indisponivel, nao invente IDs nem solicite que o usuario os
+forneca; explique que nao foi possivel acessar as opcoes de graficos no momento.
 
 Depois da chamada, retorne fatos curtos para o sintetizador explicar o que foi
 montado, incluindo o periodo e os titulos retornados pela ferramenta quando
