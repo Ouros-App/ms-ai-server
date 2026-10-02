@@ -22,7 +22,9 @@ from app.core.config import settings
 from app.debug_ui.schemas import (
     DebugChatRequest,
     DebugChatResponse,
+    DebugConversationCreateRequest,
     DebugConversationListResponse,
+    DebugConversationSummary,
     DebugLoginRequest,
     DebugSessionResponse,
 )
@@ -342,12 +344,32 @@ async def debug_conversations(
         conversations=[
             {
                 "id": record["thread_id"],
-                "title": record.get("title") or f"Conversa {record['thread_id'][:8]}",
+                "title": record.get("title") or "Nova conversa",
             }
             for record in records
             if isinstance(record.get("thread_id"), str)
         ]
     )
+
+
+@router.post("/api/conversations", response_model=DebugConversationSummary)
+async def debug_create_conversation(
+    payload: DebugConversationCreateRequest,
+    request: Request,
+    principal: Annotated[Principal, Depends(_debug_principal)],
+) -> DebugConversationSummary:
+    owner_store = getattr(request.app.state, "thread_ownership", None)
+    if owner_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Persistência de conversas indisponível.",
+        )
+    if not await owner_store.claim(payload.id, principal.user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Esta conversa pertence a outro usuário.",
+        )
+    return DebugConversationSummary(id=payload.id, title="Nova conversa")
 
 
 @router.get("/api/conversations/{thread_id}")
@@ -356,14 +378,28 @@ async def debug_conversation_history(
     request: Request,
     principal: Annotated[Principal, Depends(_debug_principal)],
 ) -> HistoryResponse:
-    return await get_thread_history(
-        request.app.state.checkpointer,
-        thread_id,
-        principal.user_id,
-        limit=100,
-        before=None,
-        visualization_store=getattr(request.app.state, "visualization_store", None),
-    )
+    try:
+        return await get_thread_history(
+            request.app.state.checkpointer,
+            thread_id,
+            principal.user_id,
+            limit=100,
+            before=None,
+            visualization_store=getattr(
+                request.app.state,
+                "visualization_store",
+                None,
+            ),
+        )
+    except HTTPException as exc:
+        owner_store = getattr(request.app.state, "thread_ownership", None)
+        if (
+            exc.status_code == status.HTTP_404_NOT_FOUND
+            and owner_store is not None
+            and await owner_store.is_owned_by_user(thread_id, principal.user_id)
+        ):
+            return HistoryResponse(thread_id=thread_id, messages=[])
+        raise
 
 
 @router.get("/api/session")

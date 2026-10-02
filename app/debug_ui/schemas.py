@@ -31,6 +31,12 @@ class DebugConversationSummary(BaseModel):
     title: str
 
 
+class DebugConversationCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(default_factory=lambda: str(uuid4()), min_length=1, max_length=128)
+
+
 class DebugConversationListResponse(BaseModel):
     conversations: list[DebugConversationSummary]
 

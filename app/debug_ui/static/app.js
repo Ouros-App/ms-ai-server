@@ -108,6 +108,16 @@ function newConversation() {
   saveConversations();
   renderAll();
   input.focus();
+
+  api("/debug/api/conversations", {
+    method: "POST",
+    body: JSON.stringify({ id: conversation.id }),
+  }).then(() => {
+    conversation.serverBacked = true;
+    saveConversations();
+  }).catch((error) => {
+    if (error.status === 401) showLogin();
+  });
 }
 
 function currentConversation() {

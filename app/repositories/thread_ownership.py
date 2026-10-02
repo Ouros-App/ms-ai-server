@@ -56,6 +56,15 @@ class ThreadOwnershipStore:
         )
         return result.modified_count > 0
 
+    async def is_owned_by_user(self, thread_id: str, user_id: str) -> bool:
+        return (
+            await self.collection.find_one(
+                {"thread_id": thread_id, "user_id": user_id},
+                projection={"_id": 1},
+            )
+            is not None
+        )
+
     async def list_for_user(self, user_id: str, limit: int = 40) -> list[dict]:
         cursor = (
             self.collection.find(
