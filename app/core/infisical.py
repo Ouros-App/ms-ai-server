@@ -41,4 +41,4 @@ def load_infisical_secrets() -> None:
         view_secret_value=True,
     )
     for secret in response.secrets:
-        os.environ[secret.secretKey] = secret.secretValue
+        os.environ.setdefault(secret.secretKey, secret.secretValue)
