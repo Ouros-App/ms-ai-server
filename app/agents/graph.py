@@ -1303,8 +1303,12 @@ def _dashboard_confirmation(visualizations: list[dict]) -> str:
     if len(titles) == 1:
         title = titles[0]
         confirmation = f"Pronto, gerei o gráfico solicitado: {title}."
-        if re.search(r"\b(?:mensal|por\s+mes|monthly)\b", title, re.IGNORECASE):
-            confirmation += " Os dados estão agrupados por mês."
+        if re.search(
+            r"\b(?:mensal|mensais|por\s+m[eê]s|monthly)\b",
+            title,
+            re.IGNORECASE,
+        ):
+            confirmation += " O título indica agrupamento mensal."
         return confirmation
     return "Pronto, gerei os gráficos solicitados: " + "; ".join(titles) + "."
 
