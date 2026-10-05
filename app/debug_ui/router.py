@@ -1,3 +1,4 @@
+from hashlib import sha256
 from pathlib import Path
 from time import time
 from typing import Annotated
@@ -14,7 +15,7 @@ from fastapi import (
     Response,
     status,
 )
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.types import Scope
 
@@ -50,6 +51,14 @@ class NoStoreStaticFiles(StaticFiles):
         response = await super().get_response(path, scope)
         response.headers["Cache-Control"] = "no-store"
         return response
+
+
+def _debug_asset_version() -> str:
+    """Return a content hash for the debug UI styles and script."""
+    digest = sha256()
+    for asset_name in ("style.css", "app.js"):
+        digest.update((STATIC_DIR / asset_name).read_bytes())
+    return digest.hexdigest()[:12]
 
 
 def _require_enabled() -> None:
@@ -244,8 +253,18 @@ async def debug_index(request: Request) -> Response:
             },
         )
 
-    return FileResponse(
-        STATIC_DIR / "index.html",
+    version = _debug_asset_version()
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    html = html.replace(
+        'href="/debug/assets/style.css"',
+        f'href="/debug/assets/style.css?v={version}"',
+    )
+    html = html.replace(
+        'src="/debug/assets/app.js"',
+        f'src="/debug/assets/app.js?v={version}"',
+    )
+    return HTMLResponse(
+        content=html,
         headers={
             "Cache-Control": "no-store",
             "Content-Security-Policy": (
