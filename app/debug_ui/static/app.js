@@ -13,14 +13,27 @@ const conversationList = $("#conversation-list");
 const conversationTitle = $("#conversation-title");
 const debugContent = $("#debug-content");
 const debugPanel = $("#debug-panel");
+const sidebar = $("#sidebar");
+const mobileScrim = $("#mobile-scrim");
 const STORAGE_PREFIX = "ouros-ai-debug-conversations-v1";
 
 let session = null;
 let conversations = [];
 let currentId = null;
 let busy = false;
+let idSequence = 0;
 
-marked.setOptions({ gfm: true, breaks: true });
+function createId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+  idSequence += 1;
+  return "chat-" + Date.now().toString(36) + "-" + idSequence.toString(36);
+}
 
 function storageKey() {
   if (!session?.user_id) return null;
@@ -95,7 +108,7 @@ async function restoreConversations() {
 
 function newConversation() {
   const conversation = {
-    id: crypto.randomUUID(),
+    id: createId(),
     title: "Nova conversa",
     messages: [],
     latestDebug: null,
@@ -115,20 +128,166 @@ function currentConversation() {
 }
 
 function escapeText(value) {
-  const node = document.createElement("div");
-  node.textContent = value ?? "";
-  return node.innerHTML;
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function markdown(value) {
-  const source = String(value ?? "");
-  return DOMPurify.sanitize(marked.parse(source), {
-    USE_PROFILES: { html: true },
-  });
-}
+  const lines = String(value ?? "").split("\n");
+  const blocks = [];
+  const isBlank = (line) => line.trim().length === 0;
+  const fenceOf = (line) => {
+    const trimmed = line.trimStart();
+    const character = trimmed[0];
+    if (character !== String.fromCharCode(96) && character !== "~") return null;
+    let length = 0;
+    while (trimmed[length] === character) length += 1;
+    if (length < 3) return null;
+    const info = trimmed.slice(length);
+    if (character === String.fromCharCode(96) && info.includes(character)) return null;
+    return { character, length, info };
+  };
+  const isFence = (line) => fenceOf(line) !== null;
+  const closesFence = (line, opening) => {
+    const trimmed = line.trimStart();
+    let length = 0;
+    while (trimmed[length] === opening.character) length += 1;
+    return length >= opening.length && trimmed.slice(length).trim().length === 0;
+  };
+  const headingLevel = (line) => {
+    let count = 0;
+    while (line[count] === "#" && count < 3) count += 1;
+    return count > 0 && line[count] === " " ? count : 0;
+  };
+  const listKind = (line) => {
+    const trimmed = line.trimStart();
+    if (trimmed.length > 2 && (trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("+ "))) return "ul";
+    let cursor = 0;
+    while (cursor < trimmed.length && trimmed[cursor] >= "0" && trimmed[cursor] <= "9") cursor += 1;
+    return cursor > 0 && (trimmed[cursor] === "." || trimmed[cursor] === ")")
+      && trimmed[cursor + 1] === " " ? "ol" : "";
+  };
+  const renderInline = (text) => {
+    let html = "";
+    let cursor = 0;
+    while (cursor < text.length) {
+      const character = text[cursor];
+      if (character === String.fromCharCode(96)) {
+        const end = text.indexOf(character, cursor + 1);
+        if (end > cursor + 1) {
+          html += "<code>" + escapeText(text.slice(cursor + 1, end)) + "</code>";
+          cursor = end + 1;
+          continue;
+        }
+      }
+      if (text.startsWith("**", cursor) || text.startsWith("__", cursor)) {
+        const marker = text.slice(cursor, cursor + 2);
+        const end = text.indexOf(marker, cursor + 2);
+        if (end > cursor + 2) {
+          html += "<strong>" + escapeText(text.slice(cursor + 2, end)) + "</strong>";
+          cursor = end + 2;
+          continue;
+        }
+      }
+      if (character === "*") {
+        const end = text.indexOf("*", cursor + 1);
+        if (end > cursor + 1) {
+          html += "<em>" + escapeText(text.slice(cursor + 1, end)) + "</em>";
+          cursor = end + 1;
+          continue;
+        }
+      }
+      if (character === "[") {
+        const labelEnd = text.indexOf("](", cursor + 1);
+        const urlEnd = labelEnd >= 0 ? text.indexOf(")", labelEnd + 2) : -1;
+        if (labelEnd > cursor + 1 && urlEnd > labelEnd + 2) {
+          const label = text.slice(cursor + 1, labelEnd);
+          const url = text.slice(labelEnd + 2, urlEnd);
+          if ((url.startsWith("https://") || url.startsWith("http://")) && !url.includes(" ")) {
+            html += '<a href="' + escapeText(url) + '" target="_blank" rel="noopener noreferrer">' + escapeText(label) + "</a>";
+            cursor = urlEnd + 1;
+            continue;
+          }
+        }
+      }
+      html += escapeText(character);
+      cursor += 1;
+    }
+    return html;
+  };
 
-function highlight(container) {
-  container.querySelectorAll("pre code").forEach((block) => hljs.highlightElement(block));
+  let index = 0;
+  while (index < lines.length) {
+    if (isBlank(lines[index])) {
+      index += 1;
+      continue;
+    }
+    const openingFence = fenceOf(lines[index]);
+    if (openingFence) {
+      const language = openingFence.info.trim();
+      const code = [];
+      index += 1;
+      while (index < lines.length && !closesFence(lines[index], openingFence)) {
+        code.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      const validLanguage = language.length > 0 && language.length <= 24
+        && Array.from(language).every((char) =>
+          (char >= "a" && char <= "z") || (char >= "A" && char <= "Z")
+          || (char >= "0" && char <= "9") || char === "+" || char === "-" || char === "_");
+      const languageClass = validLanguage ? ' class="language-' + escapeText(language) + '"' : "";
+      blocks.push("<pre><code" + languageClass + ">" + escapeText(code.join("\n")) + "</code></pre>");
+      continue;
+    }
+    const level = headingLevel(lines[index]);
+    if (level) {
+      blocks.push("<h" + level + ">" + renderInline(lines[index].slice(level + 1)) + "</h" + level + ">");
+      index += 1;
+      continue;
+    }
+    if (lines[index].trimStart().startsWith(">")) {
+      const quote = [];
+      while (index < lines.length && lines[index].trimStart().startsWith(">")) {
+        let line = lines[index].trimStart().slice(1);
+        if (line.startsWith(" ")) line = line.slice(1);
+        quote.push(line);
+        index += 1;
+      }
+      blocks.push("<blockquote>" + renderInline(quote.join(" ")) + "</blockquote>");
+      continue;
+    }
+    const kind = listKind(lines[index]);
+    if (kind) {
+      const items = [];
+      while (index < lines.length && listKind(lines[index]) === kind) {
+        const line = lines[index].trimStart();
+        let itemStart = 0;
+        if (kind === "ul") itemStart = 2;
+        else {
+          while (itemStart < line.length && line[itemStart] >= "0" && line[itemStart] <= "9") itemStart += 1;
+          itemStart += 2;
+        }
+        items.push("<li>" + renderInline(line.slice(itemStart)) + "</li>");
+        index += 1;
+      }
+      blocks.push("<" + kind + ">" + items.join("") + "</" + kind + ">");
+      continue;
+    }
+    const paragraph = [];
+    while (index < lines.length && !isBlank(lines[index]) && !isFence(lines[index])
+      && !headingLevel(lines[index]) && !lines[index].trimStart().startsWith(">")
+      && !listKind(lines[index])) {
+      paragraph.push(lines[index]);
+      index += 1;
+    }
+    blocks.push("<p>" + renderInline(paragraph.join("\n")).replaceAll("\n", "<br>") + "</p>");
+  }
+  return blocks.join("");
 }
 
 window.addEventListener("message", (event) => {
@@ -162,7 +321,7 @@ function appendVisualizations(container, visualizations, variant = "debug") {
       const frame = document.createElement("iframe");
       frame.className = "visualization-frame";
       frame.title = chart.title || dashboard.title || "Gráfico";
-      frame.name = `visualization-${crypto.randomUUID()}`;
+      frame.name = "visualization-" + createId();
       frame.setAttribute("sandbox", "allow-scripts");
       frame.referrerPolicy = "no-referrer";
 
@@ -233,7 +392,6 @@ function renderMessages() {
 
     row.appendChild(bubble);
     messages.appendChild(row);
-    highlight(body);
   }
   messages.scrollTop = messages.scrollHeight;
 }
@@ -247,6 +405,7 @@ function renderConversations() {
     button.textContent = conversation.title || "Conversa";
     button.addEventListener("click", async () => {
       currentId = conversation.id;
+      closeMobilePanels();
       await restoreConversationHistory(conversation);
       renderAll();
     });
@@ -417,7 +576,10 @@ $("#logout").addEventListener("click", async () => {
   showLogin();
 });
 
-$("#new-chat").addEventListener("click", newConversation);
+$("#new-chat").addEventListener("click", () => {
+  closeMobilePanels();
+  newConversation();
+});
 
 composer.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -483,8 +645,33 @@ input.addEventListener("input", () => {
   input.style.height = Math.min(input.scrollHeight, 180) + "px";
 });
 
-$("#toggle-debug").addEventListener("click", () => debugPanel.classList.add("open"));
-$("#close-debug").addEventListener("click", () => debugPanel.classList.remove("open"));
+function closeMobilePanels() {
+  sidebar.classList.remove("open");
+  debugPanel.classList.remove("open");
+  mobileScrim.hidden = true;
+}
+
+$("#toggle-sidebar").addEventListener("click", () => {
+  const opening = !sidebar.classList.contains("open");
+  closeMobilePanels();
+  if (opening) {
+    sidebar.classList.add("open");
+    mobileScrim.hidden = false;
+  }
+});
+$("#toggle-debug").addEventListener("click", () => {
+  const opening = !debugPanel.classList.contains("open");
+  closeMobilePanels();
+  if (opening) {
+    debugPanel.classList.add("open");
+    mobileScrim.hidden = false;
+  }
+});
+$("#close-debug").addEventListener("click", closeMobilePanels);
+mobileScrim.addEventListener("click", closeMobilePanels);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeMobilePanels();
+});
 
 api("/debug/api/session")
   .then(async (restoredSession) => {
