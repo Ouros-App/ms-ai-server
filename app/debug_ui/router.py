@@ -16,6 +16,7 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.types import Scope
 
 from app.core.auth import Principal, principal_from_token
 from app.core.config import settings
@@ -40,6 +41,15 @@ MAX_DEBUG_VISUALIZATION_FORM_BYTES = 6_000_000
 STATIC_DIR = Path(__file__).with_name("static")
 
 router = APIRouter(prefix=DEBUG_PREFIX, include_in_schema=False)
+
+
+class NoStoreStaticFiles(StaticFiles):
+    """Prevent browsers from reusing stale debug UI scripts and styles."""
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
 
 def _require_enabled() -> None:
@@ -474,6 +484,6 @@ def install_debug_ui(app: FastAPI) -> None:
     app.include_router(router)
     app.mount(
         "/debug/assets",
-        StaticFiles(directory=STATIC_DIR),
+        NoStoreStaticFiles(directory=STATIC_DIR),
         name="debug-ui-assets",
     )

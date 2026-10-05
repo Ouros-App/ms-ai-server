@@ -65,11 +65,13 @@ def test_debug_ui_serves_console_when_enabled() -> None:
     assert 'id="email"' in response.text and 'name="email"' not in response.text
     assert 'id="password"' in response.text and 'name="password"' not in response.text
     assert styles.status_code == 200
+    assert styles.headers["cache-control"] == "no-store"
     assert "grid-template-rows: auto minmax(0, 1fr) auto auto" in styles.text
     assert ".messages {\n  min-width: 0; min-height: 0;" in styles.text
     assert "height: 100dvh" in styles.text
     assert "https://cdn.jsdelivr.net" not in response.text
     assert script.status_code == 200
+    assert script.headers["cache-control"] == "no-store"
     assert "DOMPurify" not in script.text
     assert "crypto.randomUUID" in script.text
 
