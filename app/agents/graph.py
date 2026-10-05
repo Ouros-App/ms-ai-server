@@ -247,6 +247,13 @@ _DASHBOARD_IMPLICIT_REQUEST_PATTERN = re.compile(
     r"\b(?:desempenh\w*|perform\w*|resultado\w*|produc\w*)\b"
     r".*\b(?:ultim\w*|passad\w*|\d{1,3}\s*(?:dia|dias|semana|semanas|mes|meses))\b"
 )
+_AUTO_VISUALIZATION_PERIOD_PATTERN = re.compile(
+    r"\b(?:historico|evolu\w*|tendencia|compar\w*|variac\w*)\b|"
+    r"\b(?:ultim\w*|passad\w*)\s+(?:\d{1,3}\s*)?"
+    r"(?:dia|dias|semana|semanas|mes|meses|ano|anos|ciclo|ciclos|"
+    r"periodo|periodos|leitura|leituras)\b|"
+    r"\b\d{1,3}\s*(?:dia|dias|semana|semanas|mes|meses|ciclo|ciclos)\b"
+)
 _DASHBOARD_PERIOD_PATTERN = re.compile(
     r"\b(?P<value>\d{1,3})\s*(?P<unit>dia|dias|semana|semanas|mes|meses)\b"
 )
@@ -864,6 +871,15 @@ def _explicit_visualization_routes(
     ):
         routes = list(dict.fromkeys([*deterministic, "visualization"]))
         return routes, "deterministic"
+
+    if (
+        deterministic
+        and any(route in {"sustainability", "ranking"} for route in deterministic)
+        and isinstance(content, str)
+        and _AUTO_VISUALIZATION_PERIOD_PATTERN.search(_normalize_route_text(content))
+    ):
+        routes = list(dict.fromkeys([*deterministic, "visualization"]))
+        return routes, "deterministic"
     return None
 
 
@@ -1152,10 +1168,20 @@ async def route_request(state: AgentState) -> dict:
     if (
         route_source in {"deterministic", "model", "context", "pending"}
         and isinstance(content, str)
-        and _DASHBOARD_IMPLICIT_REQUEST_PATTERN.search(_normalize_route_text(content))
         and "visualization" not in routes
         and "default" not in routes
         and routes != ["fallback"]
+        and (
+            _DASHBOARD_IMPLICIT_REQUEST_PATTERN.search(
+                _normalize_route_text(content)
+            )
+            or (
+                any(route in {"sustainability", "ranking"} for route in routes)
+                and _AUTO_VISUALIZATION_PERIOD_PATTERN.search(
+                    _normalize_route_text(content)
+                )
+            )
+        )
     ):
         routes = [*routes, "visualization"][:MAX_ROUTER_ROUTES]
 

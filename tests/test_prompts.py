@@ -47,6 +47,8 @@ class PromptTest(unittest.TestCase):
         self.assertIn("prefira faq", ROUTER_PROMPT)
         self.assertIn("prefira support", ROUTER_PROMPT)
         self.assertIn("resultados independentes", ROUTER_PROMPT)
+        self.assertIn("mesmo sem pedido", ROUTER_PROMPT)
+        self.assertIn("um unico valor sem contexto visual util", ROUTER_PROMPT)
 
     def test_product_rules_are_loaded_from_authorized_knowledge(self) -> None:
         self.assertIn("base de conhecimento", COMMON_AGENT_RULES)
@@ -72,6 +74,11 @@ class PromptTest(unittest.TestCase):
         self.assertIn("periodo comparavel", SUSTAINABILITY_AGENT_PROMPT)
 
     def test_visualization_matches_chart_count_metric_and_period(self) -> None:
+        self.assertIn("parte padrao da", VISUALIZATION_AGENT_PROMPT)
+        self.assertIn(
+            "Nao deixe a opcao de grafico escondida",
+            VISUALIZATION_AGENT_PROMPT,
+        )
         self.assertIn("exatamente um grafico", VISUALIZATION_AGENT_PROMPT)
         self.assertIn("nao inclua series de outros", VISUALIZATION_AGENT_PROMPT)
         self.assertIn("assuntos. Se pedir um recurso", VISUALIZATION_AGENT_PROMPT)
