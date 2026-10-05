@@ -560,12 +560,18 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             patch("app.agents.graph.get_chat_model", side_effect=AssertionError),
             capture_mcp_visualizations() as visualizations,
         ):
-            visualizations.append({"type": "ouros_dashboard", "charts": []})
+            visualizations.append(
+                {
+                    "type": "ouros_dashboard",
+                    "charts": [{"title": "Consumo mensal de água"}],
+                }
+            )
             result = await default_agent(state)
 
         self.assertEqual(
             result["messages"][0].content,
-            "Pronto, gerei o gráfico solicitado.",
+            "Pronto, gerei o gráfico solicitado: Consumo mensal de água. "
+            "Os dados estão agrupados por mês.",
         )
         self.assertTrue(result["messages"][0].additional_kwargs["visualization_id"])
 

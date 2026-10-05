@@ -1258,8 +1258,9 @@ async def default_agent(state: AgentState) -> dict:
         result.get("_dashboard_created") is True
         for result in state.get("specialist_results", [])
     )
+    visualizations = current_mcp_visualizations()
     content = (
-        "Pronto, gerei o gráfico solicitado."
+        _dashboard_confirmation(visualizations)
         if dashboard_created
         else _default_quick_response(state)
     )
@@ -1271,7 +1272,6 @@ async def default_agent(state: AgentState) -> dict:
         response_type=type(content).__name__,
         response_chars=len(content) if isinstance(content, str) else 0,
     )
-    visualizations = current_mcp_visualizations()
     message_metadata = (
         {"visualization_id": str(uuid4())} if visualizations else {}
     )
@@ -1285,6 +1285,28 @@ async def default_agent(state: AgentState) -> dict:
             )
         ],
     }
+
+
+def _dashboard_confirmation(visualizations: list[dict]) -> str:
+    """Confirm the generated chart using its user-facing catalog title."""
+    titles = [
+        chart["title"].strip()
+        for visualization in visualizations
+        if isinstance(visualization, dict)
+        for chart in visualization.get("charts", [])
+        if isinstance(chart, dict)
+        and isinstance(chart.get("title"), str)
+        and chart["title"].strip()
+    ]
+    if not titles:
+        return "Pronto, gerei o gráfico solicitado."
+    if len(titles) == 1:
+        title = titles[0]
+        confirmation = f"Pronto, gerei o gráfico solicitado: {title}."
+        if re.search(r"\b(?:mensal|por\s+mes|monthly)\b", title, re.IGNORECASE):
+            confirmation += " Os dados estão agrupados por mês."
+        return confirmation
+    return "Pronto, gerei os gráficos solicitados: " + "; ".join(titles) + "."
 
 
 async def _resolve_specialist_guardrail(
