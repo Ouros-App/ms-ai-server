@@ -13,6 +13,8 @@ const conversationList = $("#conversation-list");
 const conversationTitle = $("#conversation-title");
 const debugContent = $("#debug-content");
 const debugPanel = $("#debug-panel");
+const sidebar = $("#sidebar");
+const mobileScrim = $("#mobile-scrim");
 const STORAGE_PREFIX = "ouros-ai-debug-conversations-v1";
 
 let session = null;
@@ -20,7 +22,12 @@ let conversations = [];
 let currentId = null;
 let busy = false;
 
-marked.setOptions({ gfm: true, breaks: true });
+function createId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 12);
+}
 
 function storageKey() {
   if (!session?.user_id) return null;
@@ -95,7 +102,7 @@ async function restoreConversations() {
 
 function newConversation() {
   const conversation = {
-    id: crypto.randomUUID(),
+    id: createId(),
     title: "Nova conversa",
     messages: [],
     latestDebug: null,
@@ -121,14 +128,53 @@ function escapeText(value) {
 }
 
 function markdown(value) {
-  const source = String(value ?? "");
-  return DOMPurify.sanitize(marked.parse(source), {
-    USE_PROFILES: { html: true },
+  const codeBlocks = [];
+  const marker = String.fromCharCode(1);
+  const source = String(value ?? "").replace(/```([^\n]*)\n([\s\S]*?)```/g, (_match, language, code) => {
+    const placeholder = marker + "CODE" + codeBlocks.length + marker;
+    const safeLanguage = /^[\w+-]{1,24}$/.test(language.trim())
+      ? " class=\"language-" + language.trim() + "\""
+      : "";
+    codeBlocks.push("<pre><code" + safeLanguage + ">" + escapeText(code.replace(/\n$/, "")) + "</code></pre>");
+    return placeholder;
   });
-}
-
-function highlight(container) {
-  container.querySelectorAll("pre code").forEach((block) => hljs.highlightElement(block));
+  const inline = (text) => {
+    let html = escapeText(text);
+    const codeSpans = [];
+    html = html.replace(/`([^`]+)`/g, (_match, code) => {
+      const placeholder = marker + "INLINE" + codeSpans.length + marker;
+      codeSpans.push("<code>" + code + "</code>");
+      return placeholder;
+    });
+    html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/__(.+?)__/g, "<strong>$1</strong>")
+      .replace(/\*(.+?)\*/g, "<em>$1</em>");
+    return html.replace(new RegExp(marker + "INLINE(\\d+)" + marker, "g"),
+      (_match, index) => codeSpans[Number(index)] || "");
+  };
+  const blocks = source.split(/\n\s*\n/).map((block) => block.trim()).filter(Boolean);
+  return blocks.map((block) => {
+    const codeMatch = block.match(new RegExp("^" + marker + "CODE(\\d+)" + marker + "$"));
+    if (codeMatch) return codeBlocks[Number(codeMatch[1])] || "";
+    const heading = block.match(/^(#{1,3})\s+([\s\S]*)$/);
+    if (heading) {
+      const level = heading[1].length;
+      return "<h" + level + ">" + inline(heading[2]) + "</h" + level + ">";
+    }
+    if (/^>\s?/.test(block)) {
+      return "<blockquote>" + inline(block.replace(/^>\s?/gm, "").replace(/\n/g, " ")) + "</blockquote>";
+    }
+    const lines = block.split("\n");
+    if (lines.every((line) => /^\s*[-*+]\s+/.test(line))) {
+      return "<ul>" + lines.map((line) => "<li>" + inline(line.replace(/^\s*[-*+]\s+/, "")) + "</li>").join("") + "</ul>";
+    }
+    if (lines.every((line) => /^\s*\d+[.)]\s+/.test(line))) {
+      return "<ol>" + lines.map((line) => "<li>" + inline(line.replace(/^\s*\d+[.)]\s+/, "")) + "</li>").join("") + "</ol>";
+    }
+    return "<p>" + inline(block).replace(/\n/g, "<br>") + "</p>";
+  }).join("");
 }
 
 window.addEventListener("message", (event) => {
@@ -162,7 +208,7 @@ function appendVisualizations(container, visualizations, variant = "debug") {
       const frame = document.createElement("iframe");
       frame.className = "visualization-frame";
       frame.title = chart.title || dashboard.title || "Gráfico";
-      frame.name = `visualization-${crypto.randomUUID()}`;
+      frame.name = "visualization-" + createId();
       frame.setAttribute("sandbox", "allow-scripts");
       frame.referrerPolicy = "no-referrer";
 
@@ -233,7 +279,6 @@ function renderMessages() {
 
     row.appendChild(bubble);
     messages.appendChild(row);
-    highlight(body);
   }
   messages.scrollTop = messages.scrollHeight;
 }
@@ -247,6 +292,7 @@ function renderConversations() {
     button.textContent = conversation.title || "Conversa";
     button.addEventListener("click", async () => {
       currentId = conversation.id;
+      closeMobilePanels();
       await restoreConversationHistory(conversation);
       renderAll();
     });
@@ -417,7 +463,10 @@ $("#logout").addEventListener("click", async () => {
   showLogin();
 });
 
-$("#new-chat").addEventListener("click", newConversation);
+$("#new-chat").addEventListener("click", () => {
+  closeMobilePanels();
+  newConversation();
+});
 
 composer.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -483,8 +532,33 @@ input.addEventListener("input", () => {
   input.style.height = Math.min(input.scrollHeight, 180) + "px";
 });
 
-$("#toggle-debug").addEventListener("click", () => debugPanel.classList.add("open"));
-$("#close-debug").addEventListener("click", () => debugPanel.classList.remove("open"));
+function closeMobilePanels() {
+  sidebar.classList.remove("open");
+  debugPanel.classList.remove("open");
+  mobileScrim.hidden = true;
+}
+
+$("#toggle-sidebar").addEventListener("click", () => {
+  const opening = !sidebar.classList.contains("open");
+  closeMobilePanels();
+  if (opening) {
+    sidebar.classList.add("open");
+    mobileScrim.hidden = false;
+  }
+});
+$("#toggle-debug").addEventListener("click", () => {
+  const opening = !debugPanel.classList.contains("open");
+  closeMobilePanels();
+  if (opening) {
+    debugPanel.classList.add("open");
+    mobileScrim.hidden = false;
+  }
+});
+$("#close-debug").addEventListener("click", closeMobilePanels);
+mobileScrim.addEventListener("click", closeMobilePanels);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeMobilePanels();
+});
 
 api("/debug/api/session")
   .then(async (restoredSession) => {

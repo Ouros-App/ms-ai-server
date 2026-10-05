@@ -53,13 +53,19 @@ def test_debug_ui_serves_console_when_enabled() -> None:
         with TestClient(app) as client:
             response = client.get("/debug")
             styles = client.get("/debug/assets/style.css")
+            script = client.get("/debug/assets/app.js")
 
     assert response.status_code == 200
     assert "Debug Console" in response.text
     assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
     assert styles.status_code == 200
-    assert "grid-template-rows: 68px minmax(0, 1fr) auto auto" in styles.text
-    assert ".messages { min-height: 0;" in styles.text
+    assert "grid-template-rows: auto minmax(0, 1fr) auto auto" in styles.text
+    assert ".messages {\n  min-width: 0; min-height: 0;" in styles.text
+    assert "height: 100dvh" in styles.text
+    assert "https://cdn.jsdelivr.net" not in response.text
+    assert script.status_code == 200
+    assert "DOMPurify" not in script.text
+    assert "crypto.randomUUID" in script.text
 
 
 def test_debug_session_requires_cookie() -> None:

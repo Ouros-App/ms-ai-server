@@ -4,19 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Ouros AI Debug</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/styles/github-dark.min.css"
-        integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
-        crossorigin="anonymous" referrerpolicy="no-referrer">
   <link rel="stylesheet" href="/debug/assets/style.css">
-  <script defer src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js"
-          integrity="sha384-H+hy9ULve6xfxRkWIh/YOtvDdpXgV2fmAGQkIDTxIgZwNoaoBal14Di2YTMR6MzR"
-          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"
-          integrity="sha384-JEyTNhjM6R1ElGoJns4U2Ln4ofPcqzSsynQkmEc/KGy6336qAZl70tDLufbkla+3"
-          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.11.1/highlight.min.js"
-          integrity="sha384-RH2xi4eIQ/gjtbs9fUXM68sLSi99C7ZWBRX1vDrVv6GQXRibxXLbwO2NGZB74MbU"
-          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script defer src="/debug/assets/app.js"></script>
 </head>
 <body>
@@ -42,12 +30,12 @@
   </section>
 
   <main id="app-shell" class="app-shell" hidden>
-    <aside class="sidebar" aria-label="Conversas de debug">
+    <aside id="sidebar" class="sidebar" aria-label="Conversas de debug">
       <div class="sidebar-brand">
-        <span class="brand-mark small">◒</span>
+        <span class="brand-mark small" aria-hidden="true">O</span>
         <div><strong>Ouros AI</strong><small>DEBUG</small></div>
       </div>
-      <button id="new-chat" class="new-chat" type="button">+ Nova conversa</button>
+      <button id="new-chat" class="new-chat" type="button"><span aria-hidden="true">＋</span> Nova conversa</button>
       <div id="conversation-list" class="conversation-list"></div>
       <div class="sidebar-footer">
         <div id="session-label" class="session-label"></div>
@@ -57,18 +45,20 @@
 
     <section class="chat-column">
       <header class="topbar">
+        <button id="toggle-sidebar" class="icon-button mobile-nav" type="button" aria-label="Abrir conversas">☰</button>
         <div>
           <p class="eyebrow">CHAT</p>
           <h2 id="conversation-title">Nova conversa</h2>
         </div>
-        <button id="toggle-debug" class="ghost mobile-debug" type="button">Debug</button>
+        <button id="toggle-debug" class="icon-button mobile-nav" type="button" aria-label="Abrir diagnóstico">⌘</button>
       </header>
 
       <div id="messages" class="messages">
         <div class="empty-state">
-          <span class="brand-mark">◒</span>
-          <h3>Console de conversa</h3>
-          <p>Mesma pipeline do produto, com o capô aberto.</p>
+          <span class="empty-icon" aria-hidden="true">✳</span>
+          <p class="eyebrow">AMBIENTE DE DIAGNÓSTICO</p>
+          <h3>Teste uma conversa</h3>
+          <p>Envie uma mensagem para acompanhar a resposta e os detalhes do processamento.</p>
         </div>
       </div>
 
@@ -77,8 +67,10 @@
         <textarea id="message-input" rows="1" maxlength="8000" placeholder="Mensagem para o AI Server..." required></textarea>
         <button id="send-button" class="send-button" type="submit" aria-label="Enviar">↑</button>
       </form>
-      <p class="composer-hint">Enter envia · Shift+Enter quebra linha</p>
+      <p class="composer-hint">Enter envia <span>·</span> Shift+Enter quebra linha</p>
     </section>
+
+    <button id="mobile-scrim" class="mobile-scrim" type="button" aria-label="Fechar navegação" hidden></button>
 
     <aside id="debug-panel" class="debug-panel" aria-label="Painel de diagnóstico">
       <header class="debug-header">
@@ -86,7 +78,7 @@
           <p class="eyebrow">REQUEST TRACE</p>
           <h2>Debug</h2>
         </div>
-        <button id="close-debug" class="ghost mobile-debug" type="button">×</button>
+        <button id="close-debug" class="icon-button" type="button" aria-label="Fechar diagnóstico">×</button>
       </header>
       <div id="debug-content" class="debug-content">
         <div class="debug-empty">
