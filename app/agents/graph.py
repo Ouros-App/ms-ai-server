@@ -746,13 +746,15 @@ async def _prefetch_dashboard_catalog(
         "Catálogo autorizado para este usuário, recebido do Telemetry. Use os "
         "IDs somente nos argumentos internos de create_custom_dashboard; nunca "
         "os solicite nem os mostre ao usuário. Escolha pelo título e significado. "
-        "Separe janela temporal de granularidade: 90 dias não quer dizer mensal. "
-        "Se o pedido não especificar a granularidade, prefira semanal quando "
-        "existir para janelas de até 120 dias; sem opção semanal, prefira por "
-        "leitura/data a mensal. Use mensal como fallback apenas quando não houver "
-        "opção compatível mais detalhada. Se a granularidade pedida não existir, "
-        "use a opção compatível mais detalhada e explique a granularidade real. "
-        "`render_as` muda só o tipo visual, não agrega os dados.\n"
+        "Separe assunto, periodo, granularidade, comparacao e tipo visual; preserve "
+        "cada escolha explicita. O periodo e a granularidade sao distintos: uma "
+        "janela que atravessa meses nao pede agrupamento mensal. Sem granularidade "
+        "explicita, escolha a opcao que melhor equilibra frequencia dos registros, "
+        "duracao consultada e legibilidade; periodos curtos tendem a dia/leitura, "
+        "intermediarios a semana e longos a mes, sempre conforme opcoes existentes. "
+        "Se nao houver uma granularidade pedida, use a opcao compativel mais "
+        "detalhada e explique a granularidade real. `render_as` muda apenas a forma "
+        "visual, nao agrega os dados.\n"
         + json.dumps(result, ensure_ascii=False)
     )
     return {"role": "system", "content": content}, [

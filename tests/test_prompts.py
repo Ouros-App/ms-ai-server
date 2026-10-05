@@ -73,16 +73,20 @@ class PromptTest(unittest.TestCase):
 
     def test_visualization_matches_chart_count_metric_and_period(self) -> None:
         self.assertIn("exatamente um grafico", VISUALIZATION_AGENT_PROMPT)
-        self.assertIn("nao inclua series de outros assuntos", VISUALIZATION_AGENT_PROMPT)
-        self.assertIn("ultimos 90", VISUALIZATION_AGENT_PROMPT)
-        self.assertIn("nao significa \"por mes\"", VISUALIZATION_AGENT_PROMPT)
-        self.assertIn("opcao compativel por semana ou leitura/data", VISUALIZATION_AGENT_PROMPT)
+        self.assertIn("nao inclua series de outros", VISUALIZATION_AGENT_PROMPT)
+        self.assertIn("assuntos. Se pedir um recurso", VISUALIZATION_AGENT_PROMPT)
+        self.assertIn("assunto e metrica, recurso", VISUALIZATION_AGENT_PROMPT)
+        self.assertIn("periodo, granularidade, comparacoes e tipo visual", VISUALIZATION_AGENT_PROMPT)
+        self.assertIn("periodo e a granularidade como escolhas distintas", VISUALIZATION_AGENT_PROMPT)
+        self.assertIn("periodos curtos normalmente pedem dia ou leitura", VISUALIZATION_AGENT_PROMPT)
+        self.assertIn("periodos intermediarios podem pedir semana", VISUALIZATION_AGENT_PROMPT)
+        self.assertIn("janelas longas podem ficar mais claras", VISUALIZATION_AGENT_PROMPT)
+        self.assertIn("linha para evolucao temporal", VISUALIZATION_AGENT_PROMPT)
+        self.assertIn("histograma para distribuicao", VISUALIZATION_AGENT_PROMPT)
         self.assertIn("agregados por mes", VISUALIZATION_AGENT_PROMPT)
         self.assertIn("nao os descreva", VISUALIZATION_AGENT_PROMPT)
-        self.assertIn("prefira semanal", VISUALIZATION_AGENT_PROMPT)
-        self.assertIn("prefira por leitura/data a mensal", VISUALIZATION_AGENT_PROMPT)
-        self.assertIn("`render_as` escolhe o formato", VISUALIZATION_AGENT_PROMPT)
-        self.assertIn("visual (como barras ou linhas)", VISUALIZATION_AGENT_PROMPT)
+        self.assertIn("`render_as` escolhe apenas a forma", VISUALIZATION_AGENT_PROMPT)
+        self.assertIn("visual (barras, linhas etc.)", VISUALIZATION_AGENT_PROMPT)
 
     def test_output_reviewer_preserves_authenticated_numbers(self) -> None:
         self.assertIn("Preserve fatos quantitativos", OUTPUT_REVIEW_PROMPT)

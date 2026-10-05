@@ -46,15 +46,15 @@ _TOOL_DESCRIPTIONS = {
     "get_user_context": "Ler contexto legível da conta autenticada.",
     "get_consumption_summary": "Consultar consumo autenticado por período.",
     "get_custom_dashboard_catalog": (
-        "Consultar as opções autorizadas de gráficos. Compare assunto, período "
-        "e granularidade indicada no título (por leitura/data, semanal ou mensal); "
-        "um período de 90 dias não implica agrupamento mensal."
+        "Consultar opções autorizadas. Compare assunto, métrica, recorte e "
+        "granularidade indicada pelo título; a janela temporal não determina, "
+        "sozinha, o agrupamento."
     ),
     "create_custom_dashboard": (
-        "Criar somente com opções do catálogo, preservando o período solicitado. "
-        "Prefira semanal quando disponível e, sem essa opção, por leitura/data "
-        "antes de mensal. `render_as` escolhe barras/linhas etc.; não muda a "
-        "granularidade dos dados."
+        "Criar somente com opções do catálogo, preservando métrica, período, "
+        "granularidade e comparação pedidos. Sem preferência explícita, escolha "
+        "um recorte temporal legível e adequado à frequência dos dados. "
+        "`render_as` escolhe a forma visual, não altera a granularidade."
     ),
 }
 
