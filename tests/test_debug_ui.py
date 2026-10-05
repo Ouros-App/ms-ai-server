@@ -64,12 +64,16 @@ def test_debug_ui_serves_console_when_enabled() -> None:
     assert 'method="post" action="/debug"' in response.text
     assert 'id="email"' in response.text and 'name="email"' not in response.text
     assert 'id="password"' in response.text and 'name="password"' not in response.text
+    asset_version = response.text.split("style.css?v=", 1)[1].split('"', 1)[0]
+    assert f'app.js?v={asset_version}' in response.text
     assert styles.status_code == 200
+    assert styles.headers["cache-control"] == "no-store"
     assert "grid-template-rows: auto minmax(0, 1fr) auto auto" in styles.text
     assert ".messages {\n  min-width: 0; min-height: 0;" in styles.text
     assert "height: 100dvh" in styles.text
     assert "https://cdn.jsdelivr.net" not in response.text
     assert script.status_code == 200
+    assert script.headers["cache-control"] == "no-store"
     assert "DOMPurify" not in script.text
     assert "crypto.randomUUID" in script.text
 
