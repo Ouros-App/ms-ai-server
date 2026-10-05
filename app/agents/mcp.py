@@ -114,15 +114,18 @@ class _CustomDashboardChartArguments(BaseModel):
     chart_id: str = Field(
         min_length=1,
         max_length=64,
-        description="ID de um gráfico permitido pelo catálogo.",
+        description=(
+            "ID interno de uma opção do catálogo. Escolha pelo assunto e pela "
+            "granularidade temporal indicada no título."
+        ),
     )
     render_as: str = Field(
         default="auto",
         min_length=1,
         max_length=32,
         description=(
-            "Trace Plotly solicitado pelo usuário. O Telemetry verifica se ele "
-            "está em render_options para o gráfico selecionado. Use auto sem preferência."
+            "Formato Plotly (barras, linhas etc.), sem alterar a agregação temporal. "
+            "O Telemetry valida se está em render_options. Use auto sem preferência."
         ),
     )
 

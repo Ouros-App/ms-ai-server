@@ -148,6 +148,31 @@ class JevProviderTests(unittest.TestCase):
         self.assertNotIn("messages", provider_state)
         self.assertNotIn("jwt", provider_state)
 
+    def test_jev_tool_descriptions_distinguish_period_from_chart_granularity(self) -> None:
+        """Guide chart selection by grain instead of assuming monthly buckets."""
+        state = DecisionInput(
+            message="Mostre o consumo de água nos últimos 90 dias",
+            available_agents=["visualization", "default"],
+            agent_tools={
+                "visualization": [
+                    "get_custom_dashboard_catalog",
+                    "create_custom_dashboard",
+                ]
+            },
+            context={},
+        )
+
+        questions = JevDecisionProvider._questions(state)
+        tool_instructions = "\n".join(
+            question["instructions"]
+            for key, question in questions.items()
+            if key.startswith("tool_")
+        )
+
+        self.assertIn("a janela temporal não determina", tool_instructions)
+        self.assertIn("preservando métrica, período", tool_instructions)
+        self.assertIn("não altera a granularidade", tool_instructions)
+
     def test_graph_decision_input_anonymizes_message_and_omits_identity(self) -> None:
         """Anonymize the current message and omit internal identity fields."""
         decision_input = graph._build_decision_input(
