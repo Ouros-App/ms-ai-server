@@ -1,3 +1,11 @@
+if (window.location.search) {
+  window.history.replaceState(
+    window.history.state,
+    "",
+    window.location.pathname + window.location.hash,
+  );
+}
+
 const $ = (selector) => document.querySelector(selector);
 
 const loginScreen = $("#login-screen");
