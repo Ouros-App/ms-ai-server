@@ -140,8 +140,24 @@ function markdown(value) {
   const lines = String(value ?? "").split("\n");
   const blocks = [];
   const isBlank = (line) => line.trim().length === 0;
-  const fence = String.fromCharCode(96).repeat(3);
-  const isFence = (line) => line.trimStart().startsWith(fence);
+  const fenceOf = (line) => {
+    const trimmed = line.trimStart();
+    const character = trimmed[0];
+    if (character !== String.fromCharCode(96) && character !== "~") return null;
+    let length = 0;
+    while (trimmed[length] === character) length += 1;
+    if (length < 3) return null;
+    const info = trimmed.slice(length);
+    if (character === String.fromCharCode(96) && info.includes(character)) return null;
+    return { character, length, info };
+  };
+  const isFence = (line) => fenceOf(line) !== null;
+  const closesFence = (line, opening) => {
+    const trimmed = line.trimStart();
+    let length = 0;
+    while (trimmed[length] === opening.character) length += 1;
+    return length >= opening.length && trimmed.slice(length).trim().length === 0;
+  };
   const headingLevel = (line) => {
     let count = 0;
     while (line[count] === "#" && count < 3) count += 1;
@@ -210,11 +226,12 @@ function markdown(value) {
       index += 1;
       continue;
     }
-    if (isFence(lines[index])) {
-      const language = lines[index].trimStart().slice(fence.length).trim();
+    const openingFence = fenceOf(lines[index]);
+    if (openingFence) {
+      const language = openingFence.info.trim();
       const code = [];
       index += 1;
-      while (index < lines.length && !isFence(lines[index])) {
+      while (index < lines.length && !closesFence(lines[index], openingFence)) {
         code.push(lines[index]);
         index += 1;
       }
