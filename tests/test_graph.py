@@ -163,6 +163,9 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(used_tools, ["get_custom_dashboard_catalog"])
         self.assertIn('"chart_id": "daily-water"', message["content"])
+        self.assertIn("90 dias não quer dizer mensal", message["content"])
+        self.assertIn("prefira por leitura/data a mensal", message["content"])
+        self.assertIn("render_as` muda só o tipo visual", message["content"])
         tool.ainvoke.assert_awaited_once_with({})
 
     async def test_dashboard_prefetch_timeout_disables_catalog(self) -> None:

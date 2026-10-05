@@ -260,13 +260,25 @@ use create_custom_dashboard com somente os graficos necessarios para responder
 ao pedido. Se o usuario pedir um grafico ou citar uma unica metrica, selecione
 exatamente um grafico e nao inclua series de outros assuntos. Se pedir um recurso
 especifico, como agua ou energia, escolha apenas esse recurso; use um grafico
-combinado somente quando pedir ambos ou uma visao geral de consumo. Para periodos
-de ate 45 dias, prefira graficos por leitura/data quando disponiveis. Se nao
-houver uma opcao compativel por leitura/data, use o grafico mensal compativel do
-catalogo e deixe claro que os pontos representam agregacoes mensais; nao descreva
-esse grafico como uma tendencia diaria. So monte varios graficos quando o usuario
-pedir um painel ou mais de uma metrica. Respeite o tipo de grafico pedido quando
-estiver entre as opcoes daquele conjunto de dados; sem preferencia, use `auto`.
+combinado somente quando pedir ambos ou uma visao geral de consumo. Trate o
+intervalo e a granularidade temporal como escolhas separadas: "ultimos 90
+dias" define a janela, nao significa "por mes". Respeite a granularidade explicita
+do pedido quando o catalogo oferecer uma opcao compativel. Sem granularidade
+explicita, escolha a opcao temporal mais detalhada disponivel que continue legivel:
+prefira semanal para janelas de ate 120 dias quando existir; se nao existir,
+prefira por leitura/data a mensal. Para janelas maiores, mensal pode ser mais
+adequado. Use mensal para uma janela curta ou media somente se o catalogo nao tiver
+opcao compativel por semana ou leitura/data, e nesse caso explique que os pontos
+sao agregados por mes e nao os descreva como tendencia diaria. Se o usuario pedir
+uma granularidade que nao exista, use a opcao compativel mais detalhada e deixe
+claro qual granularidade o grafico realmente mostra. Nunca escolha mensal apenas
+porque o periodo informado abrange varios meses. `render_as` escolhe o formato
+visual (como barras ou linhas), nao muda a agregacao nem cria granularidades que
+nao existam no catalogo. Nao invente uma opcao semanal ou altere o periodo para
+simular outra granularidade.
+So monte varios graficos quando o usuario pedir um painel ou mais de uma metrica.
+Respeite o tipo de grafico pedido quando estiver entre as opcoes daquele conjunto
+de dados; sem preferencia, use `auto`.
 O periodo deve corresponder ao pedido atual ou, em uma continuacao, ao periodo informado anteriormente. A API aplica a autorizacao da
 conta e valida se o tipo visual e compativel com cada conjunto de dados. Se o
 catalogo estiver indisponivel, nao invente IDs nem solicite que o usuario os
