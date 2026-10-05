@@ -12,6 +12,7 @@ from app.agents.graph import (
     _RESET_TOOLS,
     _collect_pending_state,
     _conversation_is_personal_request,
+    _dashboard_confirmation,
     _dashboard_period_days,
     _dashboard_period_days_for_state,
     _deterministic_routes,
@@ -163,6 +164,10 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(used_tools, ["get_custom_dashboard_catalog"])
         self.assertIn('"chart_id": "daily-water"', message["content"])
+        self.assertIn("periodo e a granularidade sao distintos", message["content"])
+        self.assertIn("frequencia dos registros", message["content"])
+        self.assertIn("janela que atravessa meses nao pede agrupamento mensal", message["content"])
+        self.assertIn("render_as` muda apenas a forma visual", message["content"])
         tool.ainvoke.assert_awaited_once_with({})
 
     async def test_dashboard_prefetch_timeout_disables_catalog(self) -> None:
@@ -556,14 +561,33 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             patch("app.agents.graph.get_chat_model", side_effect=AssertionError),
             capture_mcp_visualizations() as visualizations,
         ):
-            visualizations.append({"type": "ouros_dashboard", "charts": []})
+            visualizations.append(
+                {
+                    "type": "ouros_dashboard",
+                    "charts": [{"title": "Consumo mensal de água"}],
+                }
+            )
             result = await default_agent(state)
 
         self.assertEqual(
             result["messages"][0].content,
-            "Pronto, gerei o gráfico solicitado.",
+            "Pronto, gerei o gráfico solicitado: Consumo mensal de água. "
+            "O título indica agrupamento mensal.",
         )
         self.assertTrue(result["messages"][0].additional_kwargs["visualization_id"])
+
+    def test_dashboard_confirmation_qualifies_monthly_grain_from_title(self) -> None:
+        for title in (
+            "Consumo mensal de água",
+            "Consumos mensais de água",
+            "Consumo por mês",
+            "Monthly water consumption",
+        ):
+            with self.subTest(title=title):
+                confirmation = _dashboard_confirmation(
+                    [{"charts": [{"title": title}]}]
+                )
+                self.assertIn("O título indica agrupamento mensal.", confirmation)
 
     async def test_specialist_failure_is_collected_without_aborting_the_graph(self) -> None:
         """Turn a specialist model exception into a result for safe synthesis."""
