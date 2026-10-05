@@ -58,6 +58,12 @@ def test_debug_ui_serves_console_when_enabled() -> None:
     assert response.status_code == 200
     assert "Debug Console" in response.text
     assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert "script-src 'self';" in response.headers["content-security-policy"]
+    assert "style-src 'self' 'unsafe-inline';" in response.headers["content-security-policy"]
+    assert 'method="post" action="/debug"' in response.text
+    assert 'id="email"' in response.text and 'name="email"' not in response.text
+    assert 'id="password"' in response.text and 'name="password"' not in response.text
     assert styles.status_code == 200
     assert "grid-template-rows: auto minmax(0, 1fr) auto auto" in styles.text
     assert ".messages {\n  min-width: 0; min-height: 0;" in styles.text
@@ -66,6 +72,21 @@ def test_debug_ui_serves_console_when_enabled() -> None:
     assert script.status_code == 200
     assert "DOMPurify" not in script.text
     assert "crypto.randomUUID" in script.text
+
+
+def test_debug_ui_redirects_query_parameters_to_clean_url() -> None:
+    with patch.object(settings, "debug_ui_enabled", True):
+        app = build_debug_app()
+        with TestClient(app) as client:
+            response = client.get(
+                "/debug?email=redacted%40example.test&password=redacted",
+                follow_redirects=False,
+            )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/debug"
+    assert "email" not in response.headers["location"]
+    assert "password" not in response.headers["location"]
 
 
 def test_debug_session_requires_cookie() -> None:

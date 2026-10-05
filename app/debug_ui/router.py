@@ -14,7 +14,7 @@ from fastapi import (
     Response,
     status,
 )
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.core.auth import Principal, principal_from_token
@@ -222,19 +222,30 @@ def _session(principal: Principal) -> DebugSessionResponse:
 
 @router.get("")
 @router.get("/")
-async def debug_index() -> FileResponse:
+async def debug_index(request: Request) -> Response:
     _require_enabled()
+    if request.query_params:
+        return RedirectResponse(
+            url=request.url.path,
+            status_code=status.HTTP_303_SEE_OTHER,
+            headers={
+                "Cache-Control": "no-store",
+                "Referrer-Policy": "no-referrer",
+            },
+        )
+
     return FileResponse(
         STATIC_DIR / "index.html",
         headers={
             "Cache-Control": "no-store",
             "Content-Security-Policy": (
                 "default-src 'self'; "
-                "script-src 'self' https://cdn.jsdelivr.net; "
-                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "script-src 'self'; "
+                "style-src 'self' 'unsafe-inline'; "
                 "img-src 'self' data:; connect-src 'self'; object-src 'none'; "
                 "base-uri 'none'; frame-ancestors 'none'"
             ),
+            "Referrer-Policy": "no-referrer",
             "X-Content-Type-Options": "nosniff",
         },
     )
