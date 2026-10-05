@@ -21,12 +21,18 @@ let session = null;
 let conversations = [];
 let currentId = null;
 let busy = false;
+let idSequence = 0;
 
 function createId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
-  return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 12);
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+  idSequence += 1;
+  return "chat-" + Date.now().toString(36) + "-" + idSequence.toString(36);
 }
 
 function storageKey() {
@@ -122,59 +128,149 @@ function currentConversation() {
 }
 
 function escapeText(value) {
-  const node = document.createElement("div");
-  node.textContent = value ?? "";
-  return node.innerHTML;
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function markdown(value) {
-  const codeBlocks = [];
-  const marker = String.fromCharCode(1);
-  const source = String(value ?? "").replace(/```([^\n]*)\n([\s\S]*?)```/g, (_match, language, code) => {
-    const placeholder = marker + "CODE" + codeBlocks.length + marker;
-    const safeLanguage = /^[\w+-]{1,24}$/.test(language.trim())
-      ? " class=\"language-" + language.trim() + "\""
-      : "";
-    codeBlocks.push("<pre><code" + safeLanguage + ">" + escapeText(code.replace(/\n$/, "")) + "</code></pre>");
-    return placeholder;
-  });
-  const inline = (text) => {
-    let html = escapeText(text);
-    const codeSpans = [];
-    html = html.replace(/`([^`]+)`/g, (_match, code) => {
-      const placeholder = marker + "INLINE" + codeSpans.length + marker;
-      codeSpans.push("<code>" + code + "</code>");
-      return placeholder;
-    });
-    html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-    html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-      .replace(/__(.+?)__/g, "<strong>$1</strong>")
-      .replace(/\*(.+?)\*/g, "<em>$1</em>");
-    return html.replace(new RegExp(marker + "INLINE(\\d+)" + marker, "g"),
-      (_match, index) => codeSpans[Number(index)] || "");
+  const lines = String(value ?? "").split("\n");
+  const blocks = [];
+  const isBlank = (line) => line.trim().length === 0;
+  const fence = String.fromCharCode(96).repeat(3);
+  const isFence = (line) => line.trimStart().startsWith(fence);
+  const headingLevel = (line) => {
+    let count = 0;
+    while (line[count] === "#" && count < 3) count += 1;
+    return count > 0 && line[count] === " " ? count : 0;
   };
-  const blocks = source.split(/\n\s*\n/).map((block) => block.trim()).filter(Boolean);
-  return blocks.map((block) => {
-    const codeMatch = block.match(new RegExp("^" + marker + "CODE(\\d+)" + marker + "$"));
-    if (codeMatch) return codeBlocks[Number(codeMatch[1])] || "";
-    const heading = block.match(/^(#{1,3})\s+([\s\S]*)$/);
-    if (heading) {
-      const level = heading[1].length;
-      return "<h" + level + ">" + inline(heading[2]) + "</h" + level + ">";
+  const listKind = (line) => {
+    const trimmed = line.trimStart();
+    if (trimmed.length > 2 && (trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("+ "))) return "ul";
+    let cursor = 0;
+    while (cursor < trimmed.length && trimmed[cursor] >= "0" && trimmed[cursor] <= "9") cursor += 1;
+    return cursor > 0 && (trimmed[cursor] === "." || trimmed[cursor] === ")")
+      && trimmed[cursor + 1] === " " ? "ol" : "";
+  };
+  const renderInline = (text) => {
+    let html = "";
+    let cursor = 0;
+    while (cursor < text.length) {
+      const character = text[cursor];
+      if (character === String.fromCharCode(96)) {
+        const end = text.indexOf(character, cursor + 1);
+        if (end > cursor + 1) {
+          html += "<code>" + escapeText(text.slice(cursor + 1, end)) + "</code>";
+          cursor = end + 1;
+          continue;
+        }
+      }
+      if (text.startsWith("**", cursor) || text.startsWith("__", cursor)) {
+        const marker = text.slice(cursor, cursor + 2);
+        const end = text.indexOf(marker, cursor + 2);
+        if (end > cursor + 2) {
+          html += "<strong>" + escapeText(text.slice(cursor + 2, end)) + "</strong>";
+          cursor = end + 2;
+          continue;
+        }
+      }
+      if (character === "*") {
+        const end = text.indexOf("*", cursor + 1);
+        if (end > cursor + 1) {
+          html += "<em>" + escapeText(text.slice(cursor + 1, end)) + "</em>";
+          cursor = end + 1;
+          continue;
+        }
+      }
+      if (character === "[") {
+        const labelEnd = text.indexOf("](", cursor + 1);
+        const urlEnd = labelEnd >= 0 ? text.indexOf(")", labelEnd + 2) : -1;
+        if (labelEnd > cursor + 1 && urlEnd > labelEnd + 2) {
+          const label = text.slice(cursor + 1, labelEnd);
+          const url = text.slice(labelEnd + 2, urlEnd);
+          if ((url.startsWith("https://") || url.startsWith("http://")) && !url.includes(" ")) {
+            html += '<a href="' + escapeText(url) + '" target="_blank" rel="noopener noreferrer">' + escapeText(label) + "</a>";
+            cursor = urlEnd + 1;
+            continue;
+          }
+        }
+      }
+      html += escapeText(character);
+      cursor += 1;
     }
-    if (/^>\s?/.test(block)) {
-      return "<blockquote>" + inline(block.replace(/^>\s?/gm, "").replace(/\n/g, " ")) + "</blockquote>";
+    return html;
+  };
+
+  let index = 0;
+  while (index < lines.length) {
+    if (isBlank(lines[index])) {
+      index += 1;
+      continue;
     }
-    const lines = block.split("\n");
-    if (lines.every((line) => /^\s*[-*+]\s+/.test(line))) {
-      return "<ul>" + lines.map((line) => "<li>" + inline(line.replace(/^\s*[-*+]\s+/, "")) + "</li>").join("") + "</ul>";
+    if (isFence(lines[index])) {
+      const language = lines[index].trimStart().slice(fence.length).trim();
+      const code = [];
+      index += 1;
+      while (index < lines.length && !isFence(lines[index])) {
+        code.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      const validLanguage = language.length > 0 && language.length <= 24
+        && Array.from(language).every((char) =>
+          (char >= "a" && char <= "z") || (char >= "A" && char <= "Z")
+          || (char >= "0" && char <= "9") || char === "+" || char === "-" || char === "_");
+      const languageClass = validLanguage ? ' class="language-' + escapeText(language) + '"' : "";
+      blocks.push("<pre><code" + languageClass + ">" + escapeText(code.join("\n")) + "</code></pre>");
+      continue;
     }
-    if (lines.every((line) => /^\s*\d+[.)]\s+/.test(line))) {
-      return "<ol>" + lines.map((line) => "<li>" + inline(line.replace(/^\s*\d+[.)]\s+/, "")) + "</li>").join("") + "</ol>";
+    const level = headingLevel(lines[index]);
+    if (level) {
+      blocks.push("<h" + level + ">" + renderInline(lines[index].slice(level + 1)) + "</h" + level + ">");
+      index += 1;
+      continue;
     }
-    return "<p>" + inline(block).replace(/\n/g, "<br>") + "</p>";
-  }).join("");
+    if (lines[index].trimStart().startsWith(">")) {
+      const quote = [];
+      while (index < lines.length && lines[index].trimStart().startsWith(">")) {
+        let line = lines[index].trimStart().slice(1);
+        if (line.startsWith(" ")) line = line.slice(1);
+        quote.push(line);
+        index += 1;
+      }
+      blocks.push("<blockquote>" + renderInline(quote.join(" ")) + "</blockquote>");
+      continue;
+    }
+    const kind = listKind(lines[index]);
+    if (kind) {
+      const items = [];
+      while (index < lines.length && listKind(lines[index]) === kind) {
+        const line = lines[index].trimStart();
+        let itemStart = 0;
+        if (kind === "ul") itemStart = 2;
+        else {
+          while (itemStart < line.length && line[itemStart] >= "0" && line[itemStart] <= "9") itemStart += 1;
+          itemStart += 2;
+        }
+        items.push("<li>" + renderInline(line.slice(itemStart)) + "</li>");
+        index += 1;
+      }
+      blocks.push("<" + kind + ">" + items.join("") + "</" + kind + ">");
+      continue;
+    }
+    const paragraph = [];
+    while (index < lines.length && !isBlank(lines[index]) && !isFence(lines[index])
+      && !headingLevel(lines[index]) && !lines[index].trimStart().startsWith(">")
+      && !listKind(lines[index])) {
+      paragraph.push(lines[index]);
+      index += 1;
+    }
+    blocks.push("<p>" + renderInline(paragraph.join("\n")).replaceAll("\n", "<br>") + "</p>");
+  }
+  return blocks.join("");
 }
 
 window.addEventListener("message", (event) => {
