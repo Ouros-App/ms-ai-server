@@ -247,6 +247,42 @@ _DASHBOARD_IMPLICIT_REQUEST_PATTERN = re.compile(
     r"\b(?:desempenh\w*|perform\w*|resultado\w*|produc\w*)\b"
     r".*\b(?:ultim\w*|passad\w*|\d{1,3}\s*(?:dia|dias|semana|semanas|mes|meses))\b"
 )
+_AUTO_VISUALIZATION_PERIOD_PATTERN = re.compile(
+    r"\b(?:ultim\w*|passad\w*)\s+(?:\d{1,3}\s*)?"
+    r"(?:dia|dias|semana|semanas|mes|meses|ano|anos|ciclo|ciclos|"
+    r"periodo|periodos|leitura|leituras)\b|"
+    r"\b\d{1,3}\s*(?:dia|dias|semana|semanas|mes|meses|ciclo|ciclos)\b"
+)
+_AUTO_VISUALIZATION_DATA_TOPIC_PATTERN = re.compile(
+    r"\b(?:consumo|agua|energia|ranking|posi\w*|pontua\w*|nivel\w*|"
+    r"desempenh\w*|perform\w*|medicao|registro\w*|produc\w*)\b"
+)
+_AUTO_VISUALIZATION_DATA_INTENT_PATTERN = re.compile(
+    r"\b(?:qual|quanto|quanta|quantos|quantas|mostr\w*|veja|ver|"
+    r"compar\w*|analis\w*|acompan\w*|como\s+(?:foi|esta|estao|evoluiu))\b"
+)
+_AUTO_VISUALIZATION_TREND_PATTERN = re.compile(
+    r"\b(?:historico|evolu\w*|tendencia|compar\w*|variac\w*)\b"
+)
+
+
+def _requests_automatic_visualization(message: object) -> bool:
+    """Return whether a data query has a period or chart-worthy analysis context."""
+    content = getattr(message, "content", message)
+    if not isinstance(content, str):
+        return False
+    text = _normalize_route_text(content)
+    if re.search(r"\b(?:ciclo|ciclos)\b", text):
+        return False
+    if _AUTO_VISUALIZATION_PERIOD_PATTERN.search(text):
+        return True
+    return bool(
+        _AUTO_VISUALIZATION_TREND_PATTERN.search(text)
+        and _AUTO_VISUALIZATION_DATA_TOPIC_PATTERN.search(text)
+        and _AUTO_VISUALIZATION_DATA_INTENT_PATTERN.search(text)
+    )
+
+
 _DASHBOARD_PERIOD_PATTERN = re.compile(
     r"\b(?P<value>\d{1,3})\s*(?P<unit>dia|dias|semana|semanas|mes|meses)\b"
 )
@@ -473,11 +509,12 @@ def _personal_data_system_message(result: object | None, *, unavailable: bool = 
     """Build authoritative system context for a mandatory personal-data lookup."""
     if unavailable:
         content = (
-            "A pergunta exige dados pessoais autenticados, mas a consulta ao MCP "
-            "nao esta disponivel nesta requisicao. Nao peca ao usuario para digitar "
-            "medicoes ou identificadores que deveriam vir do sistema. Retorne status "
-            "error e informe apenas que os dados da conta estao temporariamente "
-            "indisponiveis."
+            "A consulta aos dados pessoais autenticados falhou nesta requisicao. "
+            "Isso nao comprova que a conta esteja sem acesso ou sem registros. "
+            "Nao afirme falta de permissao nem ausencia de dados. Nao peca ao "
+            "usuario para digitar medicoes ou identificadores que deveriam vir do "
+            "sistema. Retorne status error e informe que a consulta falhou "
+            "temporariamente, pedindo para tentar novamente em instantes."
         )
     else:
         content = (
@@ -612,7 +649,11 @@ async def _prefetch_consumption_summary(
             agent=agent_name,
             reason="consumption_summary_not_available",
         )
-        return _personal_data_system_message(None, unavailable=True), [], None
+        return (
+            _personal_data_system_message(None, unavailable=True),
+            [],
+            {"authorized": False, "reason": "tool_unavailable"},
+        )
 
     args = {"period_days": period_days}
     trace_event(
@@ -632,7 +673,11 @@ async def _prefetch_consumption_summary(
             source="required_prefetch",
             error=type(error).__name__,
         )
-        return _personal_data_system_message(None, unavailable=True), [], None
+        return (
+            _personal_data_system_message(None, unavailable=True),
+            [],
+            {"authorized": False, "reason": "lookup_failed"},
+        )
 
     trace_event(
         "tool.result",
@@ -861,6 +906,14 @@ def _explicit_visualization_routes(
         deterministic
         and isinstance(content, str)
         and _DASHBOARD_IMPLICIT_REQUEST_PATTERN.search(_normalize_route_text(content))
+    ):
+        routes = list(dict.fromkeys([*deterministic, "visualization"]))
+        return routes, "deterministic"
+
+    if (
+        deterministic
+        and any(route in {"sustainability", "ranking"} for route in deterministic)
+        and _requests_automatic_visualization(content)
     ):
         routes = list(dict.fromkeys([*deterministic, "visualization"]))
         return routes, "deterministic"
@@ -1152,10 +1205,18 @@ async def route_request(state: AgentState) -> dict:
     if (
         route_source in {"deterministic", "model", "context", "pending"}
         and isinstance(content, str)
-        and _DASHBOARD_IMPLICIT_REQUEST_PATTERN.search(_normalize_route_text(content))
         and "visualization" not in routes
         and "default" not in routes
         and routes != ["fallback"]
+        and (
+            _DASHBOARD_IMPLICIT_REQUEST_PATTERN.search(
+                _normalize_route_text(content)
+            )
+            or (
+                any(route in {"sustainability", "ranking"} for route in routes)
+                and _requests_automatic_visualization(content)
+            )
+        )
     ):
         routes = [*routes, "visualization"][:MAX_ROUTER_ROUTES]
 
@@ -1407,12 +1468,19 @@ def _build_specialist_messages(
     return messages
 
 
-def _personal_data_error_result() -> dict[str, object]:
+def _personal_data_error_result(
+    lookup_result: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Describe a failed personal lookup without claiming the account lacks access."""
     result = _empty_specialist_result("error")
+    reason = lookup_result.get("reason") if lookup_result else None
     result["facts"] = [
-        "Os dados autenticados da fazenda estao indisponiveis para esta conta."
+        (
+            "Nenhuma fazenda vinculada foi encontrada para esta conta."
+            if reason == "no_farm_scope"
+            else "A consulta aos dados da fazenda falhou temporariamente. Tente novamente em instantes."
+        )
     ]
-    result["sources"] = ["dados autenticados da conta"]
     return result
 
 
@@ -1553,7 +1621,7 @@ async def _execute_specialist(
             or prefetched_personal_data.get("authorized") is False
         )
     ):
-        result = _personal_data_error_result()
+        result = _personal_data_error_result(prefetched_personal_data)
     return result, used_tools, personal_request
 
 

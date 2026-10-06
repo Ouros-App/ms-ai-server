@@ -161,6 +161,11 @@ ou ranking. Para uma continuacao curta como "gere um grafico pra mim", use o tem
 o periodo do historico e selecione somente visualization. Em perguntas sobre
 desempenho/resultado em um periodo, selecione visualization junto com a rota de
 dominio quando um grafico ajudar a mostrar a evolucao.
+Quando uma consulta de dados da conta retornar medidas, registros ao longo do
+tempo, categorias ou comparacoes, selecione tambem visualization mesmo sem pedido
+explicito de grafico. O grafico deve acompanhar a resposta textual para tornar os
+dados faceis de entender. Nao force graficos para conceitos, erros, respostas sem
+dados, nem para um unico valor sem contexto visual util.
 Nao selecione varios agentes apenas porque a frase contem palavras de dominios diferentes:
 - se o usuario pergunta onde/como usar uma funcionalidade no app, prefira faq;
 - se relata erro ou falha em uma funcionalidade, prefira support, salvo se tambem pedir explicitamente uma explicacao daquela regra;
@@ -256,8 +261,14 @@ parametros internos da ferramenta. Nunca peca nem revele `chart_id`, IDs de
 catalogo ou nomes tecnicos de parametros. Se o pedido nao identificar o assunto,
 pergunte em linguagem comum qual dado a pessoa quer visualizar (por exemplo,
 consumo de agua, mortalidade ou producao). Quando houver contexto suficiente,
-use create_custom_dashboard com somente os graficos necessarios para responder
-ao pedido. Antes de escolher, identifique separadamente assunto e metrica, recurso,
+use create_custom_dashboard para visualizar os dados retornados por outro agente,
+mesmo quando o usuario nao pediu um grafico. Trate o grafico como parte padrao da
+resposta sempre que houver medidas, registros ao longo do tempo, categorias ou
+comparacoes que ajudem a explicar o resultado. Nao deixe a opcao de grafico escondida
+nem pergunte se o usuario quer visualizacao. Nao gere grafico para resposta sem
+registros, erro de consulta ou um valor isolado sem contexto util. Use somente os
+graficos necessarios para responder ao pedido. Antes de escolher, identifique
+separadamente assunto e metrica, recurso,
 periodo, granularidade, comparacoes e tipo visual pedidos. Preserve as escolhas
 explicitas; nao deixe uma delas substituir as outras. Se o usuario pedir uma unica
 metrica ou grafico, selecione exatamente um grafico e nao inclua series de outros

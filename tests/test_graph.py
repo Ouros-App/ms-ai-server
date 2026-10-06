@@ -387,6 +387,36 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["routes"], ["ranking", "visualization"])
 
+    async def test_personal_period_data_request_adds_chart_automatically(self) -> None:
+        """Add a chart for personal measurements over a requested period."""
+        with patch(
+            "app.agents.graph._resolve_jev_route",
+            new=AsyncMock(
+                return_value=(
+                    ["sustainability"],
+                    "context",
+                    {},
+                )
+            ),
+        ):
+            result = await route_request(
+                {
+                    "messages": [
+                        HumanMessage(
+                            content=(
+                                "Com base no meu consumo de água nos últimos "
+                                "30 dias, como está?"
+                            )
+                        )
+                    ],
+                    "input_guardrail": {"allowed": True},
+                    "route": "",
+                    "pending_by_route": {},
+                }
+            )
+
+        self.assertEqual(result["routes"], ["sustainability", "visualization"])
+
     async def test_unknown_tool_call_gets_a_matching_error_tool_message(self) -> None:
         conversation = []
         used_tools: list[str] = []
@@ -1002,7 +1032,11 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             }
         )
         provider = Mock()
-        provider.tools_for = AsyncMock(return_value=[summary_tool])
+
+        async def tools_for(agent_name: str, **_kwargs):
+            return [summary_tool] if agent_name == "sustainability" else []
+
+        provider.tools_for = AsyncMock(side_effect=tools_for)
 
         model = Mock()
         model.ainvoke = AsyncMock(
@@ -1061,7 +1095,11 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             }
         )
         provider = Mock()
-        provider.tools_for = AsyncMock(return_value=[summary_tool])
+
+        async def tools_for(agent_name: str, **_kwargs):
+            return [summary_tool] if agent_name == "sustainability" else []
+
+        provider.tools_for = AsyncMock(side_effect=tools_for)
 
         model = Mock()
         model.ainvoke = AsyncMock(
@@ -1071,6 +1109,12 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                         '{"status":"needs_input","facts":[],'
                         '"recommendations":[],"missing_data":'
                         '["dados de consumo de agua"],"sources":[]}'
+                    )
+                ),
+                AIMessage(
+                    content=(
+                        '{"status":"unsupported","facts":[],'
+                        '"recommendations":[],"missing_data":[],"sources":[]}'
                     )
                 ),
                 AIMessage(content="Os dados da sua fazenda estao indisponiveis."),
@@ -1099,10 +1143,24 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             response.message,
             "Os dados da sua fazenda estao indisponiveis.",
         )
-        specialist_context = model.ainvoke.await_args_list[1].args[0][-1]["content"]
+        specialist_context = next(
+            message["content"]
+            for call in model.ainvoke.await_args_list
+            for message in call.args[0]
+            if isinstance(message, dict)
+            and "dados pessoais autenticados" in message.get("content", "")
+        )
         self.assertNotIn("dados de consumo de agua", specialist_context)
-        self.assertIn('"status":"error"', specialist_context)
-        self.assertIn('"missing_data":[]', specialist_context)
+        self.assertIn("Retorne status error", specialist_context)
+        self.assertTrue(
+            any(
+                '"status":"error"' in message.get("content", "")
+                and '"missing_data":[]' in message.get("content", "")
+                for call in model.ainvoke.await_args_list
+                for message in call.args[0]
+                if isinstance(message, dict)
+            )
+        )
 
     async def test_thread_rejects_another_user(self) -> None:
         graph = build_graph(InMemorySaver())
