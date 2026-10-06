@@ -248,12 +248,39 @@ _DASHBOARD_IMPLICIT_REQUEST_PATTERN = re.compile(
     r".*\b(?:ultim\w*|passad\w*|\d{1,3}\s*(?:dia|dias|semana|semanas|mes|meses))\b"
 )
 _AUTO_VISUALIZATION_PERIOD_PATTERN = re.compile(
-    r"\b(?:historico|evolu\w*|tendencia|compar\w*|variac\w*)\b|"
     r"\b(?:ultim\w*|passad\w*)\s+(?:\d{1,3}\s*)?"
     r"(?:dia|dias|semana|semanas|mes|meses|ano|anos|ciclo|ciclos|"
     r"periodo|periodos|leitura|leituras)\b|"
     r"\b\d{1,3}\s*(?:dia|dias|semana|semanas|mes|meses|ciclo|ciclos)\b"
 )
+_AUTO_VISUALIZATION_DATA_TOPIC_PATTERN = re.compile(
+    r"\b(?:consumo|agua|energia|ranking|posi\w*|pontua\w*|nivel\w*|"
+    r"desempenh\w*|perform\w*|medicao|registro\w*|produc\w*)\b"
+)
+_AUTO_VISUALIZATION_DATA_INTENT_PATTERN = re.compile(
+    r"\b(?:qual|quanto|quanta|quantos|quantas|mostr\w*|veja|ver|"
+    r"compar\w*|analis\w*|acompan\w*|como\s+(?:foi|esta|estao|evoluiu))\b"
+)
+_AUTO_VISUALIZATION_TREND_PATTERN = re.compile(
+    r"\b(?:historico|evolu\w*|tendencia|compar\w*|variac\w*)\b"
+)
+
+
+def _requests_automatic_visualization(message: object) -> bool:
+    """Return whether a data query has a period or chart-worthy analysis context."""
+    content = getattr(message, "content", message)
+    if not isinstance(content, str):
+        return False
+    text = _normalize_route_text(content)
+    if _AUTO_VISUALIZATION_PERIOD_PATTERN.search(text):
+        return True
+    return bool(
+        _AUTO_VISUALIZATION_TREND_PATTERN.search(text)
+        and _AUTO_VISUALIZATION_DATA_TOPIC_PATTERN.search(text)
+        and _AUTO_VISUALIZATION_DATA_INTENT_PATTERN.search(text)
+    )
+
+
 _DASHBOARD_PERIOD_PATTERN = re.compile(
     r"\b(?P<value>\d{1,3})\s*(?P<unit>dia|dias|semana|semanas|mes|meses)\b"
 )
@@ -875,8 +902,7 @@ def _explicit_visualization_routes(
     if (
         deterministic
         and any(route in {"sustainability", "ranking"} for route in deterministic)
-        and isinstance(content, str)
-        and _AUTO_VISUALIZATION_PERIOD_PATTERN.search(_normalize_route_text(content))
+        and _requests_automatic_visualization(content)
     ):
         routes = list(dict.fromkeys([*deterministic, "visualization"]))
         return routes, "deterministic"
@@ -1177,9 +1203,7 @@ async def route_request(state: AgentState) -> dict:
             )
             or (
                 any(route in {"sustainability", "ranking"} for route in routes)
-                and _AUTO_VISUALIZATION_PERIOD_PATTERN.search(
-                    _normalize_route_text(content)
-                )
+                and _requests_automatic_visualization(content)
             )
         )
     ):
