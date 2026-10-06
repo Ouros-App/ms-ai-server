@@ -272,6 +272,8 @@ def _requests_automatic_visualization(message: object) -> bool:
     if not isinstance(content, str):
         return False
     text = _normalize_route_text(content)
+    if re.search(r"\b(?:ciclo|ciclos)\b", text):
+        return False
     if _AUTO_VISUALIZATION_PERIOD_PATTERN.search(text):
         return True
     return bool(
