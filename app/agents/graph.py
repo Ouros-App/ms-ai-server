@@ -509,11 +509,12 @@ def _personal_data_system_message(result: object | None, *, unavailable: bool = 
     """Build authoritative system context for a mandatory personal-data lookup."""
     if unavailable:
         content = (
-            "A pergunta exige dados pessoais autenticados, mas a consulta ao MCP "
-            "nao esta disponivel nesta requisicao. Nao peca ao usuario para digitar "
-            "medicoes ou identificadores que deveriam vir do sistema. Retorne status "
-            "error e informe apenas que os dados da conta estao temporariamente "
-            "indisponiveis."
+            "A consulta aos dados pessoais autenticados falhou nesta requisicao. "
+            "Isso nao comprova que a conta esteja sem acesso ou sem registros. "
+            "Nao afirme falta de permissao nem ausencia de dados. Nao peca ao "
+            "usuario para digitar medicoes ou identificadores que deveriam vir do "
+            "sistema. Retorne status error e informe que a consulta falhou "
+            "temporariamente, pedindo para tentar novamente em instantes."
         )
     else:
         content = (
@@ -648,7 +649,11 @@ async def _prefetch_consumption_summary(
             agent=agent_name,
             reason="consumption_summary_not_available",
         )
-        return _personal_data_system_message(None, unavailable=True), [], None
+        return (
+            _personal_data_system_message(None, unavailable=True),
+            [],
+            {"authorized": False, "reason": "tool_unavailable"},
+        )
 
     args = {"period_days": period_days}
     trace_event(
@@ -668,7 +673,11 @@ async def _prefetch_consumption_summary(
             source="required_prefetch",
             error=type(error).__name__,
         )
-        return _personal_data_system_message(None, unavailable=True), [], None
+        return (
+            _personal_data_system_message(None, unavailable=True),
+            [],
+            {"authorized": False, "reason": "lookup_failed"},
+        )
 
     trace_event(
         "tool.result",
@@ -1459,12 +1468,19 @@ def _build_specialist_messages(
     return messages
 
 
-def _personal_data_error_result() -> dict[str, object]:
+def _personal_data_error_result(
+    lookup_result: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Describe a failed personal lookup without claiming the account lacks access."""
     result = _empty_specialist_result("error")
+    reason = lookup_result.get("reason") if lookup_result else None
     result["facts"] = [
-        "Os dados autenticados da fazenda estao indisponiveis para esta conta."
+        (
+            "Nenhuma fazenda vinculada foi encontrada para esta conta."
+            if reason == "no_farm_scope"
+            else "A consulta aos dados da fazenda falhou temporariamente. Tente novamente em instantes."
+        )
     ]
-    result["sources"] = ["dados autenticados da conta"]
     return result
 
 
@@ -1605,7 +1621,7 @@ async def _execute_specialist(
             or prefetched_personal_data.get("authorized") is False
         )
     ):
-        result = _personal_data_error_result()
+        result = _personal_data_error_result(prefetched_personal_data)
     return result, used_tools, personal_request
 
 
