@@ -7,6 +7,7 @@ from uuid import uuid4
 from app.agents.llms import FAST_LLM
 from app.agents.model import get_chat_model
 from app.agents.prompts import CLASSIFIER_PROMPT, OUTPUT_REVIEW_PROMPT
+from app.core.metrics import LLMMetricsCallback
 
 logger = logging.getLogger(__name__)
 
@@ -253,7 +254,7 @@ async def guard_input(
     try:
         response = await classifier.ainvoke([
             {"role": "system", "content": CLASSIFIER_PROMPT.format(message=sanitized)},
-        ])
+        ], config={"callbacks": [LLMMetricsCallback(node="guardrail")]})
         category = _extract_category(response)
     except Exception:
         logger.debug("Falha no classificador de entrada", exc_info=True)

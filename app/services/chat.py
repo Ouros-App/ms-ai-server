@@ -10,7 +10,13 @@ from app.agents.diagnostics import pending_summary, specialist_results_summary
 from app.agents.guardrails import guard_input
 from app.agents.mcp import capture_mcp_visualizations, forward_mcp_access_token
 from app.core.config import settings
-from app.core.metrics import observe_chat_result, observe_chat_routing
+from app.core.metrics import (
+    CHAT_TURNS_IN_PROGRESS,
+    LLMMetricsCallback,
+    observe_chat_result,
+    observe_chat_routing,
+    observe_chat_turn,
+)
 from app.debug_ui.trace import capture_debug_trace, trace_event
 from app.schemas.chat import ChatRequest, ChatResponse
 
@@ -129,7 +135,7 @@ async def _invoke_graph(
                             "decision_calls": 0,
                             "debug_mode": debug,
                         },
-                        config=config,
+                        config={**config, "callbacks": [LLMMetricsCallback()]},
                     )
         except TimeoutError as error:
             trace_event(
@@ -260,16 +266,27 @@ async def invoke_graph(
 ) -> ChatResponse:
     """Validate ownership, execute the graph and return the product response."""
 
-    response, _diagnostics = await _invoke_graph(
-        graph,
-        payload,
-        principal_id,
-        thread_ownership,
-        principal_token,
-        visualization_store,
-        debug=False,
-    )
-    return response
+    started = perf_counter()
+    CHAT_TURNS_IN_PROGRESS.inc()
+    outcome = "error"
+    try:
+        response, _diagnostics = await _invoke_graph(
+            graph,
+            payload,
+            principal_id,
+            thread_ownership,
+            principal_token,
+            visualization_store,
+            debug=False,
+        )
+        outcome = "blocked" if "guardrail" in response.agents else "success"
+        return response
+    except HTTPException as error:
+        outcome = "error" if error.status_code >= 500 else "rejected"
+        raise
+    finally:
+        CHAT_TURNS_IN_PROGRESS.dec()
+        observe_chat_turn(perf_counter() - started, outcome)
 
 
 async def invoke_graph_debug(

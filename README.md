@@ -212,6 +212,23 @@ aguardando informação. Os labels de origem são limitados a um conjunto fechad
 evitar cardinalidade acidental. Ele exige um Bearer Token M2M do cliente de métricas, com `azp` igual a `METRICS_KEYCLOAK_AUTHORIZED_PARTY` (por padrão, `ouros-prometheus`). Configure o Prometheus para obter esse token via Client Credentials e use o
 Prometheus como datasource no Grafana:
 
+O chat também expõe duração e resultado agregado por turno, chamadas e duração por
+provedor/modelo/nó, tokens de entrada e saída, falhas antes de fallback e custo estimado.
+As tarifas Groq ficam hardcoded conforme a [tabela oficial de modelos](https://console.groq.com/docs/models): GPT-OSS 20B custa US$ 0,075/M de entrada e US$ 0,30/M de saída; GPT-OSS 120B custa US$ 0,15/M e US$ 0,60/M. A estimativa usa a tarifa cheia e não aplica descontos de cache. A [documentação NVIDIA NIM](https://docs.api.nvidia.com/nim/docs/product) não publica tarifa por token: o acesso ao catálogo é para prototipagem e a licença de produção é por GPU. Por isso, tokens NVIDIA são medidos, mas custo não é estimado. Prompts, respostas, usuários e IDs de conversa não são labels das métricas.
+
+Consultas Grafana para o SLO de exemplo do roteiro (p95 de 8 s e taxa de erro até 5%):
+
+```promql
+histogram_quantile(0.95, sum(rate(ai_server_chat_turn_duration_seconds_bucket[5m])) by (le))
+```
+
+```promql
+sum(rate(ai_server_chat_turns_total{outcome="error"}[5m]))
+/ sum(rate(ai_server_chat_turns_total{outcome=~"success|blocked|error"}[5m]))
+```
+
+Bloqueios de guardrail usam `outcome="blocked"` e ficam fora da taxa de erro.
+
 ```yaml
 scrape_configs:
   - job_name: ms-ai-server
