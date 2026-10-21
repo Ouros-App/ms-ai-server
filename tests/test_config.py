@@ -15,6 +15,7 @@ class ConfigTest(unittest.TestCase):
             config = Settings(_env_file=None)
         self.assertFalse(config.jev_enabled)
         self.assertFalse(config.jev_shadow_mode)
+        self.assertFalse(config.jev_guardrail_enabled)
 
         with (
             patch.dict(os.environ, {}, clear=True),

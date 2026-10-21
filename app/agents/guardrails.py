@@ -2,13 +2,23 @@ import logging
 import re
 import unicodedata
 from dataclasses import dataclass
+from functools import lru_cache
 from uuid import uuid4
 
 from app.agents.llms import FAST_LLM
 from app.agents.model import get_chat_model
 from app.agents.prompts import CLASSIFIER_PROMPT, OUTPUT_REVIEW_PROMPT
+from app.core.config import settings
+from app.decision.jev_provider import DecisionProviderError, JevDecisionProvider
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache
+def get_jev_guardrail_provider() -> JevDecisionProvider:
+    """Return the separate Jev provider instance used only by input safety."""
+    return JevDecisionProvider.from_settings()
+
 
 MAX_RESPONSE_LENGTH = 4_000
 
@@ -236,29 +246,42 @@ async def guard_input(
         or _ASSISTANT_IDENTITY_PATTERN.fullmatch(normalized_sanitized)
     ):
         return InputGuardrailResult(True, "APROVADO", "", sanitized, pii_map)
-    if (
-        (_PERSONAL_PROJECT_PATTERN.search(normalized_sanitized)
-         or _CLEAR_PROJECT_REQUEST_PATTERN.search(normalized_sanitized))
-        and not any(pattern.search(normalized_sanitized) for pattern in _OUT_OF_SCOPE_PATTERNS)
-    ):
-        return InputGuardrailResult(True, "APROVADO", "", sanitized, pii_map)
 
-    classifier = model or get_chat_model(FAST_LLM)
-    if classifier is None:
-        if reason == "unknown":
-            logger.info("guardrail_blocked category=FORA_DO_ESCOPO reason=no_classifier")
-            return InputGuardrailResult(False, "FORA_DO_ESCOPO", OUT_OF_SCOPE_REFUSAL, sanitized, pii_map)
-        return InputGuardrailResult(True, "APROVADO", "", sanitized, pii_map)
+    if model is None and settings.jev_guardrail_enabled:
+        try:
+            category, confidence = await get_jev_guardrail_provider().classify_guardrail(
+                sanitized
+            )
+            if confidence < settings.jev_min_confidence:
+                category = "FORA_DO_ESCOPO"
+        except DecisionProviderError as error:
+            logger.warning(
+                "jev_guardrail_failed error_type=%s",
+                type(error).__name__,
+            )
+            category = "FORA_DO_ESCOPO"
+    else:
+        if (
+            (_PERSONAL_PROJECT_PATTERN.search(normalized_sanitized)
+             or _CLEAR_PROJECT_REQUEST_PATTERN.search(normalized_sanitized))
+            and not any(pattern.search(normalized_sanitized) for pattern in _OUT_OF_SCOPE_PATTERNS)
+        ):
+            return InputGuardrailResult(True, "APROVADO", "", sanitized, pii_map)
+        classifier = model or get_chat_model(FAST_LLM)
+        if classifier is None:
+            if reason == "unknown":
+                logger.info("guardrail_blocked category=FORA_DO_ESCOPO reason=no_classifier")
+                return InputGuardrailResult(False, "FORA_DO_ESCOPO", OUT_OF_SCOPE_REFUSAL, sanitized, pii_map)
+            return InputGuardrailResult(True, "APROVADO", "", sanitized, pii_map)
 
-    try:
-        response = await classifier.ainvoke([
-            {"role": "system", "content": CLASSIFIER_PROMPT.format(message=sanitized)},
-        ])
-        category = _extract_category(response)
-    except Exception:
-        logger.debug("Falha no classificador de entrada", exc_info=True)
-        category = "FORA_DO_ESCOPO"
-
+        try:
+            response = await classifier.ainvoke([
+                {"role": "system", "content": CLASSIFIER_PROMPT.format(message=sanitized)},
+            ])
+            category = _extract_category(response)
+        except Exception:
+            logger.debug("Falha no classificador de entrada", exc_info=True)
+            category = "FORA_DO_ESCOPO"
     if category in _BLOCK_MESSAGES:
         reason, refusal = _BLOCK_MESSAGES[category]
         logger.warning("guardrail_blocked category=%s reason=%s", category, reason)

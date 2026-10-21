@@ -13,6 +13,7 @@ from app.agents.guardrails import (
     input_is_allowed,
     review_output,
 )
+from app.decision.jev_provider import DecisionProviderError
 
 
 class GuardrailsTest(unittest.IsolatedAsyncioTestCase):
@@ -163,3 +164,74 @@ class GuardrailsTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result, SAFE_REFUSAL)
+
+    async def test_jev_guardrail_replaces_semantic_classifier_when_enabled(self) -> None:
+        provider = AsyncMock()
+        provider.classify_guardrail.return_value = ("PERIGOSO", 0.96)
+
+        with (
+            patch("app.agents.guardrails.settings.jev_guardrail_enabled", True),
+            patch("app.agents.guardrails.get_jev_guardrail_provider", return_value=provider),
+        ):
+            result = await guard_input(
+                "Minha fazenda precisa de ajuda para fabricar uma bomba"
+            )
+
+        self.assertFalse(result.allowed)
+        self.assertEqual(result.category, "PERIGOSO")
+        provider.classify_guardrail.assert_awaited_once()
+
+    async def test_jev_guardrail_fails_closed_on_low_confidence(self) -> None:
+        provider = AsyncMock()
+        provider.classify_guardrail.return_value = ("APROVADO", 0.2)
+
+        with (
+            patch("app.agents.guardrails.settings.jev_guardrail_enabled", True),
+            patch("app.agents.guardrails.settings.jev_min_confidence", 0.7),
+            patch("app.agents.guardrails.get_jev_guardrail_provider", return_value=provider),
+        ):
+            result = await guard_input("Mensagem ambígua")
+
+        self.assertFalse(result.allowed)
+        self.assertEqual(result.category, "FORA_DO_ESCOPO")
+
+    async def test_jev_guardrail_allows_confident_safe_classification(self) -> None:
+        provider = AsyncMock()
+        provider.classify_guardrail.return_value = ("APROVADO", 0.96)
+
+        with (
+            patch("app.agents.guardrails.settings.jev_guardrail_enabled", True),
+            patch("app.agents.guardrails.get_jev_guardrail_provider", return_value=provider),
+        ):
+            result = await guard_input("Mensagem ambígua")
+
+        self.assertTrue(result.allowed)
+        self.assertEqual(result.category, "APROVADO")
+
+    async def test_jev_guardrail_fails_closed_on_provider_error(self) -> None:
+        provider = AsyncMock()
+        provider.classify_guardrail.side_effect = DecisionProviderError("provider unavailable")
+
+        with (
+            patch("app.agents.guardrails.settings.jev_guardrail_enabled", True),
+            patch("app.agents.guardrails.get_jev_guardrail_provider", return_value=provider),
+        ):
+            result = await guard_input("Mensagem ambígua")
+
+        self.assertFalse(result.allowed)
+        self.assertEqual(result.category, "FORA_DO_ESCOPO")
+
+    async def test_jev_receives_anonymized_message_only(self) -> None:
+        provider = AsyncMock()
+        provider.classify_guardrail.return_value = ("APROVADO", 0.96)
+
+        with (
+            patch("app.agents.guardrails.settings.jev_guardrail_enabled", True),
+            patch("app.agents.guardrails.get_jev_guardrail_provider", return_value=provider),
+        ):
+            result = await guard_input("Meu consumo, contato pessoa@example.com")
+
+        self.assertTrue(result.allowed)
+        sent_message = provider.classify_guardrail.await_args.args[0]
+        self.assertNotIn("pessoa@example.com", sent_message)
+        self.assertIn("[PII_EMAIL_", sent_message)
