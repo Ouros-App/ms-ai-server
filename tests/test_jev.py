@@ -190,6 +190,29 @@ class JevProviderTests(unittest.TestCase):
         self.assertNotIn("messages", decision_input.to_provider_state())
 
 
+    def test_guardrail_parser_rejects_invalid_category_or_confidence(self) -> None:
+        for category, confidence, reason in (
+            ("UNKNOWN", 0.9, "guardrail_category_invalid"),
+            ([], 0.9, "guardrail_category_invalid"),
+            ("PERIGOSO", True, "guardrail_confidence_invalid"),
+            ("APROVADO", 1.1, "guardrail_confidence_invalid"),
+        ):
+            with self.subTest(reason=reason):
+                with self.assertRaises(InvalidDecisionError) as raised:
+                    JevDecisionProvider._parse_guardrail_response(
+                        {
+                            "answers": {
+                                "category": {
+                                    "type": "choice",
+                                    "choice": category,
+                                    "confidence": confidence,
+                                }
+                            }
+                        }
+                    )
+                self.assertEqual(raised.exception.reason, reason)
+
+
 class JevProviderRequestTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_api_key_has_a_specific_provider_error(self) -> None:
         """Explain an absent provider credential without attempting a request."""
@@ -241,6 +264,53 @@ class JevProviderRequestTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(
             "sustainability",
             payload["questions"]["tool_0"]["instructions"],
+        )
+
+
+    async def test_safety_call_classifies_message_without_routing_state(self) -> None:
+        """Ask System One for a safety category in a separate minimized call."""
+        captured: dict[str, object] = {}
+        body = {
+            "answers": {
+                "category": {
+                    "type": "choice",
+                    "choice": "PERIGOSO",
+                    "confidence": 0.96,
+                }
+            }
+        }
+
+        async def respond(request: httpx.Request) -> httpx.Response:
+            captured["payload"] = json.loads(request.content)
+            return httpx.Response(200, json=body)
+
+        provider = JevDecisionProvider(
+            "secret-test-key",
+            "https://typesafe.example",
+            "jev-test",
+            1,
+            transport=httpx.MockTransport(respond),
+        )
+
+        category, confidence = await provider.classify_guardrail(
+            "pedido perigoso anonimizado"
+        )
+
+        payload = captured["payload"]
+        self.assertEqual((category, confidence), ("PERIGOSO", 0.96))
+        self.assertEqual(payload["state"], {"message": "pedido perigoso anonimizado"})
+        self.assertEqual(set(payload["questions"]), {"category"})
+        self.assertEqual(
+            set(payload["questions"]["category"]["criteria"]),
+            {
+                "APROVADO",
+                "FORA_DO_ESCOPO",
+                "PROMPT_INJECTION",
+                "DADOS_INTERNOS",
+                "OFENSIVO",
+                "PERIGOSO",
+                "ILICITO",
+            },
         )
 
     async def test_tool_selection_is_limited_to_the_selected_route(self) -> None:

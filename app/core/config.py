@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     llm_total_timeout_seconds: float = 60
     jev_enabled: bool = False
     jev_shadow_mode: bool = False
+    jev_guardrail_enabled: bool = False
     jev_api_key: SecretStr | None = None
     jev_base_url: str = "https://api.typesafe.ai"
     jev_model: str = "jev-latest"

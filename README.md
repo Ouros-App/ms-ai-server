@@ -64,7 +64,8 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 | `GROQ_API_KEY` / `GROQ_FAST_MODEL` / `GROQ_MODEL` | Provedor Groq e perfis rápido/potente. |
 | `NVIDIA_API_KEY` / `NVIDIA_NIM_FAST_MODEL` / `NVIDIA_NIM_MODEL` / `NVIDIA_NIM_BASE_URL` | Provedor NVIDIA NIM e perfis rápido/potente. |
 | `LLM_TEMPERATURE` / `LLM_TIMEOUT_SECONDS` | Parâmetros das chamadas ao modelo. |
-| `JEV_ENABLED` / `JEV_SHADOW_MODE` | Ativam a decisão Jev. Com `JEV_ENABLED=true` e `JEV_SHADOW_MODE=false` (padrão), Jev escolhe a rota de todas as mensagens normais, inclusive saudações e perguntas de identidade. Use `JEV_SHADOW_MODE=true` somente para comparar decisões mantendo o roteador atual. Bloqueios de guardrail e rotas explicitamente definidas continuam fora do roteamento Jev. |
+| `JEV_ENABLED` / `JEV_SHADOW_MODE` | Ativam a decisão Jev de roteamento. Com `JEV_ENABLED=true` e `JEV_SHADOW_MODE=false` (padrão), Jev escolhe a rota; em shadow, apenas compara com o roteador atual. |
+| `JEV_GUARDRAIL_ENABLED` | Ativa a classificação de segurança Jev separada, anterior ao roteamento. Usa o mesmo endpoint/modelo, preserva regras determinísticas e substitui o classificador semântico rápido do guardrail. |
 | `JEV_API_KEY` | Chave TypeSafe System One; configure no Infisical nos ambientes de deploy. |
 | `JEV_BASE_URL` / `JEV_MODEL` | Endpoint e modelo Jev (`https://api.typesafe.ai` e `jev-latest` por padrão). |
 | `JEV_TIMEOUT_MS` / `JEV_MIN_CONFIDENCE` / `JEV_MAX_CALLS_PER_REQUEST` | Limite de latência, confiança mínima e chamadas permitidas por mensagem. |
@@ -125,12 +126,19 @@ de tools, nunca o conteúdo operacional retornado pela fazenda.
 
 ### Decisão Jev
 
-O Jev usa o endpoint System One da TypeSafe para propor uma rota, ferramentas MCP
-da allowlist daquela rota e se a tarefa exige analytics. A integração envia apenas
-a mensagem atual após anonimização e um contexto curto de capacidades/rota anterior;
-não envia histórico, identidade, JWT nem o mapa privado de PII. A resposta é validada
-contra as rotas e ferramentas disponíveis antes de ser usada. Jev não autentica,
-autoriza, seleciona escopo de fazenda nem altera guardrails.
+O Jev de roteamento usa o endpoint System One da TypeSafe para propor uma rota,
+ferramentas MCP da allowlist daquela rota e se a tarefa exige analytics. A
+integração envia apenas a mensagem atual após anonimização e um contexto curto de
+capacidades/rota anterior; não envia histórico, identidade, JWT nem o mapa privado
+de PII. A resposta é validada contra as rotas e ferramentas disponíveis antes de
+ser usada. Jev não autentica, autoriza nem seleciona escopo de fazenda.
+
+Com `JEV_GUARDRAIL_ENABLED=true`, uma chamada Jev distinta classifica segurança
+antes do roteamento, usando as categorias do guardrail atual. As verificações
+determinísticas continuam primeiro; baixa confiança, falha do provedor ou resposta
+inválida bloqueiam a mensagem. Sem essa opção, o classificador rápido existente
+continua sendo usado. Se a decisão de roteamento Jev também estiver habilitada,
+uma mensagem que precisa de classificação semântica pode gerar duas chamadas Jev.
 
 O recurso fica desligado por padrão. Em modo shadow, a resposta do Jev é comparada
 com o roteador existente e não afeta o chat; a UI de debug aguarda a comparação para
