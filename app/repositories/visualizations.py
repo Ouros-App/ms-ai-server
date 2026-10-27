@@ -7,16 +7,6 @@ class ChatVisualizationStore:
     def __init__(self, database) -> None:
         self.collection = database["chat_visualizations"]
 
-    async def ensure_indexes(self) -> None:
-        await self.collection.create_index(
-            [
-                ("thread_id", 1),
-                ("user_id", 1),
-                ("visualization_id", 1),
-            ],
-            unique=True,
-        )
-
     async def save(
         self,
         thread_id: str,
