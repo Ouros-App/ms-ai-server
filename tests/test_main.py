@@ -4,6 +4,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from fastapi import Response
 from langgraph.checkpoint.memory import InMemorySaver
+from pymongo.errors import OperationFailure
 
 from app import main
 
@@ -42,6 +43,9 @@ class MainTest(unittest.IsolatedAsyncioTestCase):
         }
         for collection in collections.values():
             collection.create_index = AsyncMock()
+        collections["chat_visualizations"].create_index = AsyncMock(
+            side_effect=OperationFailure("not authorized", 8000)
+        )
         database.__getitem__.side_effect = collections.__getitem__
         client.__getitem__.return_value = database
         client.close = AsyncMock()
