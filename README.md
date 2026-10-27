@@ -80,6 +80,7 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 Não versione o arquivo `.env` nem os tokens. Quando o Infisical está totalmente configurado, os secrets carregados do cofre são aplicados antes da criação de `Settings` e prevalecem sobre valores locais com a mesma chave. Sem nenhuma das quatro variáveis de bootstrap, o serviço pode rodar em modo local. Configuração parcial ou ambiente inválido interrompe o startup para evitar fallback silencioso.
 
 Em deploy, `INFISICAL_TOKEN` é o único bootstrap secreto que precisa existir fora do cofre. Os secrets de aplicação esperados no Infisical incluem `MONGODB_URI` quando contiver credenciais, `GROQ_API_KEY` e `NVIDIA_API_KEY`. A autenticação de usuário não depende mais de shared secrets locais.
+Como a configuração do Infisical é carregada no startup, reinicie o serviço após alterar secrets ou permissões do usuário MongoDB.
 
 O roteador, guardrails, FAQ, suporte, fallback e o sintetizador default usam os perfis rápidos
 `GROQ_FAST_MODEL` e `NVIDIA_NIM_FAST_MODEL`. Ranking e sustentabilidade usam os
