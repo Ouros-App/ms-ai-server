@@ -9,11 +9,6 @@ class ThreadOwnershipStore:
     def __init__(self, database) -> None:
         self.collection = database["thread_owners"]
 
-    async def ensure_indexes(self) -> None:
-        await self.collection.create_index(
-            [("user_id", 1), ("last_activity_at", -1)]
-        )
-
     async def claim(
         self,
         thread_id: str,

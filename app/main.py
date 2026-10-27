@@ -33,7 +33,6 @@ async def lifespan(app: FastAPI):
         memory_store = UserMemoryStore(database)
         thread_ownership = ThreadOwnershipStore(database)
         visualization_store = ChatVisualizationStore(database)
-        await thread_ownership.ensure_indexes()
         await visualization_store.ensure_indexes()
         logger.info("database_configured database=%s", settings.mongodb_database)
         logger.info(
