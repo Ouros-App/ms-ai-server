@@ -74,6 +74,7 @@ class MainTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(main.app.state.thread_ownership)
         self.assertIsNotNone(main.app.state.visualization_store)
         collections["thread_owners"].create_index.assert_not_awaited()
+        collections["chat_visualizations"].create_index.assert_not_called()
         client.close.assert_awaited_once()
 
     async def test_lifespan_closes_client_when_startup_fails(self) -> None:
