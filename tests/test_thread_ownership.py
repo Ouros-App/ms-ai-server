@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock
 
 from app.repositories.thread_ownership import ThreadOwnershipStore
@@ -24,7 +24,7 @@ class ThreadOwnershipTest(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertIsInstance(update["$setOnInsert"]["created_at"], datetime)
-        self.assertEqual(update["$set"]["last_activity_at"].tzinfo, timezone.utc)
+        self.assertEqual(update["$set"]["last_activity_at"].tzinfo, UTC)
         collection.find_one_and_update.assert_awaited_with(
             {"thread_id": "thread"},
             {

@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ class UserMemoryStore:
         return [document["memory"] for document in documents]
 
     async def save(self, user_id: str, memory: str) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         await self.collection.update_one(
             {"user_id": user_id, "memory": memory},
             {

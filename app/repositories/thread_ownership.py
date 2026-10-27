@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pymongo import ReturnDocument
 
@@ -19,7 +19,7 @@ class ThreadOwnershipStore:
         thread_id: str,
         user_id: str,
     ) -> bool:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         owner = {
             "thread_id": thread_id,
             "user_id": user_id,

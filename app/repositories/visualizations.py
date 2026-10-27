@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 class ChatVisualizationStore:
@@ -33,7 +33,7 @@ class ChatVisualizationStore:
             {
                 "$set": {
                     "visualizations": visualizations,
-                    "updated_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(UTC),
                 }
             },
             upsert=True,
