@@ -194,6 +194,20 @@ curl -X POST http://localhost:8000/v1/chat \
   -d '{"thread_id":"conversa-1","message":"Como funciona o ranking?"}'
 ```
 
+### Importação de medições por anexo
+
+`POST /v1/chat` mantém o formato JSON atual (inclusive sem `Content-Type` e com tipos `application/*+json`) e também aceita `multipart/form-data` com `message`, `thread_id` opcional e `attachment` opcional. Os formatos suportados são CSV em UTF-8, XLSX e PDF com texto pesquisável; PDFs escaneados/OCR não são suportados. Água aceita até 4 casas decimais e energia até 2, sem arredondamento automático. Limites: 12 MiB por corpo da requisição incluindo multipart/campos, 10 MiB por arquivo, até 500 registros e 20 páginas por PDF.
+
+```bash
+curl -X POST http://localhost:8000/v1/chat \
+  -H "Authorization: Bearer <jwt-do-usuario>" \
+  -F "message=Quero carregar meu histórico de medições" \
+  -F "thread_id=conversa-1" \
+  -F "attachment=@historico.xlsx"
+```
+
+A resposta inclui `measurement_import_preview` com registros normalizados (`kind`, `registration_date` e campos da medição), referências às linhas de origem, `issues` e `requires_confirmation: true`. O conteúdo extraído é enviado ao modelo configurado para normalização; o arquivo bruto não é guardado, mas os registros estruturados permanecem no checkpoint da conversa até a próxima mensagem, quando o contexto de importação é removido. A prévia não grava medições: após revisão/confirmação, o mobile envia as linhas válidas a `POST /measurement-imports` do ms-spring-api com o token do produtor. A API de domínio valida a fazenda e grava água e energia em uma única transação.
+
 A resposta contém `thread_id`, `message`, `agents`, `tools` e `visualizations`. `visualizations` é uma lista vazia por padrão; quando o usuário pede um painel ou pergunta sobre desempenho em um período, contém HTML Plotly por gráfico para o cliente renderizar em WebView. O painel é temporário e combina no máximo quatro gráficos permitidos. A console de debug também renderiza esses gráficos em iframes isolados; o HTML não é persistido no histórico local do navegador. A identidade efetiva vem sempre do claim assinado `database_id`; `user_id`, quando enviado por clientes antigos, é apenas um campo de compatibilidade e precisa coincidir com o JWT. O `sub` continua sendo a identidade estável do Keycloak. O primeiro chat vincula o `thread_id` ao usuário autenticado e essa posse é imutável.
 
 O histórico aceita `limit` entre 1 e 100, com padrão 20, e o cursor `before` para buscar a página anterior:

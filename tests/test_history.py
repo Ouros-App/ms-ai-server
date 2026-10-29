@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from fastapi import HTTPException
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from app.services.history import get_thread_history
 
@@ -11,6 +11,10 @@ from app.services.history import get_thread_history
 class HistoryTest(unittest.IsolatedAsyncioTestCase):
     async def test_restores_visualizations_separately_from_checkpoint(self) -> None:
         messages = [
+            SystemMessage(
+                content='{"records":[{"registration_date":"2026-03-01"}]}',
+                additional_kwargs={"measurement_import_context": True},
+            ),
             HumanMessage(content="Gere um gráfico"),
             AIMessage(
                 content="Pronto, gerei o gráfico.",
@@ -57,6 +61,10 @@ class HistoryTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(history.messages[0].visualizations, [])
+        self.assertEqual(
+            [message.role for message in history.messages],
+            ["user", "assistant"],
+        )
         self.assertEqual(history.messages[1].visualizations[0].title, "Consumo mensal")
         self.assertEqual(
             history.messages[1].visualizations[0].charts[0].html,

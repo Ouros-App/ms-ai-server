@@ -12,3 +12,6 @@ langchain-groq>=1.0,<2
 langchain-openai>=1.0,<2
 langchain-mcp-adapters>=0.3,<1
 PyJWT[crypto]>=2.14,<3
+python-multipart>=0.0.20,<1
+openpyxl>=3.1,<4
+pypdf>=5,<7

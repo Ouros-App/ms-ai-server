@@ -4,7 +4,7 @@ from contextlib import nullcontext
 from time import perf_counter
 
 from fastapi import HTTPException, status
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, RemoveMessage, SystemMessage
 
 from app.agents.diagnostics import pending_summary, specialist_results_summary
 from app.agents.guardrails import guard_input
@@ -25,6 +25,7 @@ async def _invoke_graph(
     principal_token: str | None = None,
     visualization_store=None,
     *,
+    system_context: str | None = None,
     debug: bool = False,
 ) -> tuple[ChatResponse, dict]:
     """Run one authenticated graph request and collect optional diagnostics."""
@@ -109,6 +110,23 @@ async def _invoke_graph(
             update={"message": input_guardrail.sanitized_text}
         )
 
+        graph_messages = [
+            RemoveMessage(id=message.id)
+            for message in snapshot.values.get("messages", [])
+            if getattr(message, "type", None) == "system"
+            and getattr(message, "id", None) is not None
+            and isinstance(getattr(message, "additional_kwargs", None), dict)
+            and message.additional_kwargs.get("measurement_import_context")
+        ]
+        if system_context is not None:
+            graph_messages.append(
+                SystemMessage(
+                    content=system_context,
+                    additional_kwargs={"measurement_import_context": True},
+                )
+            )
+        graph_messages.append(HumanMessage(content=safe_payload.message))
+
         try:
             trace_event("graph.started")
             async with asyncio.timeout(settings.llm_total_timeout_seconds):
@@ -118,7 +136,7 @@ async def _invoke_graph(
                 ):
                     result = await graph.ainvoke(
                         {
-                            "messages": [HumanMessage(content=safe_payload.message)],
+                            "messages": graph_messages,
                             "user_id": principal_id,
                             "route": "",
                             "routes": [],
@@ -257,6 +275,8 @@ async def invoke_graph(
     thread_ownership=None,
     principal_token: str | None = None,
     visualization_store=None,
+    *,
+    system_context: str | None = None,
 ) -> ChatResponse:
     """Validate ownership, execute the graph and return the product response."""
 
@@ -267,6 +287,7 @@ async def invoke_graph(
         thread_ownership,
         principal_token,
         visualization_store,
+        system_context=system_context,
         debug=False,
     )
     return response

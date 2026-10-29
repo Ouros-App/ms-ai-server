@@ -3,6 +3,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.measurement_import import MeasurementImportPreview
+
 
 class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -33,3 +35,4 @@ class ChatResponse(BaseModel):
     agents: list[str]
     tools: list[str]
     visualizations: list[ChatVisualization] = Field(default_factory=list, max_length=1)
+    measurement_import_preview: MeasurementImportPreview | None = None
