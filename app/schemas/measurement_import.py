@@ -43,6 +43,11 @@ class MeasurementRecord(BaseModel):
                 or self.energy_consumption <= 0
             ):
                 raise ValueError("O consumo de energia deve ser positivo.")
+            energy = self.energy_consumption
+            integer_digits = max(len(energy.as_tuple().digits) + energy.as_tuple().exponent, 0)
+            decimal_digits = max(-energy.as_tuple().exponent, 0)
+            if integer_digits > 15 or decimal_digits > 2:
+                raise ValueError("O consumo de energia excede a precisão aceita pela API.")
         return self
 
 

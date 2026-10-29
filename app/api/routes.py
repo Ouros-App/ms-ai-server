@@ -25,6 +25,31 @@ from app.services.measurement_import import (
     normalize_measurement_attachment,
 )
 
+MAX_REQUEST_BODY_BYTES = 12 * 1024 * 1024
+
+
+async def _bounded_request_body(request: Request) -> bytes:
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            if int(content_length) > MAX_REQUEST_BODY_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail="O corpo da requisição excede 12 MiB.",
+                )
+        except ValueError:
+            pass
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > MAX_REQUEST_BODY_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail="O corpo da requisição excede 12 MiB.",
+            )
+        body.extend(chunk)
+    request._body = bytes(body)
+    return request._body
+
 router = APIRouter()
 
 
@@ -38,10 +63,13 @@ def _validated_chat_payload(data: object) -> ChatRequest:
 async def _read_chat_submission(
     request: Request,
 ) -> tuple[ChatRequest, tuple[str, bytes] | None]:
-    media_type = request.headers.get("content-type", "").split(";", 1)[0].lower()
-    if media_type == "application/json":
+    body = await _bounded_request_body(request)
+    media_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if media_type in ("", "application/json") or (
+        media_type.startswith("application/") and media_type.endswith("+json")
+    ):
         try:
-            data = await request.json()
+            data = json.loads(body)
         except ValueError as error:
             raise HTTPException(status_code=400, detail="JSON inválido.") from error
         return _validated_chat_payload(data), None
@@ -79,12 +107,12 @@ async def _read_chat_submission(
                 status_code=422,
                 detail="O campo attachment precisa ser um arquivo.",
             )
-        content = await attachment.read(MAX_ATTACHMENT_BYTES + 1)
-        if len(content) > MAX_ATTACHMENT_BYTES:
+        if attachment.size is not None and attachment.size > MAX_ATTACHMENT_BYTES:
             raise HTTPException(
                 status_code=413,
                 detail="O anexo excede o limite de 10 MB.",
             )
+        content = await attachment.read()
         return payload, (attachment.filename or "anexo", content)
 
 
@@ -201,7 +229,7 @@ async def chat(
         ),
         system_context=system_context,
     )
-    if preview is not None:
+    if preview is not None and "guardrail" not in response.agents:
         response = response.model_copy(update={"measurement_import_preview": preview})
     return response
 

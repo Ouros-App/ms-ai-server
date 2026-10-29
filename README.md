@@ -196,7 +196,7 @@ curl -X POST http://localhost:8000/v1/chat \
 
 ### Importação de medições por anexo
 
-`POST /v1/chat` mantém o formato JSON atual e também aceita `multipart/form-data` com `message`, `thread_id` opcional e `attachment` opcional. Os formatos suportados são CSV em UTF-8, XLSX e PDF com texto pesquisável; PDFs escaneados/OCR não são suportados. Limites: 10 MB por arquivo, até 500 registros e 20 páginas por PDF.
+`POST /v1/chat` mantém o formato JSON atual (inclusive sem `Content-Type` e com tipos `application/*+json`) e também aceita `multipart/form-data` com `message`, `thread_id` opcional e `attachment` opcional. Os formatos suportados são CSV em UTF-8, XLSX e PDF com texto pesquisável; PDFs escaneados/OCR não são suportados. Água aceita até 4 casas decimais e energia até 2, sem arredondamento automático. Limites: 12 MiB por corpo da requisição incluindo multipart/campos, 10 MiB por arquivo, até 500 registros e 20 páginas por PDF.
 
 ```bash
 curl -X POST http://localhost:8000/v1/chat \
