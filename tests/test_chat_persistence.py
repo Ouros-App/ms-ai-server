@@ -3,7 +3,12 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import (
+    AIMessage,
+    HumanMessage,
+    RemoveMessage,
+    SystemMessage,
+)
 
 from app.schemas.chat import ChatRequest
 from app.services.chat import invoke_graph
@@ -113,3 +118,56 @@ class ChatPersistenceTest(unittest.IsolatedAsyncioTestCase):
         visualization_store.save.assert_awaited_once_with(
             "thread-1", "user-1", "viz-1", [visualization]
         )
+
+    async def test_import_context_is_hidden_from_user_message_and_replaced(self) -> None:
+        previous_context = SystemMessage(
+            id="import-context-1",
+            content='{"records":[{"value":"old"}]}',
+            additional_kwargs={"measurement_import_context": True},
+        )
+        graph = SimpleNamespace(
+            aget_state=AsyncMock(
+                return_value=SimpleNamespace(values={"messages": [previous_context]})
+            ),
+            ainvoke=AsyncMock(
+                return_value={
+                    "messages": [AIMessage(content="Revise antes de confirmar.")],
+                    "agents": ["default"],
+                    "tools": [],
+                }
+            ),
+        )
+        thread_ownership = SimpleNamespace(
+            claim=AsyncMock(return_value=True),
+            set_title_if_missing=AsyncMock(),
+        )
+        guardrail = SimpleNamespace(
+            allowed=True,
+            category="allowed",
+            sanitized_text="Importe meu histórico",
+            as_state=lambda: {"allowed": True},
+        )
+
+        with patch(
+            "app.services.chat.guard_input",
+            new=AsyncMock(return_value=guardrail),
+        ):
+            await invoke_graph(
+                graph,
+                ChatRequest(
+                    user_id="user-1",
+                    thread_id="thread-1",
+                    message="Importe meu histórico",
+                ),
+                "user-1",
+                thread_ownership=thread_ownership,
+                system_context='{"records":[{"value":"new"}]}',
+            )
+
+        graph_messages = graph.ainvoke.call_args.args[0]["messages"]
+        self.assertIsInstance(graph_messages[0], RemoveMessage)
+        self.assertEqual(graph_messages[0].id, "import-context-1")
+        self.assertIsInstance(graph_messages[1], SystemMessage)
+        self.assertIn('"value":"new"', graph_messages[1].content)
+        self.assertIsInstance(graph_messages[2], HumanMessage)
+        self.assertEqual(graph_messages[2].content, "Importe meu histórico")

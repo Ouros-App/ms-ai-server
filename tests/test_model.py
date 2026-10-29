@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 from pydantic import SecretStr
 
-from app.agents.model import build_chat_model
+from app.agents.model import build_chat_model, build_structured_chat_model
 from app.core.config import Settings
 
 
@@ -102,6 +102,32 @@ class ModelTest(unittest.TestCase):
             max_retries=0,
         )
         primary.with_fallbacks.assert_called_once_with([nvidia.return_value])
+
+    def test_structured_output_wraps_each_provider_before_fallback(self) -> None:
+        groq = Mock()
+        nvidia = Mock()
+        schema = object()
+        config = Settings(
+            _env_file=None,
+            groq_api_key=SecretStr("groq-key"),
+            nvidia_api_key=SecretStr("nvidia-key"),
+        )
+
+        with patch.dict(
+            sys.modules,
+            {
+                "langchain_groq": SimpleNamespace(ChatGroq=groq),
+                "langchain_openai": SimpleNamespace(ChatOpenAI=nvidia),
+            },
+        ):
+            model = build_structured_chat_model(config, schema)
+
+        groq.return_value.with_structured_output.assert_called_once_with(schema)
+        nvidia.return_value.with_structured_output.assert_called_once_with(schema)
+        structured_primary = groq.return_value.with_structured_output.return_value
+        structured_fallback = nvidia.return_value.with_structured_output.return_value
+        structured_primary.with_fallbacks.assert_called_once_with([structured_fallback])
+        self.assertEqual(model, structured_primary.with_fallbacks.return_value)
 
     def test_blank_secret_values_are_disabled(self) -> None:
         config = Settings(_env_file=None, groq_api_key="   ", nvidia_api_key="\t")

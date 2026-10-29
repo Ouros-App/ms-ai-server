@@ -11,6 +11,7 @@ from app.agents.model import get_chat_model
 from app.api.routes import router
 from app.core.auth import Principal, get_current_principal
 from app.core.config import settings
+from app.schemas.measurement_import import MeasurementImportPreview, MeasurementRecord
 
 
 class ApiTest(unittest.TestCase):
@@ -230,6 +231,137 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(invoke.call_args.kwargs["principal_token"], "signed-keycloak-token")
         self.assertEqual(invoke.call_args.args[2], "42")
+
+    def test_chat_multipart_returns_normalized_preview_before_confirmation(self) -> None:
+        from app.schemas.chat import ChatResponse
+
+        preview = MeasurementImportPreview(
+            filename="historico.csv",
+            records=[
+                MeasurementRecord(
+                    kind="water",
+                    source_reference="historico.csv, linha 2",
+                    registration_date="2026-03-01",
+                    start_hydrometer="120.5",
+                    end_hydrometer="135.8",
+                )
+            ],
+            issues=[],
+        )
+        with (
+            patch(
+                "app.api.routes.normalize_measurement_attachment",
+                new=AsyncMock(return_value=preview),
+            ) as normalize,
+            patch(
+                "app.api.routes.invoke_graph",
+                new=AsyncMock(
+                    return_value=ChatResponse(
+                        thread_id="file-thread",
+                        message="Revise a prévia antes de importar.",
+                        agents=["default"],
+                        tools=[],
+                    )
+                ),
+            ) as invoke,
+        ):
+            response = self.client.post(
+                "/v1/chat",
+                data={
+                    "user_id": "42",
+                    "thread_id": "file-thread",
+                    "message": "Importe meu histórico",
+                },
+                files={
+                    "attachment": (
+                        "historico.csv",
+                        b"date,start,end\n2026-03-01,120.5,135.8",
+                        "text/csv",
+                    )
+                },
+                headers=self.auth_headers(),
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["measurement_import_preview"]["records"][0]["kind"],
+            "water",
+        )
+        self.assertTrue(
+            response.json()["measurement_import_preview"]["requires_confirmation"]
+        )
+        normalize.assert_awaited_once_with(
+            "historico.csv",
+            b"date,start,end\n2026-03-01,120.5,135.8",
+        )
+        self.assertEqual(invoke.call_args.args[1].message, "Importe meu histórico")
+        self.assertIn(
+            '"end_hydrometer":"135.8"',
+            invoke.call_args.kwargs["system_context"],
+        )
+
+
+    def test_chat_multipart_parses_csv_before_returning_model_normalized_preview(self) -> None:
+        from app.schemas.chat import ChatResponse
+
+        structured_model = Mock()
+        structured_model.ainvoke = AsyncMock(
+            return_value={
+                "records": [
+                    {
+                        "kind": "water",
+                        "source_reference": "historico.csv, linha 2",
+                        "registration_date": "2025-03-01",
+                        "start_hydrometer": "10.0",
+                        "end_hydrometer": "12.5",
+                    }
+                ],
+                "issues": [],
+            }
+        )
+        with (
+            patch(
+                "app.services.measurement_import.get_structured_chat_model",
+                return_value=structured_model,
+            ),
+            patch(
+                "app.api.routes.invoke_graph",
+                new=AsyncMock(
+                    return_value=ChatResponse(
+                        thread_id="file-thread",
+                        message="Revise a prévia antes de importar.",
+                        agents=["default"],
+                        tools=[],
+                    )
+                ),
+            ),
+        ):
+            response = self.client.post(
+                "/v1/chat",
+                data={
+                    "user_id": "42",
+                    "thread_id": "file-thread",
+                    "message": "Importe meu histórico",
+                },
+                files={
+                    "attachment": (
+                        "historico.csv",
+                        "Data;Hidrômetro inicial;Hidrômetro final\n"
+                        "2025-03-01;10,0;12,5".encode(),
+                        "text/csv",
+                    )
+                },
+                headers=self.auth_headers(),
+            )
+
+        self.assertEqual(response.status_code, 200)
+        record = response.json()["measurement_import_preview"]["records"][0]
+        self.assertEqual(record["registration_date"], "2025-03-01")
+        self.assertEqual(record["start_hydrometer"], "10.0")
+        self.assertEqual(record["end_hydrometer"], "12.5")
+        model_input = structured_model.ainvoke.await_args.args[0][1].content
+        self.assertIn('"headers":["Data","Hidrômetro inicial","Hidrômetro final"]', model_input)
+        self.assertIn('"values":["2025-03-01","10,0","12,5"]', model_input)
 
     def test_chat_returns_controlled_503_when_graph_times_out(self) -> None:
         graph = Mock()
