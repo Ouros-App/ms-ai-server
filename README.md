@@ -50,36 +50,32 @@ Esta seção descreve a arquitetura **implementada** no `ms-ai-server`, com base
 
 ```mermaid
 flowchart TD
-    Mobile["Cliente mobile"] -->|"JWT Keycloak; POST /v1/chat"| API["FastAPI: API de chat"]
-    Debug["Debug Console"] -->|"POST /debug/api/login; sessão em cookie"| DebugAPI["FastAPI: /debug/api/chat"]
-    Keycloak["Keycloak / JWKS"] -. "validação JWT RS256 da API" .-> API
-    API --> Chat["Serviço de chat: invoke_graph"]
+    Mobile[Cliente mobile] --> API[API de chat FastAPI]
+    Debug[Debug Console] --> DebugAPI[API de debug FastAPI]
+    Keycloak[Keycloak JWKS] --> API
+    API --> Chat[Servico de chat]
     DebugAPI --> Chat
-    Chat -->|"valida entrada e posse"| Guard["guard_input: guardrails"]
-    Guard -->|"bloqueado: resposta imediata sem LangGraph"| Block["Resposta agents=guardrail"]
-    Guard -->|"permitido"| LG["LangGraph: StateGraph"]
-    Chat <--> Ownership[("MongoDB: ThreadOwnershipStore, posse da thread")]
-    LG <--> CP[("MongoDB: checkpointer de mensagens e estado")]
-    API -->|"GET histórico: get_thread_history"| CP
-    DebugAPI -->|"histórico via get_thread_history"| CP
-    LG --> Router["router: seleção de rotas"]
-    Router -->|"fan-out condicional"| Specialists["Especialistas: faq, sustainability, ranking, visualization, support"]
-    Router -->|"default ou fallback"| Default["default: síntese / resposta"]
-    Specialists --> Collect["collect_specialist_results: fan-in e pendências"]
+    Chat --> Guard[Guardrail de entrada]
+    Guard -->|Bloqueado| Block[Resposta sem invocar o grafo]
+    Guard -->|Permitido| LG[LangGraph]
+    Chat --> Ownership[MongoDB posse da thread]
+    LG --> CP[MongoDB checkpoints e estado]
+    API --> History[Consulta de historico]
+    DebugAPI --> History
+    History --> CP
+    LG --> Router[Router]
+    Router --> Specialists[Especialistas]
+    Router --> Default[Default]
+    Specialists --> Collect[Coleta dos resultados]
     Collect --> Default
-    Specialists <--> Memory[("MongoDB: memórias do usuário")]
-    Specialists -->|"tools em allowlist por agente"| MCP["MCP externo (Streamable HTTP)"]
-    MCP -->|"token delegado; escopo autenticado"| Domain["APIs, conhecimento e telemetry disponíveis via MCP"]
-    Router -. "decisão opcional ativa ou shadow" .-> Jev["TypeSafe Jev"]
-    Router --> Providers["Groq / NVIDIA NIM"]
+    Specialists --> Memory[MongoDB memorias]
+    Specialists --> MCP[Servidor MCP]
+    MCP --> Domain[APIs e telemetria]
+    Router --> Jev[Decisor Jev opcional]
+    Router --> Providers[Groq e NVIDIA NIM]
     Specialists --> Providers
     Default --> Providers
-    Default --> Output["Revisão semântica quando aplicável e sanitização"]
-    Output --> Chat
-    Chat --> API
-    Chat --> DebugAPI
-    API --> Mobile
-    DebugAPI --> Debug
+    Default --> Output[Revisao e sanitizacao]
 ```
 
 **Fronteiras de responsabilidade:** o mobile chama `POST /v1/chat` usando JWT Keycloak; o Debug Console autentica em `POST /debug/api/login` e usa `POST /debug/api/chat` com sessão por cookie. Ambos chegam ao serviço de chat, que valida entrada e propriedade da thread antes de executar o grafo. `ThreadOwnershipStore` controla a posse da conversa, enquanto o histórico de mensagens é lido por `get_thread_history()` no checkpointer MongoDB. O grafo orquestra as etapas; os especialistas acessam tools restritas e o `default` sintetiza a resposta sem MCP. Groq e NVIDIA NIM fornecem modelos com fallback por perfil.
@@ -90,20 +86,20 @@ O diagrama abaixo representa o **grafo compilado**. O guardrail de entrada do en
 
 ```mermaid
 flowchart TD
-    START((START)) --> R["router / route_request"]
-    R -->|"default, fallback ou nenhuma rota especializada"| D["default / default_agent"]
-    R -->|"Send: até quatro especialistas"| F["faq"]
-    R --> S["sustainability"]
-    R --> K["ranking"]
-    R --> V["visualization"]
-    R --> U["support"]
-    F --> C["collect_specialist_results"]
-    S --> C
-    K --> C
-    V --> C
-    U --> C
-    C --> D
-    D --> E((END))
+    Start([Inicio]) --> Router[Router]
+    Router -->|Geral ou fallback| Default[Default]
+    Router --> FAQ[FAQ]
+    Router --> Sustainability[Sustainability]
+    Router --> Ranking[Ranking]
+    Router --> Visualization[Visualization]
+    Router --> Support[Support]
+    FAQ --> Collect[Coleta de resultados]
+    Sustainability --> Collect
+    Ranking --> Collect
+    Visualization --> Collect
+    Support --> Collect
+    Collect --> Default
+    Default --> Finish([Fim])
 ```
 
 1. **Pré-processamento HTTP:** `invoke_graph()` aplica `guard_input()`. Se a entrada for bloqueada, retorna a resposta com `agents=["guardrail"]` **sem chamar `graph.ainvoke()`**. A invocação direta do grafo não deve ser confundida com esse caminho HTTP.
