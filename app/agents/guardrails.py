@@ -82,8 +82,10 @@ _ASSISTANT_IDENTITY_PATTERN = re.compile(
 )
 _FOLLOW_UP_PATTERN = re.compile(r"^(sim|nao|isso|esse|essa|pode|continue|entendi|e depois)\b")
 _PERSONAL_PROJECT_PATTERN = re.compile(
-    r"\b(?:minha|minhas|meu|meus)\b.{0,50}\b(?:fazenda|granja|consumo|gasto|dados|meta|historico)\b"
-    r"|\b(?:fazenda|granja|consumo|gasto|dados|meta|historico)\b.{0,50}\b(?:minha|minhas|meu|meus)\b"
+    r"\b(?:minha|minhas|meu|meus)\b.{0,50}\b(?:fazenda|granja|consumo|gasto|dados|meta|historico|"
+    r"localizacao|cidade|estado|regiao|endereco)\b"
+    r"|\b(?:fazenda|granja|consumo|gasto|dados|meta|historico|localizacao|"
+    r"cidade|estado|regiao|endereco)\b.{0,50}\b(?:minha|minhas|meu|meus)\b"
 )
 _CLEAR_PROJECT_REQUEST_PATTERN = re.compile(
     r"\b(?:como|qual|quais|onde|posso|acompanho|funciona|uso|usar)\b.{0,100}"

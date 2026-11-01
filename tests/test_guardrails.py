@@ -38,6 +38,18 @@ class GuardrailsTest(unittest.IsolatedAsyncioTestCase):
     def test_allows_follow_up_with_history(self) -> None:
         self.assertTrue(input_is_allowed("E depois?", has_history=True))
 
+    async def test_allows_personal_location_query_without_scope_classifier(self) -> None:
+        model = Mock()
+        model.ainvoke = AsyncMock()
+
+        result = await guard_input(
+            "Qual cidade e estado estão cadastrados na minha conta?",
+            model=model,
+        )
+
+        self.assertTrue(result.allowed)
+        model.ainvoke.assert_not_awaited()
+
     def test_project_support_terms_take_priority_over_broad_scope_terms(self) -> None:
         self.assertIsNone(
             input_block_reason("Aparece um codigo de erro no aplicativo quando sincronizo")

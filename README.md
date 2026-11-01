@@ -139,7 +139,9 @@ registrá-la no trace da requisição. Com shadow desligado, baixa confiança, f
 provedor, decisão inválida ou analytics indisponível usam o roteador atual como
 fallback. O backend de analytics ainda não está conectado; por isso uma decisão que
 dependa dele é recusada. Ferramentas continuam limitadas pela allowlist do especialista,
-e o prefetch autenticado de consumo segue sendo controlado pelo backend.
+e o prefetch autenticado de consumo e localização segue controlado pelo backend.
+Quando a consulta retorna dados pessoais, o AI Server apresenta os valores
+estruturados diretamente, sem depender de síntese do modelo.
 
 As rotas usam os nomes reais já existentes no AI Server: `faq` cobre conhecimento,
 `ranking` cobre indicadores/analytics disponíveis, e `default` cobre respostas gerais.
