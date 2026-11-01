@@ -50,60 +50,71 @@ Esta seção descreve a arquitetura **implementada** no `ms-ai-server`, com base
 
 ```mermaid
 flowchart TD
-    Client["Cliente mobile / Debug Console"] -->|"JWT Keycloak + POST /v1/chat"| API["FastAPI: autenticação e serviço de chat"]
-    Keycloak["Keycloak / JWKS"] -. "validação local RS256" .-> API
-    API -->|"thread_id, identidade e contexto"| LG["LangGraph: StateGraph"]
-    LG <--> CP[("MongoDB: checkpoints de conversa")]
-    API <--> Ownership[("MongoDB: posse da thread e histórico")]
-    LG --> Router["router: guardrail + decisão de rota"]
-    Router -->|"fan-out condicional"| Specialists["Especialistas: faq, sustainability, ranking, visualization, support, fallback"]
-    Router -->|"rota geral ou bloqueio"| Default["default: síntese / resposta final"]
+    Mobile["Cliente mobile"] -->|"JWT Keycloak; POST /v1/chat"| API["FastAPI: API de chat"]
+    Debug["Debug Console"] -->|"POST /debug/api/login; sessão em cookie"| DebugAPI["FastAPI: /debug/api/chat"]
+    Keycloak["Keycloak / JWKS"] -. "validação JWT RS256 da API" .-> API
+    API --> Chat["Serviço de chat: invoke_graph"]
+    DebugAPI --> Chat
+    Chat -->|"valida entrada e posse"| Guard["guard_input: guardrails"]
+    Guard -->|"bloqueado: resposta imediata sem LangGraph"| Block["Resposta agents=guardrail"]
+    Guard -->|"permitido"| LG["LangGraph: StateGraph"]
+    Chat <--> Ownership[("MongoDB: ThreadOwnershipStore, posse da thread")]
+    LG <--> CP[("MongoDB: checkpointer de mensagens e estado")]
+    API -->|"GET histórico: get_thread_history"| CP
+    DebugAPI -->|"histórico via get_thread_history"| CP
+    LG --> Router["router: seleção de rotas"]
+    Router -->|"fan-out condicional"| Specialists["Especialistas: faq, sustainability, ranking, visualization, support"]
+    Router -->|"default ou fallback"| Default["default: síntese / resposta"]
     Specialists --> Collect["collect_specialist_results: fan-in e pendências"]
     Collect --> Default
     Specialists <--> Memory[("MongoDB: memórias do usuário")]
-    Specialists -->|"tools autorizadas por agente"| MCP["MCP externo (Streamable HTTP)"]
-    MCP -->|"token delegado e escopo autenticado"| Domain["APIs / conhecimento / telemetry disponíveis via MCP"]
-    Router -. "decisão opcional, ativa ou shadow" .-> Jev["TypeSafe Jev"]
-    Router --> Providers["Groq / NVIDIA NIM: roteamento LLM"]
+    Specialists -->|"tools em allowlist por agente"| MCP["MCP externo (Streamable HTTP)"]
+    MCP -->|"token delegado; escopo autenticado"| Domain["APIs, conhecimento e telemetry disponíveis via MCP"]
+    Router -. "decisão opcional ativa ou shadow" .-> Jev["TypeSafe Jev"]
+    Router --> Providers["Groq / NVIDIA NIM"]
     Specialists --> Providers
     Default --> Providers
-    Default --> Output["revisão semântica de saída + sanitização"]
-    Output --> API
-    API --> Client
+    Default --> Output["Revisão semântica quando aplicável e sanitização"]
+    Output --> Chat
+    Chat --> API
+    Chat --> DebugAPI
+    API --> Mobile
+    DebugAPI --> Debug
 ```
 
-**Fronteiras de responsabilidade:** a FastAPI recebe a requisição e integra o grafo; o Keycloak autentica o usuário via JWT validado por JWKS; o grafo coordena as etapas; MongoDB mantém checkpoints, memórias e vínculo entre usuário e thread; os especialistas consultam tools sob allowlist; o `default` sintetiza o texto e não acessa tools. Groq e NVIDIA NIM são provedores de modelos, com fallback entre provedores por perfil. A telemetria e o conhecimento são acessados através das integrações MCP, conforme as tools disponibilizadas.
+**Fronteiras de responsabilidade:** o mobile chama `POST /v1/chat` usando JWT Keycloak; o Debug Console autentica em `POST /debug/api/login` e usa `POST /debug/api/chat` com sessão por cookie. Ambos chegam ao serviço de chat, que valida entrada e propriedade da thread antes de executar o grafo. `ThreadOwnershipStore` controla a posse da conversa, enquanto o histórico de mensagens é lido por `get_thread_history()` no checkpointer MongoDB. O grafo orquestra as etapas; os especialistas acessam tools restritas e o `default` sintetiza a resposta sem MCP. Groq e NVIDIA NIM fornecem modelos com fallback por perfil.
 
 ### Topologia real do LangGraph
+
+O diagrama abaixo representa o **grafo compilado**. O guardrail de entrada do endpoint HTTP é uma etapa anterior e está representado no diagrama de componentes acima.
 
 ```mermaid
 flowchart TD
     START((START)) --> R["router / route_request"]
-    R -->|"sem especialista, default ou bloqueio"| D["default / default_agent"]
-    R -->|"Send: uma ou até quatro rotas"| F["faq"]
+    R -->|"default, fallback ou nenhuma rota especializada"| D["default / default_agent"]
+    R -->|"Send: até quatro especialistas"| F["faq"]
     R --> S["sustainability"]
     R --> K["ranking"]
     R --> V["visualization"]
     R --> U["support"]
-    R --> B["fallback"]
     F --> C["collect_specialist_results"]
     S --> C
     K --> C
     V --> C
     U --> C
-    B --> C
     C --> D
     D --> E((END))
 ```
 
-1. **Entrada e roteamento:** o `router` resolve guardrails, contexto/pedidos pendentes e a seleção de rotas. O Jev, quando habilitado, pode sugerir decisões; no modo shadow, somente compara. Decisões inválidas ou indisponíveis retornam ao roteamento existente.
-2. **Fan-out:** `dispatch_agents()` usa `Send` para iniciar até quatro especialistas independentes em paralelo. Perguntas gerais e bloqueios podem ir diretamente para `default`.
-3. **Execução especializada:** os agentes devolvem resultados estruturados em JSON (fatos, recomendações, fontes, dados faltantes). Apenas especialistas possuem acesso a memória e tools, respeitando allowlists, limites de execução e escopo autenticado.
-4. **Fan-in:** `collect_specialist_results` consolida o estado de pendências por rota, como `needs_input`, para permitir a continuação da conversa no próximo turno.
-5. **Síntese:** `default` produz a resposta ao usuário a partir dos dados estruturados, ou usa respostas diretas/determinísticas quando aplicável. Ele não chama ferramentas MCP.
-6. **Saída:** respostas sintetizadas pelo modelo passam por `review_output()`, com revisão semântica e sanitização determinística via `guard_output()`. Respostas rápidas/determinísticas passam pela sanitização final. O serviço devolve texto e metadados de agentes, tools e visualizações.
+1. **Pré-processamento HTTP:** `invoke_graph()` aplica `guard_input()`. Se a entrada for bloqueada, retorna a resposta com `agents=["guardrail"]` **sem chamar `graph.ainvoke()`**. A invocação direta do grafo não deve ser confundida com esse caminho HTTP.
+2. **Roteamento no grafo:** `router` escolhe as rotas a partir do contexto e das decisões disponíveis. O Jev, quando habilitado, pode propor rotas; em modo shadow apenas compara decisões. Rota `fallback` e seleção sem especialista chegam diretamente a `default`, sem nó `fallback`.
+3. **Fan-out:** `dispatch_agents()` usa `Send` para iniciar até quatro especialistas independentes em paralelo.
+4. **Execução especializada:** especialistas devolvem resultados estruturados em JSON e utilizam memória/MCP somente sob allowlist, timeout e escopo autenticado.
+5. **Fan-in:** `collect_specialist_results` registra pendências por rota, inclusive `needs_input`, permitindo continuar o trabalho no turno seguinte.
+6. **Síntese:** `default` produz a resposta com os resultados estruturados, ou utiliza uma resposta direta quando apropriado. Não executa tools MCP.
+7. **Saída:** respostas sintetizadas pelo modelo passam por `review_output()`, incluindo revisão semântica e sanitização via `guard_output()`. Respostas rápidas ou determinísticas recebem sanitização final.
 
-O estado `AgentState` estende `MessagesState` e inclui identidade, rotas, origem da decisão, ferramentas utilizadas, resultados de especialistas e tarefas pendentes. O grafo é compilado com `checkpointer` MongoDB para continuidade entre turnos. Visualizações geradas pelas tools são devolvidas separadamente da resposta textual.
+O estado `AgentState` estende `MessagesState` e inclui identidade, rotas, origem da decisão, tools utilizadas, resultados de especialistas e tarefas pendentes. O grafo é compilado com `checkpointer` MongoDB para manter contexto entre turnos. Visualizações retornam separadas do texto.
 
 ### Segurança e observabilidade
 
