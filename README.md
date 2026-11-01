@@ -42,6 +42,90 @@ As chaves de IA são opcionais para iniciar a aplicação. Todos os endpoints au
 - `app/services/`: execução do chat e leitura do histórico.
 - `tests/`: testes da API, configuração, grafo, guardrails, modelos, prompts, threads e tools.
 
+## Design e arquitetura de alto nível da IA
+
+Esta seção descreve a arquitetura **implementada** no `ms-ai-server`, com base em `app/main.py`, `app/agents/graph.py` e `app/agents/guardrails.py`. O serviço é responsável pela orquestração da conversa, não pela autorização de acesso aos dados da fazenda nem pela persistência transacional do domínio.
+
+### Visão dos componentes e integrações
+
+```mermaid
+flowchart TD
+    Mobile["Cliente mobile"] -->|"JWT Keycloak; POST /v1/chat"| API["FastAPI: API de chat"]
+    Debug["Debug Console"] -->|"POST /debug/api/login; sessão em cookie"| DebugAPI["FastAPI: /debug/api/chat"]
+    Keycloak["Keycloak / JWKS"] -. "validação JWT RS256 da API" .-> API
+    API --> Chat["Serviço de chat: invoke_graph"]
+    DebugAPI --> Chat
+    Chat -->|"valida entrada e posse"| Guard["guard_input: guardrails"]
+    Guard -->|"bloqueado: resposta imediata sem LangGraph"| Block["Resposta agents=guardrail"]
+    Guard -->|"permitido"| LG["LangGraph: StateGraph"]
+    Chat <--> Ownership[("MongoDB: ThreadOwnershipStore, posse da thread")]
+    LG <--> CP[("MongoDB: checkpointer de mensagens e estado")]
+    API -->|"GET histórico: get_thread_history"| CP
+    DebugAPI -->|"histórico via get_thread_history"| CP
+    LG --> Router["router: seleção de rotas"]
+    Router -->|"fan-out condicional"| Specialists["Especialistas: faq, sustainability, ranking, visualization, support"]
+    Router -->|"default ou fallback"| Default["default: síntese / resposta"]
+    Specialists --> Collect["collect_specialist_results: fan-in e pendências"]
+    Collect --> Default
+    Specialists <--> Memory[("MongoDB: memórias do usuário")]
+    Specialists -->|"tools em allowlist por agente"| MCP["MCP externo (Streamable HTTP)"]
+    MCP -->|"token delegado; escopo autenticado"| Domain["APIs, conhecimento e telemetry disponíveis via MCP"]
+    Router -. "decisão opcional ativa ou shadow" .-> Jev["TypeSafe Jev"]
+    Router --> Providers["Groq / NVIDIA NIM"]
+    Specialists --> Providers
+    Default --> Providers
+    Default --> Output["Revisão semântica quando aplicável e sanitização"]
+    Output --> Chat
+    Chat --> API
+    Chat --> DebugAPI
+    API --> Mobile
+    DebugAPI --> Debug
+```
+
+**Fronteiras de responsabilidade:** o mobile chama `POST /v1/chat` usando JWT Keycloak; o Debug Console autentica em `POST /debug/api/login` e usa `POST /debug/api/chat` com sessão por cookie. Ambos chegam ao serviço de chat, que valida entrada e propriedade da thread antes de executar o grafo. `ThreadOwnershipStore` controla a posse da conversa, enquanto o histórico de mensagens é lido por `get_thread_history()` no checkpointer MongoDB. O grafo orquestra as etapas; os especialistas acessam tools restritas e o `default` sintetiza a resposta sem MCP. Groq e NVIDIA NIM fornecem modelos com fallback por perfil.
+
+### Topologia real do LangGraph
+
+O diagrama abaixo representa o **grafo compilado**. O guardrail de entrada do endpoint HTTP é uma etapa anterior e está representado no diagrama de componentes acima.
+
+```mermaid
+flowchart TD
+    START((START)) --> R["router / route_request"]
+    R -->|"default, fallback ou nenhuma rota especializada"| D["default / default_agent"]
+    R -->|"Send: até quatro especialistas"| F["faq"]
+    R --> S["sustainability"]
+    R --> K["ranking"]
+    R --> V["visualization"]
+    R --> U["support"]
+    F --> C["collect_specialist_results"]
+    S --> C
+    K --> C
+    V --> C
+    U --> C
+    C --> D
+    D --> E((END))
+```
+
+1. **Pré-processamento HTTP:** `invoke_graph()` aplica `guard_input()`. Se a entrada for bloqueada, retorna a resposta com `agents=["guardrail"]` **sem chamar `graph.ainvoke()`**. A invocação direta do grafo não deve ser confundida com esse caminho HTTP.
+2. **Roteamento no grafo:** `router` escolhe as rotas a partir do contexto e das decisões disponíveis. O Jev, quando habilitado, pode propor rotas; em modo shadow apenas compara decisões. Rota `fallback` e seleção sem especialista chegam diretamente a `default`, sem nó `fallback`.
+3. **Fan-out:** `dispatch_agents()` usa `Send` para iniciar até quatro especialistas independentes em paralelo.
+4. **Execução especializada:** especialistas devolvem resultados estruturados em JSON e utilizam memória/MCP somente sob allowlist, timeout e escopo autenticado.
+5. **Fan-in:** `collect_specialist_results` registra pendências por rota, inclusive `needs_input`, permitindo continuar o trabalho no turno seguinte.
+6. **Síntese:** `default` produz a resposta com os resultados estruturados, ou utiliza uma resposta direta quando apropriado. Não executa tools MCP.
+7. **Saída:** respostas sintetizadas pelo modelo passam por `review_output()`, incluindo revisão semântica e sanitização via `guard_output()`. Respostas rápidas ou determinísticas recebem sanitização final.
+
+O estado `AgentState` estende `MessagesState` e inclui identidade, rotas, origem da decisão, tools utilizadas, resultados de especialistas e tarefas pendentes. O grafo é compilado com `checkpointer` MongoDB para manter contexto entre turnos. Visualizações retornam separadas do texto.
+
+### Segurança e observabilidade
+
+A identidade vem dos claims validados do JWT, e o backend controla a posse de cada `thread_id`. O serviço aplica anonimização/guardrails na entrada, restringe tools MCP por especialista e usa troca de tokens para chamadas de backend autorizadas, sem deixar o LLM escolher livremente identificadores de usuário/fazenda ou executar SQL arbitrário. A aplicação expõe métricas Prometheus e, quando habilitado, trace de debug para rotas, agentes e tools, sem incluir o conteúdo sensível das consultas.
+
+### Auditoria: existe um agente juiz (LLM-as-a-Judge)?
+
+**Situação atual: não existe um nó `judge` independente no `StateGraph`.** O código possui `review_output()`, um revisor semântico de saída com LLM, e `guard_output()`, que aplica regras de privacidade e remoção de segredos. Essas etapas fornecem uma **revisão de segurança/forma**, mas não constituem uma avaliação sistemática de fundamentação, consistência factual, evidências das tools ou concordância entre especialistas.
+
+Para cumprir um eventual requisito específico de **LLM-as-a-Judge**, será necessário implementar uma etapa distinta de avaliação, preferencialmente após a síntese, com critérios claros, saída estruturada, política de reprovação/fallback, métricas e testes. **Essa etapa é uma proposta futura, não parte do fluxo implementado acima.** A arquitetura de alto nível do LangGraph, por outro lado, já existe.
+
 ## Pré-requisitos
 
 - Docker e Docker Compose para a execução completa com MongoDB.
