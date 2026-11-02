@@ -1037,10 +1037,13 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-    async def test_generic_city_mentions_do_not_route_to_account_location(self) -> None:
+    async def test_generic_location_mentions_do_not_route_to_account_location(self) -> None:
         for message in (
             "Previsão do tempo na minha cidade",
             "Qual o melhor restaurante na minha cidade?",
+            "Localize um restaurante perto de mim",
+            "Qual o endereço da Casa Branca?",
+            "Qual o meu endereço de e-mail?",
         ):
             with self.subTest(message=message):
                 with patch(
@@ -1084,10 +1087,15 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                 "enterprises": [],
                 "farms": [
                     {
+                        "name": "Fazenda 42",
                         "city": "Pereiras",
                         "state": "SP",
                         "region": "Sudeste",
-                    }
+                    },
+                    {
+                        "city": "Abadia",
+                        "state": "GO",
+                    },
                 ],
             }
         )
@@ -1126,6 +1134,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Sudeste", response.message)
         self.assertNotIn("localização indisponível", response.message)
         self.assertIn("Localização 1", response.message)
+        self.assertIn("Localização 2", response.message)
 
     async def test_authenticated_combined_consumption_query_returns_totals(
         self,

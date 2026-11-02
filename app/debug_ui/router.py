@@ -1,5 +1,7 @@
 import re
+from array import array
 from hashlib import sha256
+from html.parser import HTMLParser
 from pathlib import Path
 from time import time
 from typing import Annotated
@@ -42,18 +44,63 @@ MAX_DEBUG_VISUALIZATION_HTML_CHARS = 1_500_000
 MAX_DEBUG_VISUALIZATION_FORM_BYTES = 6_000_000
 STATIC_DIR = Path(__file__).with_name("static")
 
-_INLINE_SCRIPT_PATTERN = re.compile(
-    r"(?P<start><script\b(?P<attributes>[^>]*)>)"
-    r"(?P<script>[\s\S]*?)"
-    r"(?P<end></script\b[^>]*>)",
-    re.IGNORECASE,
-)
-_SCRIPT_SRC_ATTRIBUTE_PATTERN = re.compile(r"(?:^|\s)src(?:\s|=)", re.IGNORECASE)
-_SCRIPT_TYPE_ATTRIBUTE_PATTERN = re.compile(
-    r"(?:^|\s)type\s*=\s*(['\"]?)([^'\"\s>]+)\1",
-    re.IGNORECASE,
-)
 _BARE_RETURN_PATTERN = re.compile(r"\breturn\s*;", re.IGNORECASE)
+_FUNCTION_CONTEXT_PATTERN = re.compile(
+    r"\bfunction\b|=>|(?:^|[;{}])\s*(?:async\s+|static\s+|get\s+|set\s+)*"
+    r"(?!(?:if|for|while|switch|catch|with)\b)[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{"
+)
+_SCRIPT_TYPES = {
+    "text/javascript",
+    "application/javascript",
+    "text/ecmascript",
+    "application/ecmascript",
+}
+
+
+class _InlineScriptCollector(HTMLParser):
+    def __init__(self, source: str) -> None:
+        super().__init__(convert_charrefs=False)
+        self.source = source
+        self.line_starts = array("I", [0])
+        self.line_starts.extend(
+            index + 1 for index, character in enumerate(source) if character == "\n"
+        )
+        self.scripts: list[tuple[int, int, int, int, dict[str, str | None]]] = []
+        self.open_script: tuple[int, int, dict[str, str | None]] | None = None
+
+    def _source_offset(self) -> int:
+        line, column = self.getpos()
+        return self.line_starts[line - 1] + column
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        if tag == "script" and self.open_script is None:
+            start = self._source_offset()
+            start_tag = self.get_starttag_text() or ""
+            self.open_script = (start, start + len(start_tag), dict(attrs))
+
+    def handle_startendtag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        if tag != "script":
+            super().handle_startendtag(tag, attrs)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag != "script" or self.open_script is None:
+            return
+        closing_start = self._source_offset()
+        closing_end = self.source.find(">", closing_start)
+        if closing_end >= 0:
+            start, content_start, attrs = self.open_script
+            self.scripts.append(
+                (start, content_start, closing_start, closing_end + 1, attrs)
+            )
+        self.open_script = None
 
 router = APIRouter(prefix=DEBUG_PREFIX, include_in_schema=False)
 
@@ -511,28 +558,36 @@ async def debug_visualization(
 
 
 def _wrap_inline_chart_scripts(html: str) -> str:
-    """Make bare top-level returns legal in inline chart scripts."""
-    if not _BARE_RETURN_PATTERN.search(html):
+    """Allow generated top-level returns in inline scripts without HTML regex backtracking."""
+    parser = _InlineScriptCollector(html)
+    parser.feed(html)
+    parser.close()
+
+    parts: list[str] = []
+    cursor = 0
+    for _, content_start, content_end, _, attrs in parser.scripts:
+        script = html[content_start:content_end]
+        script_type = attrs.get("type")
+        if (
+            "src" in attrs
+            or (script_type is not None and script_type.lower() not in _SCRIPT_TYPES)
+            or not _BARE_RETURN_PATTERN.search(script)
+            or _FUNCTION_CONTEXT_PATTERN.search(script)
+        ):
+            continue
+        parts.extend(
+            (
+                html[cursor:content_start],
+                "(()=>{\n",
+                script,
+                "\n})();",
+            )
+        )
+        cursor = content_end
+    if not parts:
         return html
-
-    def wrap_script(match: re.Match[str]) -> str:
-        attributes = match.group("attributes")
-        if _SCRIPT_SRC_ATTRIBUTE_PATTERN.search(attributes):
-            return match.group(0)
-        script_type = _SCRIPT_TYPE_ATTRIBUTE_PATTERN.search(attributes)
-        if script_type and script_type.group(2).lower() not in {
-            "text/javascript",
-            "application/javascript",
-            "text/ecmascript",
-            "application/ecmascript",
-        }:
-            return match.group(0)
-        script = match.group("script")
-        if not _BARE_RETURN_PATTERN.search(script):
-            return match.group(0)
-        return f"{match.group('start')}(()=>{{\n{script}\n}})();{match.group('end')}"
-
-    return _INLINE_SCRIPT_PATTERN.sub(wrap_script, html)
+    parts.append(html[cursor:])
+    return "".join(parts)
 
 
 def install_debug_ui(app: FastAPI) -> None:

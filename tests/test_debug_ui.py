@@ -16,6 +16,7 @@ from app.debug_ui.router import (
     _debug_client_auth,
     _oauth_error,
     _principal_needs_refresh,
+    _wrap_inline_chart_scripts,
     install_debug_ui,
 )
 from app.debug_ui.trace import capture_debug_trace, trace_event
@@ -645,7 +646,21 @@ def test_debug_visualization_wraps_script_with_attributed_end_tag() -> None:
             response = client.post("/debug/api/visualization", data={"html": html})
 
     assert response.status_code == 200
-    assert "(()=>{" in response.text
+    assert "})();</script\t\n bar>" in response.text
+
+
+def test_debug_visualization_preserves_functions_and_unclosed_script_tags() -> None:
+    script_with_function_return = (
+        "<script>function draw(){return;} var rows=[1];</script>"
+        "<script>use(rows)</script>"
+    )
+    repeated_unclosed_scripts = "<script>return;" * 4_000
+
+    assert (
+        _wrap_inline_chart_scripts(script_with_function_return)
+        == script_with_function_return
+    )
+    assert _wrap_inline_chart_scripts(repeated_unclosed_scripts) == repeated_unclosed_scripts
 
 
 def test_debug_visualization_rejects_malformed_form_body() -> None:

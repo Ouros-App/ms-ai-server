@@ -83,19 +83,24 @@ _ASSISTANT_IDENTITY_PATTERN = re.compile(
 _FOLLOW_UP_PATTERN = re.compile(r"^(sim|nao|isso|esse|essa|pode|continue|entendi|e depois)\b")
 _PERSONAL_PROJECT_PATTERN = re.compile(
     r"\b(?:minha|minhas|meu|meus)\b.{0,50}\b(?:fazenda|granja|consumo|gasto|dados|meta|historico|"
-    r"localizacao|endereco)\b"
-    r"|\b(?:fazenda|granja|consumo|gasto|dados|meta|historico|localizacao|"
-    r"endereco)\b.{0,50}\b(?:minha|minhas|meu|meus)\b"
+    r"localizacao)\b"
+    r"|\b(?:fazenda|granja|consumo|gasto|dados|meta|historico|localizacao)\b"
+    r".{0,50}\b(?:minha|minhas|meu|meus)\b"
 )
 _PERSONAL_PROFILE_LOCATION_PATTERN = re.compile(
-    r"\b(?:cidade|estado|regiao)\b.{0,60}\b(?:cadastrad\w*|registrad\w*|"
+    r"\b(?:cidade|estado|regiao|localiza\w*|endereco)\b.{0,60}\b(?:cadastrad\w*|registrad\w*|"
     r"vinculad\w*|perfil|(?:minha|minhas|sua|suas)\s+(?:conta|fazenda|"
     r"fazendas|granja|granjas))\b"
     r"|\b(?:cadastrad\w*|registrad\w*|vinculad\w*|perfil|"
     r"(?:minha|minhas|sua|suas)\s+(?:conta|fazenda|fazendas|granja|granjas))\b"
-    r".{0,60}\b(?:cidade|estado|regiao)\b"
+    r".{0,60}\b(?:cidade|estado|regiao|localiza\w*|endereco)\b"
 )
-_SPECIFIC_PROFILE_LOCATION_PATTERN = re.compile(r"\b(?:localiz\w*|endereco)\b")
+_SPECIFIC_PROFILE_LOCATION_PATTERN = re.compile(
+    r"\b(?:localizacao|endereco)\b(?!\s+(?:(?:de|do|da)\s+)?e[\s-]?mail\b)"
+    r"(?:[?.!]\s*|$)"
+    r"|\blocaliz(?:e|ar)\b.{0,30}\b(?:meu|minha)\s+"
+    r"(?:perfil|conta|fazenda|granja)\b"
+)
 _CLEAR_PROJECT_REQUEST_PATTERN = re.compile(
     r"\b(?:como|qual|quais|onde|posso|acompanho|funciona|uso|usar)\b.{0,100}"
     r"\b(?:midas|aplicativo|app)\b"

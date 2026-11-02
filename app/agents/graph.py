@@ -18,6 +18,7 @@ from app.agents.diagnostics import (
     specialist_result_summary,
 )
 from app.agents.guardrails import (
+    NO_DATA_REFUSAL,
     anonymize_text,
     guard_input,
     guard_output,
@@ -546,10 +547,26 @@ def _is_personal_consumption_request(user_text: str) -> bool:
         )
     )
 
-
 def _is_personal_location_request(user_text: str) -> bool:
     text = _normalize_route_text(user_text)
-    if re.search(r"\b(?:localiz\w*|endereco)\b", text):
+    if re.search(r"\blocalizacao\b", text):
+        return True
+    address = re.search(r"\bendereco\b", text)
+    if address and not re.search(
+        r"\bendereco\s+(?:(?:de|do|da)\s+)?e[\s-]?mail\b",
+        text,
+    ):
+        address_tail = text[address.end() :]
+        if (
+            not re.search(r"\b(?:de|do|da|para|em)\b", address_tail)
+            or _PROFILE_LOCATION_CONTEXT_PATTERN.search(text)
+        ):
+            return True
+    if re.search(
+        r"\blocaliz(?:e|ar)\b.{0,30}\b(?:meu|minha)\s+"
+        r"(?:perfil|conta|fazenda|granja)\b",
+        text,
+    ):
         return True
     return bool(
         _PROFILE_LOCATION_TOPIC_PATTERN.search(text)
@@ -1414,7 +1431,12 @@ def _personal_location_response(state: AgentState) -> str | None:
         if not fields:
             continue
         name = farm.get("name")
-        label = name.strip() if isinstance(name, str) and name.strip() else f"Localização {index}"
+        candidate = name.strip() if isinstance(name, str) else ""
+        label = (
+            candidate
+            if candidate and guard_output(candidate) != NO_DATA_REFUSAL
+            else f"Localização {index}"
+        )
         locations.append(f"{label}: {', '.join(fields)}")
     if not locations:
         return "Não encontrei cidade, estado ou região cadastrados para as fazendas vinculadas."

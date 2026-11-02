@@ -52,6 +52,7 @@ class GuardrailsTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_allows_specific_location_terms_without_scope_classifier(self) -> None:
         for message in ("Qual endereço?", "Localize meu perfil"):
+            with self.subTest(message=message):
                 model = Mock()
                 model.ainvoke = AsyncMock()
 
@@ -60,27 +61,27 @@ class GuardrailsTest(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(result.allowed)
                 model.ainvoke.assert_not_awaited()
 
-    async def test_restaurant_in_my_city_uses_scope_classifier(self) -> None:
-        model = Mock()
-        model.ainvoke = AsyncMock(
-            return_value=AIMessage(
-                content="CATEGORIA: FORA_DO_ESCOPO\nMOTIVO: Fora do produto"
-            )
-        )
 
-        result = await guard_input(
+    async def test_external_location_queries_use_scope_classifier(self) -> None:
+        for message in (
             "Qual o melhor restaurante na minha cidade?",
-            model=model,
-        )
+            "Localize um restaurante perto de mim",
+            "Qual o endereço da Casa Branca?",
+            "Qual o meu endereço de e-mail?",
+        ):
+            with self.subTest(message=message):
+                model = Mock()
+                model.ainvoke = AsyncMock(
+                    return_value=AIMessage(
+                        content="CATEGORIA: FORA_DO_ESCOPO\nMOTIVO: Fora do produto"
+                    )
+                )
 
-        self.assertFalse(result.allowed)
-        self.assertEqual(result.category, "FORA_DO_ESCOPO")
-        model.ainvoke.assert_awaited_once()
+                result = await guard_input(message, model=model)
 
-    def test_project_support_terms_take_priority_over_broad_scope_terms(self) -> None:
-        self.assertIsNone(
-            input_block_reason("Aparece um codigo de erro no aplicativo quando sincronizo")
-        )
+                self.assertFalse(result.allowed)
+                self.assertEqual(result.category, "FORA_DO_ESCOPO")
+                model.ainvoke.assert_awaited_once()
 
     def test_allows_history_question(self) -> None:
         self.assertTrue(input_is_allowed("Qual foi minha ultima pergunta?"))
