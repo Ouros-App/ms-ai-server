@@ -16,7 +16,6 @@ from app.debug_ui.router import (
     _debug_client_auth,
     _oauth_error,
     _principal_needs_refresh,
-    _wrap_inline_chart_scripts,
     install_debug_ui,
 )
 from app.debug_ui.trace import capture_debug_trace, trace_event

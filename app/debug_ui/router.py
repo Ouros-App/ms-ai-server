@@ -175,9 +175,7 @@ def _skip_js_template_literal(source: str, start: int) -> int:
             frames[-1] = (False, 1)
             previous_token = ""
             index += 2
-        elif in_template:
-            index += 1
-        elif character.isspace():
+        elif in_template or character.isspace():
             index += 1
         elif source.startswith("//", index):
             newline = source.find("\n", index + 2)
