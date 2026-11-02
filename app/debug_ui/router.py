@@ -1,5 +1,5 @@
-import re
 from array import array
+from collections.abc import Iterator
 from hashlib import sha256
 from html.parser import HTMLParser
 from pathlib import Path
@@ -44,17 +44,252 @@ MAX_DEBUG_VISUALIZATION_HTML_CHARS = 1_500_000
 MAX_DEBUG_VISUALIZATION_FORM_BYTES = 6_000_000
 STATIC_DIR = Path(__file__).with_name("static")
 
-_BARE_RETURN_PATTERN = re.compile(r"\breturn\s*;", re.IGNORECASE)
-_FUNCTION_CONTEXT_PATTERN = re.compile(
-    r"\bfunction\b|=>|(?:^|[;{}])\s*(?:async\s+|static\s+|get\s+|set\s+)*"
-    r"(?!(?:if|for|while|switch|catch|with)\b)[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{"
-)
 _SCRIPT_TYPES = {
     "text/javascript",
     "application/javascript",
     "text/ecmascript",
     "application/ecmascript",
 }
+_REGEX_PREFIX_TOKENS = {
+    "",
+    "(",
+    "[",
+    "{",
+    "=",
+    ":",
+    ",",
+    ";",
+    "!",
+    "?",
+    "=>",
+    "&&",
+    "||",
+    "??",
+    "return",
+    "case",
+    "throw",
+    "delete",
+    "void",
+    "typeof",
+    "new",
+    "in",
+    "of",
+    "yield",
+    "await",
+    "+",
+    "-",
+    "*",
+    "/",
+    "%",
+    "&",
+    "|",
+    "^",
+    "~",
+    "<",
+    ">",
+    "==",
+    "!=",
+    "===",
+    "!==",
+    "<=",
+    ">=",
+    "**",
+    "<<",
+    ">>",
+    "+=",
+    "-=",
+    "*=",
+    "/=",
+}
+_CONTROL_PAREN_TOKENS = {"if", "for", "while", "switch", "catch", "with"}
+_METHOD_BOUNDARY_TOKENS = {
+    "{", "}", ",", "static", "get", "set", "async", "*"
+}
+
+
+def _is_js_identifier_start(character: str) -> bool:
+    return (
+        character == "_"
+        or character == "$"
+        or character.isalpha()
+        or ord(character) >= 128
+    )
+
+
+def _is_js_identifier_part(character: str) -> bool:
+    return _is_js_identifier_start(character) or character.isdigit()
+
+
+def _skip_js_quoted_literal(source: str, start: int, quote: str) -> int:
+    index = start + 1
+    while index < len(source):
+        character = source[index]
+        if character == "\\":
+            index += 2
+        elif character == quote:
+            return index + 1
+        else:
+            index += 1
+    return len(source)
+
+
+def _skip_js_regex_literal(source: str, start: int) -> int:
+    index = start + 1
+    in_character_class = False
+    while index < len(source):
+        character = source[index]
+        if character in "\r\n":
+            return start + 1
+        if character == "\\":
+            index += 2
+            continue
+        if character == "[":
+            in_character_class = True
+        elif character == "]":
+            in_character_class = False
+        elif character == "/" and not in_character_class:
+            index += 1
+            while index < len(source) and _is_js_identifier_part(source[index]):
+                index += 1
+            return index
+        index += 1
+    return start + 1
+
+
+def _skip_js_template_literal(source: str, start: int) -> int:
+    frames: list[tuple[bool, int]] = [(True, 0)]
+    previous_token = ""
+    index = start + 1
+    while index < len(source):
+        in_template, brace_depth = frames[-1]
+        character = source[index]
+        if character == "\\":
+            index += 2
+        elif in_template and character == "`":
+            frames.pop()
+            index += 1
+            if not frames:
+                return index
+            previous_token = "<literal>"
+        elif in_template and source.startswith("${", index):
+            frames[-1] = (False, 1)
+            previous_token = ""
+            index += 2
+        elif in_template:
+            index += 1
+        elif character.isspace():
+            index += 1
+        elif source.startswith("//", index):
+            newline = source.find("\n", index + 2)
+            index = len(source) if newline < 0 else newline + 1
+        elif source.startswith("/*", index):
+            closing = source.find("*/", index + 2)
+            index = len(source) if closing < 0 else closing + 2
+        elif character in "'\"":
+            index = _skip_js_quoted_literal(source, index, character)
+            previous_token = "<literal>"
+        elif character == "`":
+            frames.append((True, 0))
+            previous_token = "<literal>"
+            index += 1
+        elif character == "/" and previous_token in _REGEX_PREFIX_TOKENS:
+            regex_end = _skip_js_regex_literal(source, index)
+            if regex_end == index + 1:
+                previous_token = "/"
+                index += 1
+            else:
+                previous_token = "<literal>"
+                index = regex_end
+        elif character == "{":
+            frames[-1] = (False, brace_depth + 1)
+            previous_token = character
+            index += 1
+        elif character == "}":
+            brace_depth -= 1
+            frames[-1] = (True, 0) if brace_depth == 0 else (False, brace_depth)
+            previous_token = character
+            index += 1
+        elif _is_js_identifier_start(character):
+            token_start = index
+            index += 1
+            while index < len(source) and _is_js_identifier_part(source[index]):
+                index += 1
+            previous_token = source[token_start:index]
+        elif character.isdigit():
+            index += 1
+            while index < len(source) and (
+                _is_js_identifier_part(source[index]) or source[index] == "."
+            ):
+                index += 1
+            previous_token = "<literal>"
+        else:
+            previous_token = character
+            index += 1
+    return len(source)
+
+
+def _iter_js_tokens(source: str) -> Iterator[tuple[str, str, int, int]]:
+    index = 0
+    previous_token = ""
+    while index < len(source):
+        character = source[index]
+        if character.isspace():
+            index += 1
+            continue
+        if source.startswith("//", index):
+            newline = source.find("\n", index + 2)
+            index = len(source) if newline < 0 else newline + 1
+            continue
+        if source.startswith("/*", index):
+            closing = source.find("*/", index + 2)
+            index = len(source) if closing < 0 else closing + 2
+            continue
+        if character in "'\"`":
+            start = index
+            index = (
+                _skip_js_template_literal(source, index)
+                if character == "`"
+                else _skip_js_quoted_literal(source, index, character)
+            )
+            token, kind = "<literal>", "literal"
+        elif character == "/" and previous_token in _REGEX_PREFIX_TOKENS:
+            start = index
+            index = _skip_js_regex_literal(source, index)
+            if index == start + 1:
+                index += 1
+                token, kind = "/", "punctuation"
+            else:
+                token, kind = "<literal>", "literal"
+        elif _is_js_identifier_start(character):
+            start = index
+            index += 1
+            while index < len(source) and _is_js_identifier_part(source[index]):
+                index += 1
+            token, kind = source[start:index], "identifier"
+        elif character.isdigit():
+            start = index
+            index += 1
+            while index < len(source) and (
+                _is_js_identifier_part(source[index]) or source[index] == "."
+            ):
+                index += 1
+            token, kind = "<literal>", "literal"
+        else:
+            start = index
+            token = next(
+                (
+                    operator
+                    for operator in (
+                        "===", "!==", "=>", "?.", "...", "&&", "||", "??", "++", "--"
+                    )
+                    if source.startswith(operator, index)
+                ),
+                character,
+            )
+            index += len(token)
+            kind = "punctuation"
+        previous_token = token
+        yield token, kind, start, index
 
 
 class _InlineScriptCollector(HTMLParser):
@@ -557,8 +792,109 @@ async def debug_visualization(
     )
 
 
+def _has_top_level_bare_return(script: str) -> bool:
+    """Detect top-level ``return;`` without rescanning function-like text."""
+    previous_token = ""
+    before_previous_token = ""
+    previous_kind = ""
+    function_parameters_pending = False
+    function_body_pending = False
+    arrow_body_pending = False
+    function_parameters = bytearray()
+    function_bodies = bytearray()
+    class_bodies = bytearray()
+    class_body_pending: list[tuple[int, int]] = []
+    bracket_depth = 0
+    function_depth = 0
+    bare_return_end: int | None = None
+
+    for token, kind, start, end in _iter_js_tokens(script):
+        if bare_return_end is not None:
+            between = script[bare_return_end:start]
+            if token == ";" and function_depth == 0 and all(
+                character.isspace() for character in between
+            ):
+                return True
+            bare_return_end = None
+
+        if token != "{":
+            function_body_pending = False
+            arrow_body_pending = False
+
+        if token == "(":
+            is_method = (
+                previous_kind == "identifier"
+                and previous_token not in _CONTROL_PAREN_TOKENS
+                and (
+                    before_previous_token in _METHOD_BOUNDARY_TOKENS
+                    or (
+                        before_previous_token == ";"
+                        and bool(class_bodies and class_bodies[-1])
+                    )
+                )
+            )
+            function_parameters.append(function_parameters_pending or is_method)
+            function_parameters_pending = False
+        elif token == ")":
+            if function_parameters and function_parameters.pop():
+                function_body_pending = True
+        elif token == "[":
+            bracket_depth += 1
+        elif token == "]":
+            bracket_depth = max(0, bracket_depth - 1)
+        elif token == "=>":
+            arrow_body_pending = True
+        elif token == "{":
+            class_header = (len(function_parameters), bracket_depth)
+            is_class_body = (
+                bool(class_body_pending)
+                and class_body_pending[-1] == class_header
+            )
+            if is_class_body:
+                class_body_pending.pop()
+            class_bodies.append(is_class_body)
+
+            is_function_body = function_body_pending or arrow_body_pending
+            function_bodies.append(is_function_body)
+            if is_function_body:
+                function_depth += 1
+            function_body_pending = False
+            arrow_body_pending = False
+        elif token == "}":
+            if class_bodies:
+                class_bodies.pop()
+            if function_bodies and function_bodies.pop():
+                function_depth -= 1
+
+        if token == "class" and previous_token not in {".", "?."}:
+            class_body_pending.append((len(function_parameters), bracket_depth))
+        elif (
+            class_body_pending
+            and class_body_pending[-1] == (len(function_parameters), bracket_depth)
+            and token in {";", ":", "="}
+        ):
+            class_body_pending.pop()
+
+        if token == "function":
+            function_parameters_pending = True
+        elif function_parameters_pending and token in {";", "="}:
+            function_parameters_pending = False
+
+        if (
+            token == "return"
+            and function_depth == 0
+            and previous_token not in {".", "?."}
+        ):
+            bare_return_end = end
+
+        before_previous_token, previous_token = previous_token, token
+        previous_kind = kind
+
+    return False
+
+
 def _wrap_inline_chart_scripts(html: str) -> str:
-    """Allow generated top-level returns in inline scripts without HTML regex backtracking."""
+    """Wrap inline JavaScript scripts that contain a top-level bare return."""
     parser = _InlineScriptCollector(html)
     parser.feed(html)
     parser.close()
@@ -567,12 +903,11 @@ def _wrap_inline_chart_scripts(html: str) -> str:
     cursor = 0
     for _, content_start, content_end, _, attrs in parser.scripts:
         script = html[content_start:content_end]
-        script_type = attrs.get("type")
+        script_type = (attrs.get("type") or "").strip("\t\n\f\r ").lower()
         if (
             "src" in attrs
-            or (script_type is not None and script_type.lower() not in _SCRIPT_TYPES)
-            or not _BARE_RETURN_PATTERN.search(script)
-            or _FUNCTION_CONTEXT_PATTERN.search(script)
+            or (script_type and script_type not in _SCRIPT_TYPES)
+            or not _has_top_level_bare_return(script)
         ):
             continue
         parts.extend(

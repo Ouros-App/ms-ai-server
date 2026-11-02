@@ -649,18 +649,69 @@ def test_debug_visualization_wraps_script_with_attributed_end_tag() -> None:
     assert "})();</script\t\n bar>" in response.text
 
 
-def test_debug_visualization_preserves_functions_and_unclosed_script_tags() -> None:
-    script_with_function_return = (
+def test_debug_visualization_preserves_script_scopes_and_normalizes_types() -> None:
+    principal = Principal(
+        subject="keycloak-user",
+        user_id="42",
+        user_type="admin",
+        access_token="signed-access-token",
+    )
+    function_scripts = (
         "<script>function draw(){return;} var rows=[1];</script>"
         "<script>use(rows)</script>"
+        "<script>class Chart { value = 1; draw(){return;} }</script>"
     )
-    repeated_unclosed_scripts = "<script>return;" * 4_000
+    top_level_return = (
+        "<script>const values = rows.map(x => x); "
+        "if (!values.length) return;</script>"
+    )
+    typed_returns = (
+        '<script type="">if (!rows.length) return;</script>'
+        '<script type=" text/javascript ">if (!rows.length) return;</script>'
+    )
+    literal_returns = (
+        "<script>const text = 'return;'; const pattern = /return;/; "
+        "const template = `outer ${`return;`}`;</script>"
+    )
+    repeated_calls = (
+        "<script>" + ";foo(" * 10_000 + "return;</script>"
+    )
+    html = (
+        function_scripts
+        + top_level_return
+        + typed_returns
+        + literal_returns
+        + repeated_calls
+    )
+    expected = (
+        function_scripts
+        + "<script>(()=>{\n"
+        + "const values = rows.map(x => x); if (!values.length) return;\n"
+        + "})();</script>"
+        + '<script type="">(()=>{\nif (!rows.length) return;\n})();</script>'
+        + '<script type=" text/javascript ">(()=>{\n'
+        + "if (!rows.length) return;\n})();</script>"
+        + literal_returns
+        + "<script>(()=>{\n"
+        + ";foo(" * 10_000
+        + "return;\n})();</script>"
+    )
 
-    assert (
-        _wrap_inline_chart_scripts(script_with_function_return)
-        == script_with_function_return
-    )
-    assert _wrap_inline_chart_scripts(repeated_unclosed_scripts) == repeated_unclosed_scripts
+    with (
+        patch.object(settings, "debug_ui_enabled", True),
+        patch.object(settings, "debug_ui_cookie_secure", False),
+        patch(
+            "app.debug_ui.router.principal_from_token",
+            new=AsyncMock(return_value=principal),
+        ),
+    ):
+        app = build_debug_app()
+        with TestClient(app) as client:
+            client.cookies.set(COOKIE_NAME, "signed-access-token", path="/debug")
+            response = client.post("/debug/api/visualization", data={"html": html})
+
+    assert response.status_code == 200
+    assert response.text == expected
 
 
 def test_debug_visualization_rejects_malformed_form_body() -> None:
