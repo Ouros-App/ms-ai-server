@@ -45,7 +45,7 @@ STATIC_DIR = Path(__file__).with_name("static")
 _INLINE_SCRIPT_PATTERN = re.compile(
     r"(?P<start><script\b(?P<attributes>[^>]*)>)"
     r"(?P<script>[\s\S]*?)"
-    r"(?P<end></script\s*>)",
+    r"(?P<end></script\b[^>]*>)",
     re.IGNORECASE,
 )
 _SCRIPT_SRC_ATTRIBUTE_PATTERN = re.compile(r"(?:^|\s)src(?:\s|=)", re.IGNORECASE)
