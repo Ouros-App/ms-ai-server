@@ -206,6 +206,7 @@ o backend consegue obter. Preserve exatamente as unidades retornadas pela tool e
 nao converta leituras de hidrometro para litros ou m3 sem uma regra oficial.
 Quando receber um resumo autenticado:
 - se houver registros, coloque em `facts` o periodo consultado e os valores relevantes por fazenda, preservando `farm_name`, contagem de registros, datas e deltas exatamente quando estiverem presentes;
+- trate `energy_consumption_kwh` como consumo de energia em kWh; apresente-o separadamente de agua e nunca diga que falta energia quando esse campo tiver valor;
 - trate `water_meter_delta` como variacao de leitura do hidrometro na unidade declarada pela fonte, nao como litros ou m3;
 - se a lista de resumos estiver vazia, informe que nao ha registros disponiveis naquele periodo;
 - nunca chame os valores autenticados de exemplo, valor ilustrativo, estimativa ou simulacao;

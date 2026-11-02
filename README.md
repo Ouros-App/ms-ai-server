@@ -204,6 +204,12 @@ próprio e falhas são degradadas para um erro seguro, sem vazar exceções ou d
 toda a conversa. O Request Trace registra apenas metadados estruturais dos resultados
 de tools, nunca o conteúdo operacional retornado pela fazenda.
 
+Consultas de localização do perfil usam `get_user_context` quando pedem
+`localize*`/endereço ou quando cidade, estado, região ou onde aparecem com
+contexto de cadastro/conta; termos genéricos não acionam essa consulta pessoal.
+Quando uma pergunta combina localização cadastrada e consumo, o backend busca
+ambos os dados autenticados e compõe uma resposta determinística.
+
 ### Decisão Jev
 
 O Jev usa o endpoint System One da TypeSafe para propor uma rota, ferramentas MCP
@@ -219,7 +225,9 @@ registrá-la no trace da requisição. Com shadow desligado, baixa confiança, f
 provedor, decisão inválida ou analytics indisponível usam o roteador atual como
 fallback. O backend de analytics ainda não está conectado; por isso uma decisão que
 dependa dele é recusada. Ferramentas continuam limitadas pela allowlist do especialista,
-e o prefetch autenticado de consumo segue sendo controlado pelo backend.
+e o prefetch autenticado de consumo e localização segue controlado pelo backend.
+Quando a consulta retorna dados pessoais, o AI Server apresenta os valores
+estruturados diretamente, sem depender de síntese do modelo.
 
 As rotas usam os nomes reais já existentes no AI Server: `faq` cobre conhecimento,
 `ranking` cobre indicadores/analytics disponíveis, e `default` cobre respostas gerais.
@@ -289,6 +297,10 @@ curl -X POST http://localhost:8000/v1/chat \
 A resposta inclui `measurement_import_preview` com registros normalizados (`kind`, `registration_date` e campos da medição), referências às linhas de origem, `issues` e `requires_confirmation: true`. O conteúdo extraído é enviado ao modelo configurado para normalização; o arquivo bruto não é guardado, mas os registros estruturados permanecem no checkpoint da conversa até a próxima mensagem, quando o contexto de importação é removido. A prévia não grava medições: após revisão/confirmação, o mobile envia as linhas válidas a `POST /measurement-imports` do ms-spring-api com o token do produtor. A API de domínio valida a fazenda e grava água e energia em uma única transação.
 
 A resposta contém `thread_id`, `message`, `agents`, `tools` e `visualizations`. `visualizations` é uma lista vazia por padrão; quando o usuário pede um painel ou pergunta sobre desempenho em um período, contém HTML Plotly por gráfico para o cliente renderizar em WebView. O painel é temporário e combina no máximo quatro gráficos permitidos. A console de debug também renderiza esses gráficos em iframes isolados; o HTML não é persistido no histórico local do navegador. A identidade efetiva vem sempre do claim assinado `database_id`; `user_id`, quando enviado por clientes antigos, é apenas um campo de compatibilidade e precisa coincidir com o JWT. O `sub` continua sendo a identidade estável do Keycloak. O primeiro chat vincula o `thread_id` ao usuário autenticado e essa posse é imutável.
+
+Na console de debug, scripts inline com `return;` no nível superior são
+envolvidos em uma função antes da execução, permitindo exibir o estado vazio
+do gráfico em vez de deixar o iframe em branco.
 
 O histórico aceita `limit` entre 1 e 100, com padrão 20, e o cursor `before` para buscar a página anterior:
 

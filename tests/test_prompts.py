@@ -67,6 +67,7 @@ class PromptTest(unittest.TestCase):
             SYNTHESIZER_PROMPT,
         )
         self.assertIn("water_meter_delta", SUSTAINABILITY_AGENT_PROMPT)
+        self.assertIn("energy_consumption_kwh", SUSTAINABILITY_AGENT_PROMPT)
 
     def test_sustainability_requires_baseline_for_performance_claims(self) -> None:
         self.assertIn("baseline", SUSTAINABILITY_AGENT_PROMPT)
