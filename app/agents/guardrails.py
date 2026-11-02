@@ -83,10 +83,19 @@ _ASSISTANT_IDENTITY_PATTERN = re.compile(
 _FOLLOW_UP_PATTERN = re.compile(r"^(sim|nao|isso|esse|essa|pode|continue|entendi|e depois)\b")
 _PERSONAL_PROJECT_PATTERN = re.compile(
     r"\b(?:minha|minhas|meu|meus)\b.{0,50}\b(?:fazenda|granja|consumo|gasto|dados|meta|historico|"
-    r"localizacao|cidade|estado|regiao|endereco)\b"
+    r"localizacao|endereco)\b"
     r"|\b(?:fazenda|granja|consumo|gasto|dados|meta|historico|localizacao|"
-    r"cidade|estado|regiao|endereco)\b.{0,50}\b(?:minha|minhas|meu|meus)\b"
+    r"endereco)\b.{0,50}\b(?:minha|minhas|meu|meus)\b"
 )
+_PERSONAL_PROFILE_LOCATION_PATTERN = re.compile(
+    r"\b(?:cidade|estado|regiao)\b.{0,60}\b(?:cadastrad\w*|registrad\w*|"
+    r"vinculad\w*|perfil|(?:minha|minhas|sua|suas)\s+(?:conta|fazenda|"
+    r"fazendas|granja|granjas))\b"
+    r"|\b(?:cadastrad\w*|registrad\w*|vinculad\w*|perfil|"
+    r"(?:minha|minhas|sua|suas)\s+(?:conta|fazenda|fazendas|granja|granjas))\b"
+    r".{0,60}\b(?:cidade|estado|regiao)\b"
+)
+_SPECIFIC_PROFILE_LOCATION_PATTERN = re.compile(r"\b(?:localiz\w*|endereco)\b")
 _CLEAR_PROJECT_REQUEST_PATTERN = re.compile(
     r"\b(?:como|qual|quais|onde|posso|acompanho|funciona|uso|usar)\b.{0,100}"
     r"\b(?:midas|aplicativo|app)\b"
@@ -239,8 +248,12 @@ async def guard_input(
     ):
         return InputGuardrailResult(True, "APROVADO", "", sanitized, pii_map)
     if (
-        (_PERSONAL_PROJECT_PATTERN.search(normalized_sanitized)
-         or _CLEAR_PROJECT_REQUEST_PATTERN.search(normalized_sanitized))
+        (
+            _PERSONAL_PROJECT_PATTERN.search(normalized_sanitized)
+            or _PERSONAL_PROFILE_LOCATION_PATTERN.search(normalized_sanitized)
+            or _SPECIFIC_PROFILE_LOCATION_PATTERN.search(normalized_sanitized)
+            or _CLEAR_PROJECT_REQUEST_PATTERN.search(normalized_sanitized)
+        )
         and not any(pattern.search(normalized_sanitized) for pattern in _OUT_OF_SCOPE_PATTERNS)
     ):
         return InputGuardrailResult(True, "APROVADO", "", sanitized, pii_map)

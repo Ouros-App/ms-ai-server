@@ -235,8 +235,15 @@ _PERSONAL_DATA_TOPIC_PATTERN = re.compile(
 _CONSUMPTION_TOPIC_PATTERN = re.compile(
     r"\b(?:consumo\w*|agua|energia|medicao\w*|registro\w*)\b"
 )
+_CONSUMPTION_FORECAST_PATTERN = re.compile(
+    r"\b(?:esperad\w*|previst\w*|previs\w*|futur\w*)\b"
+)
 _PROFILE_LOCATION_TOPIC_PATTERN = re.compile(
     r"\b(?:localiza\w*|cidade|estado|regiao|endereco|onde)\b"
+)
+_PROFILE_LOCATION_CONTEXT_PATTERN = re.compile(
+    r"\b(?:cadastrad\w*|registrad\w*|vinculad\w*|perfil|"
+    r"(?:minha|minhas|sua|suas)\s+(?:conta|fazenda|fazendas|granja|granjas))\b"
 )
 _DASHBOARD_REQUEST_PATTERN = re.compile(
     r"\b(?:dashboard\w*|painel\w*|grafico\w*|chart\w*|visualiz\w*|"
@@ -515,6 +522,14 @@ def _is_personal_data_request(agent_name: str, user_text: str) -> bool:
         agent_name == "sustainability"
         and _CONSUMPTION_TOPIC_PATTERN.search(text)
         and _extract_period_days(text) is not None
+        and not _is_non_personal_forecast(text)
+    )
+
+
+def _is_non_personal_forecast(text: str) -> bool:
+    return bool(
+        _CONSUMPTION_FORECAST_PATTERN.search(text)
+        and not _PERSONAL_MARKER_PATTERN.search(text)
     )
 
 
@@ -524,16 +539,21 @@ def _is_personal_consumption_request(user_text: str) -> bool:
         _CONSUMPTION_TOPIC_PATTERN.search(text)
         and (
             _PERSONAL_MARKER_PATTERN.search(text)
-            or _extract_period_days(text) is not None
+            or (
+                _extract_period_days(text) is not None
+                and not _is_non_personal_forecast(text)
+            )
         )
     )
 
 
 def _is_personal_location_request(user_text: str) -> bool:
     text = _normalize_route_text(user_text)
+    if re.search(r"\b(?:localiz\w*|endereco)\b", text):
+        return True
     return bool(
-        _PERSONAL_MARKER_PATTERN.search(text)
-        and _PROFILE_LOCATION_TOPIC_PATTERN.search(text)
+        _PROFILE_LOCATION_TOPIC_PATTERN.search(text)
+        and _PROFILE_LOCATION_CONTEXT_PATTERN.search(text)
     )
 
 
@@ -1394,7 +1414,7 @@ def _personal_location_response(state: AgentState) -> str | None:
         if not fields:
             continue
         name = farm.get("name")
-        label = name.strip() if isinstance(name, str) and name.strip() else f"Fazenda {index}"
+        label = name.strip() if isinstance(name, str) and name.strip() else f"Localização {index}"
         locations.append(f"{label}: {', '.join(fields)}")
     if not locations:
         return "Não encontrei cidade, estado ou região cadastrados para as fazendas vinculadas."
@@ -1482,9 +1502,12 @@ async def default_agent(state: AgentState) -> dict:
     visualizations = current_mcp_visualizations()
     content = _default_quick_response(state)
     if content is None:
-        content = _personal_location_response(state)
-    if content is None:
-        content = _personal_consumption_response(state)
+        location_content = _personal_location_response(state)
+        consumption_content = _personal_consumption_response(state)
+        if location_content is not None and consumption_content is not None:
+            content = f"{location_content} {consumption_content}"
+        else:
+            content = location_content or consumption_content
     if content is None:
         content = (
             _dashboard_confirmation(visualizations)

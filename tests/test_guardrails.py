@@ -50,6 +50,33 @@ class GuardrailsTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.allowed)
         model.ainvoke.assert_not_awaited()
 
+    async def test_allows_specific_location_terms_without_scope_classifier(self) -> None:
+        for message in ("Qual endereço?", "Localize meu perfil"):
+                model = Mock()
+                model.ainvoke = AsyncMock()
+
+                result = await guard_input(message, model=model)
+
+                self.assertTrue(result.allowed)
+                model.ainvoke.assert_not_awaited()
+
+    async def test_restaurant_in_my_city_uses_scope_classifier(self) -> None:
+        model = Mock()
+        model.ainvoke = AsyncMock(
+            return_value=AIMessage(
+                content="CATEGORIA: FORA_DO_ESCOPO\nMOTIVO: Fora do produto"
+            )
+        )
+
+        result = await guard_input(
+            "Qual o melhor restaurante na minha cidade?",
+            model=model,
+        )
+
+        self.assertFalse(result.allowed)
+        self.assertEqual(result.category, "FORA_DO_ESCOPO")
+        model.ainvoke.assert_awaited_once()
+
     def test_project_support_terms_take_priority_over_broad_scope_terms(self) -> None:
         self.assertIsNone(
             input_block_reason("Aparece um codigo de erro no aplicativo quando sincronizo")

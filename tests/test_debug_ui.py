@@ -588,6 +588,39 @@ def test_debug_visualization_renders_plotly_html_with_isolated_csp() -> None:
     assert response.headers["cache-control"] == "no-store"
 
 
+def test_debug_visualization_wraps_inline_scripts_with_bare_return() -> None:
+    principal = Principal(
+        subject="keycloak-user",
+        user_id="42",
+        user_type="admin",
+        access_token="signed-access-token",
+    )
+    html = (
+        "<!doctype html><html><body><div id='empty' hidden></div>"
+        "<script>if (!rows.length) { "
+        "document.getElementById('empty').hidden = false; return; "
+        "}</script></body></html>"
+    )
+
+    with (
+        patch.object(settings, "debug_ui_enabled", True),
+        patch.object(settings, "debug_ui_cookie_secure", False),
+        patch(
+            "app.debug_ui.router.principal_from_token",
+            new=AsyncMock(return_value=principal),
+        ),
+    ):
+        app = build_debug_app()
+        with TestClient(app) as client:
+            client.cookies.set(COOKIE_NAME, "signed-access-token", path="/debug")
+            response = client.post("/debug/api/visualization", data={"html": html})
+
+    assert response.status_code == 200
+    assert "(()=>{" in response.text
+    assert "document.getElementById('empty').hidden = false; return;" in response.text
+    assert "})();</script>" in response.text
+
+
 def test_debug_visualization_rejects_malformed_form_body() -> None:
     principal = Principal(
         subject="keycloak-user",

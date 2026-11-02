@@ -23,6 +23,8 @@ from app.agents.graph import (
     _invoke_model,
     _is_dashboard_creation_request,
     _is_pending_followup,
+    _is_personal_consumption_request,
+    _is_personal_data_request,
     _is_visualization_subject_reply,
     _merge_tools,
     _normalize_specialist_result,
@@ -1010,6 +1012,69 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                     _is_personal_data_request("ranking", message)
                 )
 
+
+    def test_forecast_period_does_not_trigger_personal_consumption_lookup(self) -> None:
+        forecast_questions = (
+            "Qual é o consumo esperado de energia de uma granja em 30 dias?",
+            "Qual o consumo previsto de água no futuro, em 90 dias?",
+            "Qual é a previsão de consumo de energia para os próximos 30 dias?",
+        )
+        for message in forecast_questions:
+            with self.subTest(message=message):
+                self.assertFalse(_is_personal_consumption_request(message))
+                self.assertFalse(
+                    _is_personal_data_request("sustainability", message)
+                )
+
+        self.assertTrue(
+            _is_personal_consumption_request(
+                "Qual foi o total de água e energia consumidas nos últimos 90 dias?"
+            )
+        )
+        self.assertTrue(
+            _is_personal_consumption_request(
+                "Qual foi meu consumo esperado de energia nos próximos 30 dias?"
+            )
+        )
+
+    async def test_generic_city_mentions_do_not_route_to_account_location(self) -> None:
+        for message in (
+            "Previsão do tempo na minha cidade",
+            "Qual o melhor restaurante na minha cidade?",
+        ):
+            with self.subTest(message=message):
+                with patch(
+                    "app.agents.graph._resolve_jev_route",
+                    new=AsyncMock(return_value=(["sustainability"], "jev", {})),
+                ):
+                    result = await route_request(
+                        {
+                            "messages": [HumanMessage(content=message)],
+                            "input_guardrail": {"allowed": True},
+                            "route": "",
+                            "pending_by_route": {},
+                        }
+                    )
+                self.assertEqual(result["routes"], ["sustainability"])
+
+
+    async def test_specific_location_terms_route_to_account_context(self) -> None:
+        for message in ("Qual endereço?", "Localize meu perfil"):
+            with self.subTest(message=message):
+                with patch(
+                    "app.agents.graph._resolve_jev_route",
+                    new=AsyncMock(return_value=(["sustainability"], "jev", {})),
+                ):
+                    result = await route_request(
+                        {
+                            "messages": [HumanMessage(content=message)],
+                            "input_guardrail": {"allowed": True},
+                            "route": "",
+                            "pending_by_route": {},
+                        }
+                    )
+                self.assertCountEqual(result["routes"], ["faq", "sustainability"])
+
     async def test_personal_location_query_uses_authenticated_context(self) -> None:
         context_tool = Mock()
         context_tool.name = "get_user_context"
@@ -1019,7 +1084,6 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                 "enterprises": [],
                 "farms": [
                     {
-                        "name": "Granja Teste",
                         "city": "Pereiras",
                         "state": "SP",
                         "region": "Sudeste",
@@ -1035,14 +1099,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         provider.tools_for = AsyncMock(side_effect=tools_for)
         model = Mock()
         model.bind_tools.return_value = model
-        model.ainvoke = AsyncMock(
-            return_value=AIMessage(
-                content=(
-                    '{"status":"unsupported","facts":["localização indisponível"],'
-                    '"recommendations":[],"missing_data":[],"sources":[]}'
-                )
-            )
-        )
+        model.ainvoke = AsyncMock()
 
         with (
             patch("app.agents.graph.get_chat_model", return_value=model),
@@ -1063,10 +1120,12 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
             )
 
         context_tool.ainvoke.assert_awaited_once_with({})
+        model.ainvoke.assert_not_awaited()
         self.assertIn("Pereiras", response.message)
         self.assertIn("SP", response.message)
         self.assertIn("Sudeste", response.message)
         self.assertNotIn("localização indisponível", response.message)
+        self.assertIn("Localização 1", response.message)
 
     async def test_authenticated_combined_consumption_query_returns_totals(
         self,
@@ -1093,21 +1152,14 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         provider.tools_for = AsyncMock(side_effect=tools_for)
         model = Mock()
         model.bind_tools.return_value = model
-        model.ainvoke = AsyncMock(
-            side_effect=[
-                AIMessage(
-                    content=(
-                        '{"status":"ok","facts":["energia indisponível"],'
-                        '"recommendations":[],"missing_data":[],"sources":["mcp"]}'
-                    )
-                ),
-                AIMessage(content="Não há energia registrada no período."),
-                AIMessage(content="RESPOSTA: Não há energia registrada no período."),
-            ]
-        )
+        model.ainvoke = AsyncMock()
 
         with (
             patch("app.agents.graph.get_chat_model", return_value=model),
+            patch(
+                "app.agents.graph._requests_automatic_visualization",
+                return_value=False,
+            ),
             patch(
                 "app.agents.graph._resolve_jev_route",
                 new=AsyncMock(return_value=(["fallback"], "jev", {})),
@@ -1118,7 +1170,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
                 ChatRequest(
                     user_id="42",
                     thread_id="implicit-personal-consumption",
-                    message="Qual foi o total de água e energia consumidas nos últimos 90 dias?",
+                    message="Qual foi meu consumo de água e energia nos últimos 90 dias?",
                 ),
                 "42",
                 principal_token="signed-user-token",
@@ -1128,6 +1180,71 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("3450 kWh", response.message)
         self.assertIn("125", response.message)
         self.assertNotIn("Não há energia registrada", response.message)
+        model.ainvoke.assert_not_awaited()
+
+    async def test_mixed_personal_location_and_consumption_returns_both(self) -> None:
+        context_tool = Mock()
+        context_tool.name = "get_user_context"
+        context_tool.ainvoke = AsyncMock(
+            return_value={
+                "profile": {},
+                "enterprises": [],
+                "farms": [{"city": "Pereiras", "state": "SP"}],
+            }
+        )
+        summary_tool = Mock()
+        summary_tool.name = "get_consumption_summary"
+        summary_tool.ainvoke = AsyncMock(
+            return_value={
+                "authorized": True,
+                "period_days": 30,
+                "energy_unit": "kWh",
+                "summaries": [{"energy_consumption_kwh": 125}],
+            }
+        )
+        provider = Mock()
+        tool_by_agent = {
+            "faq": [context_tool],
+            "sustainability": [summary_tool],
+        }
+
+        async def tools_for(agent_name: str, **_kwargs):
+            return tool_by_agent.get(agent_name, [])
+
+        provider.tools_for = AsyncMock(side_effect=tools_for)
+        model = Mock()
+        model.ainvoke = AsyncMock()
+
+        with (
+            patch("app.agents.graph.get_chat_model", return_value=model),
+            patch(
+                "app.agents.graph._requests_automatic_visualization",
+                return_value=False,
+            ),
+            patch(
+                "app.agents.graph._resolve_jev_route",
+                new=AsyncMock(return_value=(["fallback"], "jev", {})),
+            ),
+        ):
+            response = await invoke_graph(
+                build_graph(InMemorySaver(), mcp_provider=provider),
+                ChatRequest(
+                    user_id="42",
+                    thread_id="mixed-personal-data",
+                    message=(
+                        "Qual cidade está cadastrada na minha conta e qual foi "
+                        "meu consumo de energia nos últimos 30 dias?"
+                    ),
+                ),
+                "42",
+                principal_token="signed-user-token",
+            )
+
+        context_tool.ainvoke.assert_awaited_once_with({})
+        summary_tool.ainvoke.assert_awaited_once_with({"period_days": 30})
+        self.assertIn("Pereiras", response.message)
+        self.assertIn("125 kWh", response.message)
+        model.ainvoke.assert_not_awaited()
 
     async def test_personal_consumption_query_returns_authenticated_measurement(self) -> None:
         summary_tool = Mock()

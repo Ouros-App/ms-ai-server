@@ -1,3 +1,4 @@
+import re
 from hashlib import sha256
 from pathlib import Path
 from time import time
@@ -40,6 +41,19 @@ REFRESH_LEEWAY_SECONDS = 60
 MAX_DEBUG_VISUALIZATION_HTML_CHARS = 1_500_000
 MAX_DEBUG_VISUALIZATION_FORM_BYTES = 6_000_000
 STATIC_DIR = Path(__file__).with_name("static")
+
+_INLINE_SCRIPT_PATTERN = re.compile(
+    r"(?P<start><script\b(?P<attributes>[^>]*)>)"
+    r"(?P<script>[\s\S]*?)"
+    r"(?P<end></script\s*>)",
+    re.IGNORECASE,
+)
+_SCRIPT_SRC_ATTRIBUTE_PATTERN = re.compile(r"(?:^|\s)src(?:\s|=)", re.IGNORECASE)
+_SCRIPT_TYPE_ATTRIBUTE_PATTERN = re.compile(
+    r"(?:^|\s)type\s*=\s*(['\"]?)([^'\"\s>]+)\1",
+    re.IGNORECASE,
+)
+_BARE_RETURN_PATTERN = re.compile(r"\breturn\s*;", re.IGNORECASE)
 
 router = APIRouter(prefix=DEBUG_PREFIX, include_in_schema=False)
 
@@ -479,6 +493,7 @@ async def debug_visualization(
             detail="HTML de gráfico inválido.",
         )
 
+    html = _wrap_inline_chart_scripts(html)
     return HTMLResponse(
         html,
         headers={
@@ -493,6 +508,31 @@ async def debug_visualization(
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+def _wrap_inline_chart_scripts(html: str) -> str:
+    """Make bare top-level returns legal in inline chart scripts."""
+    if not _BARE_RETURN_PATTERN.search(html):
+        return html
+
+    def wrap_script(match: re.Match[str]) -> str:
+        attributes = match.group("attributes")
+        if _SCRIPT_SRC_ATTRIBUTE_PATTERN.search(attributes):
+            return match.group(0)
+        script_type = _SCRIPT_TYPE_ATTRIBUTE_PATTERN.search(attributes)
+        if script_type and script_type.group(2).lower() not in {
+            "text/javascript",
+            "application/javascript",
+            "text/ecmascript",
+            "application/ecmascript",
+        }:
+            return match.group(0)
+        script = match.group("script")
+        if not _BARE_RETURN_PATTERN.search(script):
+            return match.group(0)
+        return f"{match.group('start')}(()=>{{\n{script}\n}})();{match.group('end')}"
+
+    return _INLINE_SCRIPT_PATTERN.sub(wrap_script, html)
 
 
 def install_debug_ui(app: FastAPI) -> None:
