@@ -42,6 +42,86 @@ As chaves de IA são opcionais para iniciar a aplicação. Todos os endpoints au
 - `app/services/`: execução do chat e leitura do histórico.
 - `tests/`: testes da API, configuração, grafo, guardrails, modelos, prompts, threads e tools.
 
+## Design e arquitetura de alto nível da IA
+
+Esta seção descreve a arquitetura **implementada** no `ms-ai-server`, com base em `app/main.py`, `app/agents/graph.py` e `app/agents/guardrails.py`. O serviço é responsável pela orquestração da conversa, não pela autorização de acesso aos dados da fazenda nem pela persistência transacional do domínio.
+
+### Visão dos componentes e integrações
+
+```mermaid
+flowchart TD
+    Mobile[Cliente mobile] --> API[API de chat FastAPI]
+    Debug[Debug Console] --> DebugAPI[API de debug FastAPI]
+    Keycloak[Keycloak JWKS] --> API
+    API --> Chat[Servico de chat]
+    DebugAPI --> Chat
+    Chat --> Guard[Guardrail de entrada]
+    Guard -->|Bloqueado| Block[Resposta sem invocar o grafo]
+    Guard -->|Permitido| LG[LangGraph]
+    Chat --> Ownership[MongoDB posse da thread]
+    LG --> CP[MongoDB checkpoints e estado]
+    API --> History[Consulta de historico]
+    DebugAPI --> History
+    History --> CP
+    LG --> Router[Router]
+    Router --> Specialists[Especialistas]
+    Router --> Default[Default]
+    Specialists --> Collect[Coleta dos resultados]
+    Collect --> Default
+    Specialists --> Memory[MongoDB memorias]
+    Specialists --> MCP[Servidor MCP]
+    MCP --> Domain[APIs e telemetria]
+    Router --> Jev[Decisor Jev opcional]
+    Router --> Providers[Groq e NVIDIA NIM]
+    Specialists --> Providers
+    Default --> Providers
+    Default --> Output[Revisao e sanitizacao]
+```
+
+**Fronteiras de responsabilidade:** o mobile chama `POST /v1/chat` usando JWT Keycloak; o Debug Console autentica em `POST /debug/api/login` e usa `POST /debug/api/chat` com sessão por cookie. Ambos chegam ao serviço de chat, que valida entrada e propriedade da thread antes de executar o grafo. `ThreadOwnershipStore` controla a posse da conversa, enquanto o histórico de mensagens é lido por `get_thread_history()` no checkpointer MongoDB. O grafo orquestra as etapas; os especialistas acessam tools restritas e o `default` sintetiza a resposta sem MCP. Groq e NVIDIA NIM fornecem modelos com fallback por perfil.
+
+### Topologia real do LangGraph
+
+O diagrama abaixo representa o **grafo compilado**. O guardrail de entrada do endpoint HTTP é uma etapa anterior e está representado no diagrama de componentes acima.
+
+```mermaid
+flowchart TD
+    Start([Inicio]) --> Router[Router]
+    Router -->|Geral ou fallback| Default[Default]
+    Router --> FAQ[FAQ]
+    Router --> Sustainability[Sustainability]
+    Router --> Ranking[Ranking]
+    Router --> Visualization[Visualization]
+    Router --> Support[Support]
+    FAQ --> Collect[Coleta de resultados]
+    Sustainability --> Collect
+    Ranking --> Collect
+    Visualization --> Collect
+    Support --> Collect
+    Collect --> Default
+    Default --> Finish([Fim])
+```
+
+1. **Pré-processamento HTTP:** `invoke_graph()` aplica `guard_input()`. Se a entrada for bloqueada, retorna a resposta com `agents=["guardrail"]` **sem chamar `graph.ainvoke()`**. A invocação direta do grafo não deve ser confundida com esse caminho HTTP.
+2. **Roteamento no grafo:** `router` escolhe as rotas a partir do contexto e das decisões disponíveis. O Jev, quando habilitado, pode propor rotas; em modo shadow apenas compara decisões. Rota `fallback` e seleção sem especialista chegam diretamente a `default`, sem nó `fallback`.
+3. **Fan-out:** `dispatch_agents()` usa `Send` para iniciar até quatro especialistas independentes em paralelo.
+4. **Execução especializada:** especialistas devolvem resultados estruturados em JSON e utilizam memória/MCP somente sob allowlist, timeout e escopo autenticado.
+5. **Fan-in:** `collect_specialist_results` registra pendências por rota, inclusive `needs_input`, permitindo continuar o trabalho no turno seguinte.
+6. **Síntese:** `default` produz a resposta com os resultados estruturados, ou utiliza uma resposta direta quando apropriado. Não executa tools MCP.
+7. **Saída:** respostas sintetizadas pelo modelo passam por `review_output()`, incluindo revisão semântica e sanitização via `guard_output()`. Respostas rápidas ou determinísticas recebem sanitização final.
+
+O estado `AgentState` estende `MessagesState` e inclui identidade, rotas, origem da decisão, tools utilizadas, resultados de especialistas e tarefas pendentes. O grafo é compilado com `checkpointer` MongoDB para manter contexto entre turnos. Visualizações retornam separadas do texto.
+
+### Segurança e observabilidade
+
+A identidade vem dos claims validados do JWT, e o backend controla a posse de cada `thread_id`. O serviço aplica anonimização/guardrails na entrada, restringe tools MCP por especialista e usa troca de tokens para chamadas de backend autorizadas, sem deixar o LLM escolher livremente identificadores de usuário/fazenda ou executar SQL arbitrário. A aplicação expõe métricas Prometheus e, quando habilitado, trace de debug para rotas, agentes e tools, sem incluir o conteúdo sensível das consultas.
+
+### Auditoria: existe um agente juiz (LLM-as-a-Judge)?
+
+**Situação atual: não existe um nó `judge` independente no `StateGraph`.** O código possui `review_output()`, um revisor semântico de saída com LLM, e `guard_output()`, que aplica regras de privacidade e remoção de segredos. Essas etapas fornecem uma **revisão de segurança/forma**, mas não constituem uma avaliação sistemática de fundamentação, consistência factual, evidências das tools ou concordância entre especialistas.
+
+Para cumprir um eventual requisito específico de **LLM-as-a-Judge**, será necessário implementar uma etapa distinta de avaliação, preferencialmente após a síntese, com critérios claros, saída estruturada, política de reprovação/fallback, métricas e testes. **Essa etapa é uma proposta futura, não parte do fluxo implementado acima.** A arquitetura de alto nível do LangGraph, por outro lado, já existe.
+
 ## Pré-requisitos
 
 - Docker e Docker Compose para a execução completa com MongoDB.
