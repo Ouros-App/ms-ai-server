@@ -54,7 +54,10 @@ class MetricsTest(unittest.TestCase):
                             usage_metadata={
                                 "input_tokens": 1_000,
                                 "output_tokens": 1_000,
-                                "input_token_details": {"cache_read": 200},
+                                "input_token_details": {
+                                    "cache_read": 200,
+                                    "cache_creation": 100,
+                                },
                             }
                         )
                     )
@@ -68,7 +71,7 @@ class MetricsTest(unittest.TestCase):
         callback.on_llm_end(response)
 
         self.assertEqual(input_tokens._value.get() - input_before, 1_000)
-        self.assertAlmostEqual(cost._value.get() - cost_before, 0.000582)
+        self.assertAlmostEqual(cost._value.get() - cost_before, 0.0005845)
         self.assertEqual(request_count._value.get() - requests_before, 1)
 
         exposition = generate_latest().decode()

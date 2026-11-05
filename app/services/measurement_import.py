@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 MAX_EXPANDED_XLSX_BYTES = 25 * 1024 * 1024
+MEASUREMENT_IMPORT_MAX_COMPLETION_TOKENS = 32768
 # shortcut: imports are capped at 500 rows; raise with the Spring API batch limit.
 MAX_IMPORT_RECORDS = 500
 MAX_IMPORT_COLUMNS = 50
@@ -276,6 +277,7 @@ async def normalize_measurement_attachment(
     structured_model = get_structured_chat_model(
         MeasurementImportExtraction,
         POWERFUL_LLM,
+        max_completion_tokens=MEASUREMENT_IMPORT_MAX_COMPLETION_TOKENS,
     )
     if structured_model is None:
         raise AttachmentProcessingError(

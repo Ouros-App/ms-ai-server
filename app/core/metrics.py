@@ -110,6 +110,31 @@ def _safe_route_source(source: object) -> str:
     return source if isinstance(source, str) and source in _ALLOWED_ROUTE_SOURCES else "unknown"
 
 
+def _usage_metadata(response) -> dict | None:
+    """Read message usage, falling back to provider-reported token totals."""
+    for generations in response.generations:
+        for generation in generations:
+            usage = getattr(getattr(generation, "message", None), "usage_metadata", None)
+            if isinstance(usage, dict) and usage:
+                return usage
+    usage = (response.llm_output or {}).get("token_usage")
+    return usage if isinstance(usage, dict) else None
+
+
+def _token_counts(usage: dict) -> tuple[int, int] | None:
+    """Return non-negative integer input and output token counts."""
+    input_tokens = usage.get("input_tokens", usage.get("prompt_tokens"))
+    output_tokens = usage.get("output_tokens", usage.get("completion_tokens"))
+    if (
+        type(input_tokens) is not int
+        or input_tokens < 0
+        or type(output_tokens) is not int
+        or output_tokens < 0
+    ):
+        return None
+    return input_tokens, output_tokens
+
+
 class LLMUsageCallback(BaseCallbackHandler):
     """Record bounded token, request, fallback, and OpenAI cost metrics."""
 
@@ -131,45 +156,39 @@ class LLMUsageCallback(BaseCallbackHandler):
         self.cached_input_cost_per_million_usd = cached_input_cost_per_million_usd
 
     def on_llm_end(self, response, **kwargs) -> None:
+        """Record completed calls, valid token usage, fallbacks, and cost."""
         LLM_REQUESTS.labels(self.provider, self.profile, "success").inc()
         if self.is_fallback:
             LLM_FALLBACKS.labels(self.provider, self.profile).inc()
 
-        usage = None
-        for generations in response.generations:
-            for generation in generations:
-                usage = getattr(getattr(generation, "message", None), "usage_metadata", None)
-                if usage:
-                    break
-            if usage:
-                break
+        usage = _usage_metadata(response)
         if not usage:
-            usage = (response.llm_output or {}).get("token_usage")
-        if not isinstance(usage, dict):
             return
-
-        input_tokens = usage.get("input_tokens", usage.get("prompt_tokens"))
-        output_tokens = usage.get("output_tokens", usage.get("completion_tokens"))
-        if (
-            type(input_tokens) is not int
-            or input_tokens < 0
-            or type(output_tokens) is not int
-            or output_tokens < 0
-        ):
+        token_counts = _token_counts(usage)
+        if token_counts is None:
             return
+        input_tokens, output_tokens = token_counts
         LLM_TOKENS.labels(self.provider, self.profile, "input").inc(input_tokens)
         LLM_TOKENS.labels(self.provider, self.profile, "output").inc(output_tokens)
+        self._record_openai_cost(usage, input_tokens, output_tokens)
 
+    def _record_openai_cost(
+        self,
+        usage: dict,
+        input_tokens: int,
+        output_tokens: int,
+    ) -> None:
+        """Estimate cost from configured rates and reported cache token details."""
         if self.input_cost_per_million_usd is None or self.output_cost_per_million_usd is None:
             return
         input_details = usage.get("input_token_details") or {}
         cached_input_tokens = min(
             input_tokens,
-            input_details.get("cache_read", input_details.get("cached_tokens", 0)),
+            input_details.get("cache_read", input_details.get("cached_tokens", 0)) or 0,
         )
         cache_write_tokens = min(
             input_tokens - cached_input_tokens,
-            input_details.get("cache_write", 0),
+            input_details.get("cache_creation", 0) or 0,
         )
         uncached_input_tokens = input_tokens - cached_input_tokens - cache_write_tokens
         cached_rate = self.cached_input_cost_per_million_usd or self.input_cost_per_million_usd

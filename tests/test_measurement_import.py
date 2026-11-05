@@ -1,11 +1,12 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
-from app.agents.llms import POWERFUL_LLM
-from app.schemas.measurement_import import (
-    MeasurementImportExtraction,
-    MeasurementImportPreview,
-)
+from pydantic import SecretStr
+
+from app.agents.model import get_structured_chat_model
+from app.core.config import Settings
+from app.schemas.measurement_import import MeasurementImportPreview
 from app.services.measurement_import import (
     AttachmentProcessingError,
     normalize_measurement_attachment,
@@ -37,7 +38,7 @@ class MeasurementImportTest(unittest.IsolatedAsyncioTestCase):
         with patch(
             "app.services.measurement_import.get_structured_chat_model",
             return_value=structured_model,
-        ) as get_model:
+        ):
             preview = await normalize_measurement_attachment(
                 "historico.csv",
                 b"data,leitura inicial,leitura final\n2026-03-01,120.5,135.8\n2026-03-02,140,150",
@@ -50,9 +51,49 @@ class MeasurementImportTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(str(preview.records[0].start_hydrometer), "120.5000")
         self.assertEqual(preview.issues[0].source_reference, "historico.csv, linha 3")
         self.assertTrue(preview.requires_confirmation)
-        get_model.assert_called_once_with(MeasurementImportExtraction, POWERFUL_LLM)
         structured_model.ainvoke.assert_awaited_once()
 
+
+    async def test_large_csv_returns_all_supported_records_with_openai(self) -> None:
+        rows = [
+            {
+                "kind": "energy",
+                "source_reference": f"historico.csv, linha {row_number + 2}",
+                "registration_date": "2026-03-01",
+                "energy_consumption": "7.12",
+            }
+            for row_number in range(500)
+        ]
+        structured_model = Mock()
+        structured_model.ainvoke = AsyncMock(return_value={"records": rows, "issues": []})
+        raw_model = Mock()
+        raw_model.with_structured_output.return_value = structured_model
+        openai = Mock(return_value=raw_model)
+        config = Settings(_env_file=None, openai_api_key=SecretStr("test-key"))
+
+        get_structured_chat_model.cache_clear()
+        try:
+            with (
+                patch("app.agents.model.settings", config),
+                patch.dict(
+                    "sys.modules",
+                    {"langchain_openai": SimpleNamespace(ChatOpenAI=openai)},
+                ),
+            ):
+                preview = await normalize_measurement_attachment(
+                    "historico.csv",
+                    (
+                        "data,consumo\n"
+                        + "".join(f"2026-03-01,{row_number}\n" for row_number in range(500))
+                    ).encode(),
+                )
+        finally:
+            get_structured_chat_model.cache_clear()
+
+        self.assertEqual(len(preview.records), 500)
+        self.assertEqual(preview.records[0].source_reference, "historico.csv, linha 2")
+        self.assertEqual(preview.records[-1].source_reference, "historico.csv, linha 501")
+        self.assertEqual(openai.call_args.kwargs["max_completion_tokens"], 32768)
 
     async def test_energy_precision_over_two_decimal_places_becomes_review_issue(self) -> None:
         structured_model = Mock()

@@ -4,8 +4,15 @@ from app.agents.llms import FAST_LLM, POWERFUL_LLM
 from app.core.config import Settings, settings
 from app.core.metrics import LLMUsageCallback
 
+DEFAULT_MAX_COMPLETION_TOKENS = 1024
 
-def _build_chat_models(config: Settings, profile: str) -> tuple:
+
+def _build_chat_models(
+    config: Settings,
+    profile: str,
+    max_completion_tokens: int = DEFAULT_MAX_COMPLETION_TOKENS,
+) -> tuple:
+    """Build configured providers in primary-to-fallback order."""
     if not config.openai_api_key and not config.groq_api_key and not config.nvidia_api_key:
         return ()
 
@@ -19,7 +26,7 @@ def _build_chat_models(config: Settings, profile: str) -> tuple:
                 api_key=config.openai_api_key.get_secret_value(),
                 temperature=config.llm_temperature,
                 reasoning_effort="none",
-                max_completion_tokens=1024,
+                max_completion_tokens=max_completion_tokens,
                 timeout=config.llm_timeout_seconds,
                 max_retries=0,
                 callbacks=[
@@ -96,11 +103,13 @@ def build_structured_chat_model(
     config: Settings,
     schema,
     profile: str = POWERFUL_LLM,
+    *,
+    max_completion_tokens: int = DEFAULT_MAX_COMPLETION_TOKENS,
 ):
-    """Apply structured output to each provider before composing fallbacks."""
+    """Apply structured output to each provider while preserving fallback order."""
     models = tuple(
         model.with_structured_output(schema)
-        for model in _build_chat_models(config, profile)
+        for model in _build_chat_models(config, profile, max_completion_tokens)
     )
     return _with_fallbacks(models) if models else None
 
@@ -112,6 +121,16 @@ def get_chat_model(profile: str = POWERFUL_LLM):
 
 
 @lru_cache
-def get_structured_chat_model(schema, profile: str = POWERFUL_LLM):
-    """Retorna o modelo estruturado compartilhado para o schema solicitado."""
-    return build_structured_chat_model(settings, schema, profile)
+def get_structured_chat_model(
+    schema,
+    profile: str = POWERFUL_LLM,
+    *,
+    max_completion_tokens: int = DEFAULT_MAX_COMPLETION_TOKENS,
+):
+    """Return the cached structured model with the requested output-token limit."""
+    return build_structured_chat_model(
+        settings,
+        schema,
+        profile,
+        max_completion_tokens=max_completion_tokens,
+    )

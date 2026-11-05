@@ -141,7 +141,7 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 | `MONGODB_URI` | URI do MongoDB para execução fora do Compose. |
 | `MONGODB_URI_DOCKER` | URI usada pelo serviço no Compose. |
 | `MONGODB_DATABASE` | Banco usado pelo serviço, com padrão `mongodb-ai-prod`; use `mongodb-ai-qa` no ambiente de QA. |
-| `OPENAI_API_KEY` | Chave OpenAI carregada do Infisical; o serviço usa `gpt-6-luna`, `reasoning_effort=none`, limite de 1.024 tokens de saída e fallback para Groq e NVIDIA NIM. |
+| `OPENAI_API_KEY` | Chave OpenAI carregada do Infisical; o serviço usa `gpt-6-luna`, `reasoning_effort=none`, limite geral de 1.024 tokens de saída (32.768 nas importações de arquivos) e fallback para Groq e NVIDIA NIM. |
 | `GROQ_API_KEY` / `GROQ_FAST_MODEL` / `GROQ_MODEL` | Provedor Groq nos perfis rápido/potente; segundo na ordem de fallback. |
 | `NVIDIA_API_KEY` / `NVIDIA_NIM_FAST_MODEL` / `NVIDIA_NIM_MODEL` / `NVIDIA_NIM_BASE_URL` | Provedor NVIDIA NIM e último fallback por perfil. |
 | `LLM_TEMPERATURE` / `LLM_TIMEOUT_SECONDS` | Parâmetros das chamadas aos provedores. |
@@ -163,7 +163,7 @@ Não versione o arquivo `.env` nem os tokens. Quando o Infisical está totalment
 Em deploy, `INFISICAL_TOKEN` é o único bootstrap secreto que precisa existir fora do cofre. Os secrets de aplicação esperados no Infisical incluem `MONGODB_URI` quando contiver credenciais e as chaves `OPENAI_API_KEY`, `GROQ_API_KEY` e `NVIDIA_API_KEY`. A autenticação de usuário não depende mais de shared secrets locais.
 Como a configuração do Infisical é carregada no startup, reinicie o serviço após alterar secrets ou permissões do usuário MongoDB.
 
-Todos os perfis usam GPT-6 Luna como modelo principal, com `reasoning_effort=none`, `max_completion_tokens=1024` e sem retries automáticos. Se OpenAI falhar, o serviço tenta Groq e depois NVIDIA NIM no perfil correspondente. Sem `OPENAI_API_KEY`, o primeiro provedor configurado assume o papel de principal.
+Todos os perfis usam GPT-6 Luna como modelo principal, com `reasoning_effort=none`, `max_completion_tokens=1024` e sem retries automáticos. A importação de CSV, XLSX e PDF usa um limite específico de 32.768 tokens para validar extrações grandes sem alterar o limite das conversas. Se OpenAI falhar, o serviço tenta Groq e depois NVIDIA NIM no perfil correspondente. Sem `OPENAI_API_KEY`, o primeiro provedor configurado assume o papel de principal.
 
 O fluxo é `router → especialistas → fan-in → default`. O roteador pode selecionar
 até quatro especialistas independentes, que rodam em paralelo no LangGraph. Cada
