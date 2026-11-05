@@ -65,6 +65,46 @@ class ModelTest(unittest.TestCase):
             "nvidia/nemotron-3-nano-30b-a3b",
         )
 
+    def test_openai_is_primary_with_groq_then_nim_fallbacks(self) -> None:
+        groq = Mock()
+        openai_primary = Mock()
+        groq_fallback = Mock()
+        nvidia_fallback = Mock()
+        openai = Mock(side_effect=[openai_primary, nvidia_fallback])
+        groq.return_value = groq_fallback
+        openai_primary.with_fallbacks.return_value = "model"
+        config = Settings(
+            _env_file=None,
+            openai_api_key=SecretStr("openai-key"),
+            groq_api_key=SecretStr("groq-key"),
+            nvidia_api_key=SecretStr("nvidia-key"),
+        )
+
+        with patch.dict(
+            sys.modules,
+            {
+                "langchain_groq": SimpleNamespace(ChatGroq=groq),
+                "langchain_openai": SimpleNamespace(ChatOpenAI=openai),
+            },
+        ):
+            model = build_chat_model(config)
+
+        self.assertEqual(model, "model")
+        openai_kwargs = openai.call_args_list[0].kwargs
+        self.assertEqual(openai_kwargs["model"], "gpt-6-luna")
+        self.assertEqual(openai_kwargs["reasoning_effort"], "none")
+        self.assertEqual(openai_kwargs["max_completion_tokens"], 1024)
+        self.assertEqual(openai_kwargs["max_retries"], 0)
+        self.assertEqual(openai_kwargs["callbacks"][0].provider, "openai")
+        self.assertFalse(openai_kwargs["callbacks"][0].is_fallback)
+        groq_kwargs = groq.call_args.kwargs
+        self.assertEqual(groq_kwargs["callbacks"][0].provider, "groq")
+        self.assertTrue(groq_kwargs["callbacks"][0].is_fallback)
+        self.assertEqual(
+            openai_primary.with_fallbacks.call_args.args[0],
+            [groq_fallback, nvidia_fallback],
+        )
+
     def test_groq_uses_nim_as_fallback(self) -> None:
         groq = Mock()
         nvidia = Mock()
@@ -86,22 +126,23 @@ class ModelTest(unittest.TestCase):
             model = build_chat_model(config)
 
         self.assertEqual(model, "model")
-        groq.assert_called_once_with(
-            model_name="openai/gpt-oss-120b",
-            api_key="groq-key",
-            temperature=0.2,
-            timeout=30,
-            max_retries=0,
-        )
-        nvidia.assert_called_once_with(
-            model="nvidia/nemotron-3-super-120b-a12b",
-            api_key="nvidia-key",
-            base_url="https://integrate.api.nvidia.com/v1",
-            temperature=0.2,
-            timeout=30,
-            max_retries=0,
-        )
+        groq_kwargs = groq.call_args.kwargs
+        self.assertEqual(groq_kwargs["model_name"], "openai/gpt-oss-120b")
+        self.assertEqual(groq_kwargs["api_key"], "groq-key")
+        self.assertEqual(groq_kwargs["temperature"], 0.2)
+        self.assertEqual(groq_kwargs["timeout"], 30)
+        self.assertEqual(groq_kwargs["max_retries"], 0)
+        self.assertFalse(groq_kwargs["callbacks"][0].is_fallback)
+        nvidia_kwargs = nvidia.call_args.kwargs
+        self.assertEqual(nvidia_kwargs["model"], "nvidia/nemotron-3-super-120b-a12b")
+        self.assertEqual(nvidia_kwargs["api_key"], "nvidia-key")
+        self.assertEqual(nvidia_kwargs["base_url"], "https://integrate.api.nvidia.com/v1")
+        self.assertEqual(nvidia_kwargs["temperature"], 0.2)
+        self.assertEqual(nvidia_kwargs["timeout"], 30)
+        self.assertEqual(nvidia_kwargs["max_retries"], 0)
+        self.assertTrue(nvidia_kwargs["callbacks"][0].is_fallback)
         primary.with_fallbacks.assert_called_once_with([nvidia.return_value])
+
 
     def test_structured_output_wraps_each_provider_before_fallback(self) -> None:
         groq = Mock()
@@ -130,7 +171,13 @@ class ModelTest(unittest.TestCase):
         self.assertEqual(model, structured_primary.with_fallbacks.return_value)
 
     def test_blank_secret_values_are_disabled(self) -> None:
-        config = Settings(_env_file=None, groq_api_key="   ", nvidia_api_key="\t")
+        config = Settings(
+            _env_file=None,
+            openai_api_key=" ",
+            groq_api_key="   ",
+            nvidia_api_key="\t",
+        )
 
+        self.assertIsNone(config.openai_api_key)
         self.assertIsNone(config.groq_api_key)
         self.assertIsNone(config.nvidia_api_key)

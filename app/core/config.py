@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     app_port: int = 8000
     mongodb_uri: str = "mongodb://localhost:27017"
     mongodb_database: str = "mongodb-ai-prod"
+    openai_api_key: SecretStr | None = None
     groq_api_key: SecretStr | None = None
     groq_fast_model: str = "openai/gpt-oss-20b"
     groq_model: str = "openai/gpt-oss-120b"
@@ -146,6 +147,7 @@ class Settings(BaseSettings):
         return self
 
     @field_validator(
+        "openai_api_key",
         "groq_api_key",
         "nvidia_api_key",
         "jev_api_key",
