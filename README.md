@@ -318,6 +318,30 @@ scrape_configs:
       - targets: ["ms-ai-server.discloud.app"]
 ```
 
+### Gerar tráfego de teste
+
+Use `scripts/seed_chat_metrics.py` para enviar chamadas autenticadas e exercitar
+as métricas de chat. O arquivo de contas fica fora do repositório e contém um
+array JSON com `label`, `email` e `password`:
+
+```json
+[
+  {"label": "produtor-01", "email": "teste@example.com", "password": "senha"}
+]
+```
+
+```bash
+python scripts/seed_chat_metrics.py \
+  --accounts-file /caminho/seguro/accounts.json \
+  --calls-per-account 25
+```
+
+O padrão é 10 chamadas por conta, o mínimo aceito. Cada chamada usa um `thread_id`
+novo e cria uma conversa independente; o histórico pode permanecer no MongoDB e as
+respostas podem gerar custo de LLM. Use somente contas de teste. Não versione o
+arquivo de credenciais.
+
+
 ## Testes e qualidade
 
 Os mesmos comandos usados no CI são:
