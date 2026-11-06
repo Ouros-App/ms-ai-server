@@ -209,12 +209,15 @@ ambos os dados autenticados e compõe uma resposta determinística.
 
 ### Decisão Jev
 
-O Jev usa o endpoint System One da TypeSafe para propor uma rota, ferramentas MCP
-da allowlist daquela rota e se a tarefa exige analytics. A integração envia apenas
-a mensagem atual após anonimização e um contexto curto de capacidades/rota anterior;
-não envia histórico, identidade, JWT nem o mapa privado de PII. A resposta é validada
-contra as rotas e ferramentas disponíveis antes de ser usada. Jev não autentica,
-autoriza, seleciona escopo de fazenda nem altera guardrails.
+O Jev usa o endpoint System One da TypeSafe para propor uma rota e se a tarefa
+exige analytics. Sugestões de ferramentas retornadas pelo Jev são apenas
+metadados: não selecionam nem limitam as ferramentas MCP disponíveis ao
+especialista. Após a escolha da rota, o servidor carrega as ferramentas
+autorizadas pela allowlist daquele especialista; o agente escolhe quais chamar.
+A integração envia apenas a mensagem atual após anonimização e um contexto curto
+de capacidades/rota anterior; não envia histórico, identidade, JWT nem o mapa
+privado de PII. Jev não autentica, autoriza, seleciona escopo de fazenda nem
+altera guardrails.
 
 O recurso fica desligado por padrão. Em modo shadow, a resposta do Jev é comparada
 com o roteador existente e não afeta o chat; a UI de debug aguarda a comparação para
