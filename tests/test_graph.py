@@ -225,7 +225,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         create = SimpleNamespace(name="create_custom_dashboard")
         observed = {}
 
-        async def invoke(_model, messages, _store, _user_id, tools):
+        async def invoke(_model, messages, _store, _user_id, tools, _tool_results=None):
             observed["messages"] = messages
             observed["tools"] = tools
             return AIMessage(content='{"status":"ok","facts":[]}'), []
@@ -265,7 +265,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         create = SimpleNamespace(name="create_custom_dashboard")
         observed = {}
 
-        async def invoke(_model, _messages, _store, _user_id, tools):
+        async def invoke(_model, _messages, _store, _user_id, tools, _tool_results=None):
             observed["tools"] = tools
             return AIMessage(content='{"status":"ok","facts":[]}'), []
 
@@ -296,7 +296,7 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         search_tool = SimpleNamespace(name="search_knowledge")
         observed = {}
 
-        async def invoke(_model, _messages, _store, _user_id, tools):
+        async def invoke(_model, _messages, _store, _user_id, tools, _tool_results=None):
             observed["tools"] = tools
             return AIMessage(content='{"status":"ok","facts":[]}'), []
 
@@ -335,6 +335,79 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["status"], "ok")
         self.assertEqual(observed["tools"], [consumption_tool, search_tool])
+
+
+    async def test_consumption_tool_result_survives_specialist_error(self) -> None:
+        """Use authoritative data when a specialist mislabels a successful tool result."""
+        summary = {
+            "authorized": True,
+            "period_days": 7,
+            "water_unit": "leitura",
+            "energy_unit": "kWh",
+            "summaries": [
+                {"water_meter_delta": 12.5, "energy_consumption_kwh": 90}
+            ],
+        }
+        consumption_tool = SimpleNamespace(
+            name="get_consumption_summary",
+            ainvoke=AsyncMock(return_value=summary),
+        )
+        tool_call = {
+            "name": "get_consumption_summary",
+            "args": {"period_days": 7},
+            "id": "consumption-call",
+        }
+        bound_model = Mock()
+        bound_model.ainvoke = AsyncMock(
+            side_effect=[
+                AIMessage(content="", tool_calls=[tool_call]),
+                AIMessage(
+                    content=(
+                        '{"status":"error","facts":[],"recommendations":[],'
+                        '"missing_data":[],"sources":[]}'
+                    )
+                ),
+            ]
+        )
+        model = Mock()
+        model.bind_tools.return_value = bound_model
+        message = "Como foi meu consumo?"
+        state = {
+            "messages": [HumanMessage(content=message)],
+            "user_id": "user",
+            "routes": ["sustainability"],
+        }
+
+        with patch(
+            "app.agents.graph._load_agent_mcp_tools",
+            new=AsyncMock(return_value=[consumption_tool]),
+        ):
+            result, used_tools, _ = await _execute_specialist(
+                state,
+                "sustainability prompt",
+                "sustainability",
+                message,
+                model,
+                [],
+                None,
+            )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(used_tools, ["get_consumption_summary"])
+        self.assertEqual(
+            result["_authenticated_consumption_summary"],
+            summary,
+        )
+        response = await default_agent(
+            {
+                **state,
+                "agents": ["router", "sustainability"],
+                "tools": used_tools,
+                "specialist_results": [result],
+            }
+        )
+        self.assertIn("12.5", response["messages"][0].content)
+        self.assertIn("90 kWh", response["messages"][0].content)
 
     def test_explicit_chart_request_routes_to_visualization_with_context(self) -> None:
         """Route chart requests to visualization and inherit their domain."""

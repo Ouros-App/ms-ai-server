@@ -1779,15 +1779,27 @@ async def _execute_specialist(
         mcp_tools,
         set(prefetched_tools),
     )
+    model_tool_results: dict[str, object] = {}
     response, model_used_tools = await _invoke_model(
         model,
         specialist_messages,
         state.get("memory_store"),
         state["user_id"],
         [*specialist_tools, *remaining_mcp_tools],
+        model_tool_results,
     )
     used_tools = list(dict.fromkeys([*prefetched_tools, *model_used_tools]))
     result = _normalize_specialist_result(response)
+    consumption_summary = model_tool_results.get("get_consumption_summary")
+    if agent_name == "sustainability" and isinstance(consumption_summary, dict):
+        result["_authenticated_consumption_summary"] = consumption_summary
+        if (
+            consumption_summary.get("authorized") is True
+            and result.get("status") == "error"
+        ):
+            result = _empty_specialist_result("ok")
+            result["sources"] = ["get_consumption_summary"]
+            result["_authenticated_consumption_summary"] = consumption_summary
     trace_event(
         "agent.response",
         agent=agent_name,
@@ -1984,6 +1996,7 @@ async def _execute_tool_call(
     tool_map: dict,
     conversation: list,
     used_tools: list[str],
+    tool_results: dict[str, object] | None = None,
 ) -> bool:
     selected_tool = tool_map.get(call.get("name"))
     if selected_tool is None:
@@ -2037,6 +2050,8 @@ async def _execute_tool_call(
             result=_tool_result_trace(result),
         )
         content = _tool_result_content(result)
+        if tool_results is not None:
+            tool_results[selected_tool.name] = result
         succeeded = True
 
     conversation.append(
@@ -2054,7 +2069,8 @@ async def _invoke_model(
     memory_store,
     user_id: str,
     specialist_tools: list | None = None,
-):
+    tool_results: dict[str, object] | None = None,
+) -> tuple[object, list[str]]:
     """Execute the model with bounded, allowlisted tools and safe tool failures."""
     tools = list(specialist_tools or [])
     if memory_store is not None:
@@ -2086,6 +2102,7 @@ async def _invoke_model(
                 tool_map,
                 conversation,
                 used_tools,
+                tool_results,
             )
             if succeeded and call.get("name") == "create_custom_dashboard":
                 trace_event("dashboard.created", source="chat_tool_call")
