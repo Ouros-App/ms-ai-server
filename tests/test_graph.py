@@ -80,6 +80,25 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(observe.call_args.args[0], "faq")
         self.assertGreaterEqual(observe.call_args.args[1], 0)
 
+    async def test_router_records_execution_duration(self) -> None:
+        graph = build_graph(InMemorySaver())
+
+        with patch("app.agents.graph.observe_agent_execution") as observe:
+            await invoke_graph(
+                graph,
+                ChatRequest(user_id="user", thread_id="router-duration", message="bom dia"),
+                "user",
+            )
+
+        router_observations = [
+            call.args[1]
+            for call in observe.call_args_list
+            if call.args[0] == "router"
+        ]
+        self.assertEqual(len(router_observations), 1)
+        self.assertGreaterEqual(router_observations[0], 0)
+
+
     def test_tool_reducer_distinguishes_reset_from_no_tools(self) -> None:
         self.assertEqual(_merge_tools(["get_user_context"], []), ["get_user_context"])
         self.assertEqual(_merge_tools(["old"], [_RESET_TOOLS]), [])

@@ -349,7 +349,7 @@ valor econômico estimado para usuários/ecossistema, não ROI financeiro do Our
 Retorne N/D sem resoluções, custo conhecido ou taxa BCB. A integração do serviço
 de telemetria deve manter essa estimativa separada de benefício e ROI realizados.
 
-`ai_server_agent_execution_duration_seconds` registra o tempo completo de execução por agente (inclui chamadas a modelos e tools), não o tempo de fila ou espera entre nós.
+`ai_server_agent_execution_duration_seconds` registra o tempo completo de execução dos agentes, incluindo o nó `router` (e chamadas a modelos e tools dos especialistas), não o tempo de fila ou espera entre nós.
 Os labels de agentes, provedores e perfis têm valores controlados para evitar cardinalidade
 acidental. O endpoint exige um Bearer Token M2M do cliente de métricas, com `azp` igual a `METRICS_KEYCLOAK_AUTHORIZED_PARTY` (por padrão, `ouros-prometheus`). Configure o Prometheus para obter esse token via Client Credentials e use o
 Prometheus como datasource no Grafana:

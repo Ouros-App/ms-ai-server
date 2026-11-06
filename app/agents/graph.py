@@ -2296,7 +2296,7 @@ def build_graph(
         raise ValueError("O registro de agentes precisa conter o agente default.")
 
     graph = StateGraph(AgentState)
-    graph.add_node("router", route_request)
+    graph.add_node("router", _measure_agent_execution("router", route_request))
     graph.add_node("collect_specialist_results", collect_specialist_results)
     for name, node in agents.items():
         if memory_store is not None and name != "default":
