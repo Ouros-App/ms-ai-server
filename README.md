@@ -316,6 +316,39 @@ estimado do GPT-6 Luna (`ai_server_llm_cost_usd_total`) com tarifas públicas pa
 O custo de Groq/NVIDIA não é estimado porque suas tarifas não estão configuradas.
 Também expõe decisões/fallbacks Jev, concordância com o roteador e tarefas pendentes.
 
+Com `JEV_ENABLED=true`, turnos de chat concluídos são classificados em segundo
+plano como `resolved`, `unresolved`, `uncertain` (confiança abaixo de
+`JEV_MIN_CONFIDENCE`) ou `unavailable`. Jev recebe apenas pergunta e resposta
+anonimizadas. A classificação usa uma chamada adicional quando o limite de
+chamadas por requisição permite.
+
+`midas_jev_task_outcomes_total` conta turnos classificados pelo Jev, não tarefas
+confirmadas pelo usuário; retries podem ser contados novamente.
+`midas_jev_estimated_user_benefit_brl_total` é uma hipótese, não benefício
+medido: cada turno classificado como resolvido assume 5 minutos poupados a
+R$20/hora, conforme cenário do guia.
+
+Agregue o mesmo mês-calendário (`America/Sao_Paulo`). Fórmulas conceituais; a
+API de telemetria deve aplicá-las à janela mensal escolhida:
+
+```text
+resoluções = aumento mensal de midas_jev_task_outcomes_total{outcome="resolved"}
+benefício (BRL) = aumento mensal de midas_jev_estimated_user_benefit_brl_total
+custo conhecido (USD) =
+  soma do aumento mensal de ai_server_llm_cost_usd_total
+  + aumento mensal de midas_jev_cost_usd_total
+custo conhecido (BRL) = custo conhecido (USD) * média mensal USD/BRL do Banco Central
+custo por resolução (USD) = custo conhecido (USD) / resoluções
+ROI econômico estimado (%) =
+  100 * (benefício (BRL) - custo conhecido (BRL)) / custo conhecido (BRL)
+```
+
+Esses custos cobrem apenas OpenAI e Jev precificados; não incluem fallback sem
+tarifa, tools, infraestrutura, manutenção ou desenvolvimento. O resultado é
+valor econômico estimado para usuários/ecossistema, não ROI financeiro do Ouros.
+Retorne N/D sem resoluções, custo conhecido ou taxa BCB. A integração do serviço
+de telemetria deve manter essa estimativa separada de benefício e ROI realizados.
+
 `ai_server_agent_execution_duration_seconds` registra o tempo completo de execução por agente (inclui chamadas a modelos e tools), não o tempo de fila ou espera entre nós.
 Os labels de agentes, provedores e perfis têm valores controlados para evitar cardinalidade
 acidental. O endpoint exige um Bearer Token M2M do cliente de métricas, com `azp` igual a `METRICS_KEYCLOAK_AUTHORIZED_PARTY` (por padrão, `ouros-prometheus`). Configure o Prometheus para obter esse token via Client Credentials e use o

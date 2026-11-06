@@ -112,3 +112,28 @@ class MetricsTest(unittest.TestCase):
             )
         )
         self.assertEqual(LLM_FALLBACKS.labels("groq", "fast")._value.get() - fallback_count, 1)
+
+    def test_jev_estimated_benefit_only_increases_for_resolved_outcomes(self) -> None:
+        from app.core.metrics import (
+            JEV_ESTIMATED_USER_BENEFIT_BRL,
+            JEV_TASK_OUTCOMES,
+            observe_jev_outcome,
+        )
+
+        benefit = JEV_ESTIMATED_USER_BENEFIT_BRL._value.get()
+        resolved = JEV_TASK_OUTCOMES.labels("resolved")._value.get()
+        uncertain = JEV_TASK_OUTCOMES.labels("uncertain")._value.get()
+
+        observe_jev_outcome("resolved", "success", 0.1, input_tokens=10, cost_usd=0.01)
+        observe_jev_outcome("uncertain", "success", 0.1)
+
+        self.assertAlmostEqual(
+            JEV_ESTIMATED_USER_BENEFIT_BRL._value.get() - benefit,
+            5 / 60 * 20,
+        )
+        self.assertEqual(
+            JEV_TASK_OUTCOMES.labels("resolved")._value.get() - resolved, 1
+        )
+        self.assertEqual(
+            JEV_TASK_OUTCOMES.labels("uncertain")._value.get() - uncertain, 1
+        )

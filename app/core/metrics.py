@@ -74,6 +74,16 @@ JEV_ROUTER_AGREEMENT = Counter(
     "Shadow-mode Jev route agreement with the active Midas route.",
     ("agreement",),
 )
+JEV_TASK_OUTCOMES = Counter(
+    "midas_jev_task_outcomes",
+    "Jev-classified outcomes; estimated resolutions are not user-confirmed.",
+    ("outcome",),
+)
+JEV_ESTIMATED_USER_BENEFIT_BRL = Counter(
+    "midas_jev_estimated_user_benefit_brl",
+    "Hypothetical user value at 5 minutes saved and R$20/hour per resolution.",
+)
+
 LLM_REQUESTS = Counter(
     "ai_server_llm_requests",
     "Total LangChain model calls by provider, profile, and outcome.",
@@ -269,6 +279,29 @@ def observe_jev_request(
         JEV_COST_USD.inc(cost_usd)
     if fallback_reason:
         JEV_FALLBACKS.labels(fallback_reason).inc()
+
+
+def observe_jev_outcome(
+    outcome: str,
+    status: str,
+    duration_seconds: float,
+    *,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cost_usd: float = 0.0,
+) -> None:
+    """Record an outcome classification and its explicitly estimated value."""
+    JEV_REQUESTS.labels(status, "outcome").inc()
+    JEV_REQUEST_DURATION.labels("outcome").observe(duration_seconds)
+    if input_tokens:
+        JEV_INPUT_TOKENS.inc(input_tokens)
+    if output_tokens:
+        JEV_OUTPUT_TOKENS.inc(output_tokens)
+    if cost_usd > 0:
+        JEV_COST_USD.inc(cost_usd)
+    JEV_TASK_OUTCOMES.labels(outcome).inc()
+    if outcome == "resolved":
+        JEV_ESTIMATED_USER_BENEFIT_BRL.inc(5 / 60 * 20)
 
 
 def observe_jev_router_agreement(agreement: bool) -> None:

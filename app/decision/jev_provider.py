@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 import httpx
@@ -8,6 +9,16 @@ from app.core.config import settings
 from app.decision.models import DecisionInput, MidasDecision, ProviderResult
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class JevOutcomeClassification:
+    """Validated Jev outcome and token usage for one completed chat turn."""
+    outcome: str
+    confidence: float
+    model: str
+    input_tokens: int
+    output_tokens: int
 
 
 class DecisionProviderError(RuntimeError):
@@ -89,23 +100,69 @@ class JevDecisionProvider:
         )
 
     async def decide(self, state: DecisionInput) -> ProviderResult:
-        """Request and validate one structured decision from System One."""
+        """Request and validate one structured route decision from System One."""
+        payload = {
+            "model": self.model,
+            "state": state.to_provider_state(),
+            "questions": self._questions(state),
+        }
+        return self._parse_response(
+            await self._request(payload, decision_type="combined"),
+            state,
+        )
+
+    async def classify_outcome(
+        self,
+        request: str,
+        response: str,
+    ) -> JevOutcomeClassification:
+        """Classify whether a response fulfills its request, without user identity."""
+        payload = {
+            "model": self.model,
+            "state": {"request": request, "response": response},
+            "questions": {
+                "outcome": {
+                    "type": "choice",
+                    "instructions": (
+                        "Classifique somente se a resposta conclui a tarefa pedida. "
+                        "Não infira satisfação, benefício financeiro ou economia de "
+                        "tempo. Resposta parcial, pedido de esclarecimento, recusa "
+                        "ou erro não são resolução."
+                    ),
+                    "criteria": {
+                        "resolved": (
+                            "A resposta entrega o resultado solicitado de forma "
+                            "suficiente para concluir esta tarefa."
+                        ),
+                        "unresolved": (
+                            "A resposta não entrega o resultado pedido, está parcial, "
+                            "pede mais dados, recusa ou informa falha."
+                        ),
+                    },
+                }
+            },
+        }
+        return self._parse_outcome(
+            await self._request(payload, decision_type="outcome")
+        )
+
+    async def _request(
+        self,
+        payload: dict[str, object],
+        *,
+        decision_type: str,
+    ) -> dict:
+        """Send one bounded System One request and validate its HTTP/JSON envelope."""
         if not self.api_key:
             raise DecisionProviderError(
                 "JEV_API_KEY is not configured",
                 reason="api_key_missing",
             )
-
-        questions = self._questions(state)
-        payload = {
-            "model": self.model,
-            "state": state.to_provider_state(),
-            "questions": questions,
-        }
         try:
             provider_host = urlsplit(self.base_url).hostname or "unknown"
             logger.info(
-                "jev.provider_request.started model=%s host=%s timeout_ms=%d",
+                "jev.provider_request.started type=%s model=%s host=%s timeout_ms=%d",
+                decision_type,
                 self.model,
                 provider_host,
                 round(self.timeout_seconds * 1000),
@@ -122,25 +179,27 @@ class JevDecisionProvider:
                 )
         except httpx.TimeoutException as error:
             logger.warning(
-                "jev.provider_request.failed reason=timeout model=%s timeout_ms=%d",
+                "jev.provider_request.failed type=%s reason=timeout model=%s timeout_ms=%d",
+                decision_type,
                 self.model,
                 round(self.timeout_seconds * 1000),
             )
-            raise DecisionTimeoutError("Jev decision timed out") from error
+            raise DecisionTimeoutError("Jev request timed out") from error
         except httpx.HTTPError as error:
             logger.warning(
-                "jev.provider_request.failed reason=transport_error model=%s error_type=%s",
+                "jev.provider_request.failed type=%s reason=transport_error model=%s error_type=%s",
+                decision_type,
                 self.model,
                 type(error).__name__,
             )
             raise DecisionProviderError("Jev request failed") from error
 
         logger.info(
-            "jev.provider_request.completed model=%s status=%d",
+            "jev.provider_request.completed type=%s model=%s status=%d",
+            decision_type,
             self.model,
             response.status_code,
         )
-
         if response.status_code == 429 or response.status_code >= 500:
             raise DecisionProviderError(
                 f"Jev service returned HTTP {response.status_code}"
@@ -156,8 +215,43 @@ class JevDecisionProvider:
                 "Jev response was not valid JSON",
                 reason="invalid_json",
             ) from error
+        if not isinstance(body, dict):
+            raise InvalidDecisionError(
+                "Jev response must be an object",
+                reason="response_not_object",
+            )
+        return body
 
-        return self._parse_response(body, state)
+    @classmethod
+    def _parse_outcome(cls, body: dict) -> JevOutcomeClassification:
+        """Validate an outcome choice and usage needed for cost accounting."""
+        answers = body.get("answers")
+        answer = answers.get("outcome") if isinstance(answers, dict) else None
+        if not isinstance(answer, dict) or answer.get("type") != "choice":
+            raise InvalidDecisionError(
+                "Jev omitted the outcome classification",
+                reason="outcome_missing",
+            )
+        outcome = answer.get("choice")
+        if not isinstance(outcome, str) or outcome not in {"resolved", "unresolved"}:
+            raise InvalidDecisionError(
+                "Jev returned an invalid outcome",
+                reason="outcome_invalid",
+            )
+        confidence = answer.get("confidence")
+        if type(confidence) not in {int, float} or not 0 <= confidence <= 1:
+            raise InvalidDecisionError(
+                "Jev returned invalid outcome confidence",
+                reason="outcome_confidence_invalid",
+            )
+        input_tokens, output_tokens = cls._usage(body)
+        return JevOutcomeClassification(
+            outcome=outcome,
+            confidence=float(confidence),
+            model=cls._model_name(body),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
 
     @staticmethod
     def _questions(state: DecisionInput) -> dict[str, dict[str, object]]:

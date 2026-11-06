@@ -12,6 +12,7 @@ from app.agents.mcp import capture_mcp_visualizations, forward_mcp_access_token
 from app.core.config import settings
 from app.core.metrics import observe_chat_result, observe_chat_routing
 from app.debug_ui.trace import capture_debug_trace, trace_event
+from app.decision.outcomes import jev_outcome_service
 from app.schemas.chat import ChatRequest, ChatResponse
 
 logger = logging.getLogger(__name__)
@@ -218,6 +219,12 @@ async def _invoke_graph(
             tools=tools,
             visualizations=visualizations,
         )
+        jev_outcome_service.schedule(
+            safe_payload.message,
+            message,
+            decision_calls=int(result.get("decision_calls", 0)),
+        )
+
         return response, {
             "routes": routes,
             "route_source": route_source,

@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     jev_model: str = "jev-latest"
     jev_timeout_ms: int = Field(2_500, ge=100, le=10_000)
     jev_min_confidence: float = Field(0.70, ge=0, le=1)
-    jev_max_calls_per_request: int = Field(1, ge=1, le=3)
+    jev_max_calls_per_request: int = Field(2, ge=1, le=3)
     jev_input_cost_per_million_usd: float = Field(0.042, ge=0)
     jev_output_cost_per_million_usd: float = Field(0, ge=0)
     auth_jwt_issuer: str = "https://ouros-keycloak.discloud.app/realms/ouros"
