@@ -1139,10 +1139,7 @@ def _explicit_visualization_route_is_constrained(
         return False
     if not _is_dashboard_creation_request(_latest_message(state)):
         return False
-    return (
-        outcome.decision.agent != "visualization"
-        or "create_custom_dashboard" not in outcome.decision.tools
-    )
+    return outcome.decision.agent != "visualization"
 
 
 async def _apply_jev_outcome(
@@ -1157,15 +1154,13 @@ async def _apply_jev_outcome(
         if _explicit_visualization_route_is_constrained(state, routes, outcome):
             logger.warning(
                 "jev.decision.constrained reason=explicit_visualization_request "
-                "selected_agent=%s selected_tools=%s required_agent=visualization",
+                "selected_agent=%s required_agent=visualization",
                 outcome.decision.agent,
-                outcome.decision.tools,
             )
             trace_event(
                 "jev.decision.constrained",
                 reason="explicit_visualization_request",
                 selected_agent=outcome.decision.agent,
-                selected_tools=outcome.decision.tools,
                 required_agent="visualization",
             )
             return routes, route_source or "deterministic", _empty_decision_metadata()
@@ -1681,17 +1676,12 @@ def _build_specialist_messages(
 def _model_mcp_tools(
     mcp_tools: list,
     prefetched_names: set[str],
-    selected_tools: set[str] | None,
 ) -> list:
-    """Keep prefetched tools out of model calls and honor Jev selection."""
+    """Keep prefetched tools out of model calls."""
     return [
         tool
         for tool in mcp_tools
         if getattr(tool, "name", None) not in prefetched_names
-        and (
-            selected_tools is None
-            or getattr(tool, "name", None) in selected_tools
-        )
     ]
 
 
@@ -1704,9 +1694,8 @@ async def _execute_specialist(
     specialist_tools: list,
     mcp_provider: MCPToolProvider | None,
 ) -> tuple[dict[str, object], list[str], bool]:
-    """Run one specialist with authenticated prefetch and selected tools."""
+    """Run one specialist with authenticated prefetch and its allowlisted tools."""
     dashboard_requested = agent_name == "visualization"
-    selected_tools: set[str] | None = None
     dashboard_period_days = _dashboard_period_days_for_state(state, user_text)
     mcp_tools = await _load_agent_mcp_tools(
         agent_name,
@@ -1715,26 +1704,6 @@ async def _execute_specialist(
         dashboard_period_days=dashboard_period_days,
     )
     user_context_required = _requires_user_context_prefetch(agent_name, user_text)
-    if state.get("decision_source") == "jev":
-        selected_tools = set(state.get("decision_tools", []))
-        # Required authenticated prefetches remain mandatory; model-invoked tools
-        # must still be selected by Jev.
-        mcp_tools = [
-            tool
-            for tool in mcp_tools
-            if getattr(tool, "name", None) in selected_tools
-            or getattr(tool, "name", None) == "get_consumption_summary"
-            or getattr(tool, "name", None) == "get_custom_dashboard_catalog"
-            or (
-                user_context_required
-                and getattr(tool, "name", None) == "get_user_context"
-            )
-        ]
-        trace_event(
-            "jev.tools.selected",
-            agent=agent_name,
-            tools=sorted(selected_tools),
-        )
     pending_missing_data = _pending_missing_for_route(state, agent_name)
     personal_request = _conversation_is_personal_request(
         state,
@@ -1809,7 +1778,6 @@ async def _execute_specialist(
     remaining_mcp_tools = _model_mcp_tools(
         mcp_tools,
         set(prefetched_tools),
-        selected_tools,
     )
     response, model_used_tools = await _invoke_model(
         model,

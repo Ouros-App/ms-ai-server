@@ -290,6 +290,52 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(used_tools, [])
         self.assertEqual(observed["tools"], [])
 
+    async def test_jev_empty_tool_selection_keeps_allowlisted_tools_available(self) -> None:
+        """Jev routes agents but does not filter their authorized MCP tools."""
+        consumption_tool = SimpleNamespace(name="get_consumption_summary")
+        search_tool = SimpleNamespace(name="search_knowledge")
+        observed = {}
+
+        async def invoke(_model, _messages, _store, _user_id, tools):
+            observed["tools"] = tools
+            return AIMessage(content='{"status":"ok","facts":[]}'), []
+
+        message = "Como analisar o consumo de água e energia?"
+        state = {
+            "messages": [HumanMessage(content=message)],
+            "user_id": "user",
+            "routes": ["sustainability"],
+            "decision_source": "jev",
+            "decision_tools": [],
+        }
+        with (
+            patch(
+                "app.agents.graph._load_agent_mcp_tools",
+                new=AsyncMock(return_value=[consumption_tool, search_tool]),
+            ),
+            patch(
+                "app.agents.graph._prefetch_consumption_summary",
+                new=AsyncMock(return_value=([], None)),
+            ),
+            patch(
+                "app.agents.graph._prefetch_personal_user_context",
+                new=AsyncMock(return_value=([], None)),
+            ),
+            patch("app.agents.graph._invoke_model", side_effect=invoke),
+        ):
+            result, _, _ = await _execute_specialist(
+                state,
+                "sustainability prompt",
+                "sustainability",
+                message,
+                Mock(),
+                [],
+                None,
+            )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(observed["tools"], [consumption_tool, search_tool])
+
     def test_explicit_chart_request_routes_to_visualization_with_context(self) -> None:
         """Route chart requests to visualization and inherit their domain."""
         missing = ["assunto do gráfico"]
@@ -327,8 +373,8 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual((routes, source), (["visualization"], "pending"))
 
-    async def test_jev_cannot_override_explicit_chart_route_without_chart_tool(self) -> None:
-        """Keep explicit chart creation out of a Jev route without the tool."""
+    async def test_jev_cannot_override_explicit_chart_route_with_other_agent(self) -> None:
+        """Keep explicit chart requests on the visualization route."""
         decision = SimpleNamespace(
             agent="default",
             tools=[],
@@ -360,9 +406,9 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         """Preserve local chart follow-up sources after Jev confirms visualization."""
         decision = SimpleNamespace(
             agent="visualization",
-            tools=["create_custom_dashboard"],
+            tools=[],
             confidence=0.95,
-            needs_mcp=True,
+            needs_mcp=False,
             needs_analytics=False,
         )
         outcome = SimpleNamespace(accepted=True, decision=decision)

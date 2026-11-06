@@ -765,8 +765,8 @@ class JevRouterIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
 
 class JevToolSelectionTests(unittest.TestCase):
-    def test_unselected_consumption_tool_is_not_passed_to_model(self) -> None:
-        """Keep a mandatory prefetch tool out of model access when unselected."""
+    def test_jev_selection_does_not_filter_agent_tools(self) -> None:
+        """Expose every authorized tool not already prefetched."""
         consumption_tool = Mock()
         consumption_tool.name = "get_consumption_summary"
         knowledge_tool = Mock()
@@ -775,13 +775,12 @@ class JevToolSelectionTests(unittest.TestCase):
         available_for_model = _model_mcp_tools(
             [consumption_tool, knowledge_tool],
             prefetched_names=set(),
-            selected_tools=set(),
         )
 
-        self.assertEqual(available_for_model, [])
+        self.assertEqual(available_for_model, [consumption_tool, knowledge_tool])
 
-    def test_selected_tools_remain_available_unless_already_prefetched(self) -> None:
-        """Expose selected tools to the model except tools already prefetched."""
+    def test_prefetched_tools_remain_hidden_from_model_calls(self) -> None:
+        """Avoid invoking an authenticated tool twice after prefetch."""
         consumption_tool = Mock()
         consumption_tool.name = "get_consumption_summary"
         knowledge_tool = Mock()
@@ -790,7 +789,6 @@ class JevToolSelectionTests(unittest.TestCase):
         available_for_model = _model_mcp_tools(
             [consumption_tool, knowledge_tool],
             prefetched_names={"get_consumption_summary"},
-            selected_tools={"get_consumption_summary", "search_knowledge"},
         )
 
         self.assertEqual(available_for_model, [knowledge_tool])
