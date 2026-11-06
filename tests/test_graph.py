@@ -10,6 +10,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from app.agents.graph import (
     _DASHBOARD_IMPLICIT_REQUEST_PATTERN,
     _RESET_TOOLS,
+    _build_prompt_agent,
     _collect_pending_state,
     _conversation_is_personal_request,
     _dashboard_confirmation,
@@ -65,6 +66,19 @@ class GraphTest(unittest.IsolatedAsyncioTestCase):
         settings.groq_api_key = self.previous_groq_key
         settings.nvidia_api_key = self.previous_nvidia_key
         get_chat_model.cache_clear()
+
+    async def test_prompt_agent_records_its_execution_duration(self) -> None:
+        result = {"agents": ["faq"]}
+        with (
+            patch("app.agents.graph._run_agent", new=AsyncMock(return_value=result)),
+            patch("app.agents.graph.observe_agent_execution") as observe,
+        ):
+            agent = _build_prompt_agent("faq", "prompt")
+            self.assertIs(await agent({}), result)
+
+        observe.assert_called_once()
+        self.assertEqual(observe.call_args.args[0], "faq")
+        self.assertGreaterEqual(observe.call_args.args[1], 0)
 
     def test_tool_reducer_distinguishes_reset_from_no_tools(self) -> None:
         self.assertEqual(_merge_tools(["get_user_context"], []), ["get_user_context"])

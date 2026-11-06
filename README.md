@@ -315,7 +315,9 @@ tokens por provedor/perfil (`ai_server_llm_tokens_total`), chamadas LLM por resu
 estimado do GPT-6 Luna (`ai_server_llm_cost_usd_total`) com tarifas públicas padrão.
 O custo de Groq/NVIDIA não é estimado porque suas tarifas não estão configuradas.
 Também expõe decisões/fallbacks Jev, concordância com o roteador e tarefas pendentes.
-Os labels são limitados aos provedores/perfis conhecidos para evitar cardinalidade
+
+`ai_server_agent_execution_duration_seconds` registra o tempo completo de execução por agente (inclui chamadas a modelos e tools), não o tempo de fila ou espera entre nós.
+Os labels de agentes, provedores e perfis têm valores controlados para evitar cardinalidade
 acidental. O endpoint exige um Bearer Token M2M do cliente de métricas, com `azp` igual a `METRICS_KEYCLOAK_AUTHORIZED_PARTY` (por padrão, `ouros-prometheus`). Configure o Prometheus para obter esse token via Client Credentials e use o
 Prometheus como datasource no Grafana:
 

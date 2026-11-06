@@ -2,14 +2,17 @@ import unittest
 from types import SimpleNamespace
 
 from prometheus_client import generate_latest
+from prometheus_client.parser import text_string_to_metric_families
 
 from app.core.metrics import (
+    AGENT_EXECUTION_DURATION,
     LLM_COST_USD,
     LLM_FALLBACKS,
     LLM_REQUESTS,
     LLM_TOKENS,
     LLMUsageCallback,
     _safe_route_source,
+    observe_agent_execution,
     observe_chat_result,
     observe_chat_routing,
 )
@@ -22,6 +25,28 @@ class MetricsTest(unittest.TestCase):
             ["router", "faq"],
             ["recall_user_memories"],
         )
+
+    def test_agent_execution_records_histogram_samples(self) -> None:
+        def sample_value(sample_name: str) -> float:
+            return next(
+                sample.value
+                for family in text_string_to_metric_families(
+                    generate_latest().decode()
+                )
+                for sample in family.samples
+                if sample.name == sample_name and sample.labels.get("agent") == "faq"
+            )
+
+        count_name = "ai_server_agent_execution_duration_seconds_count"
+        sum_name = "ai_server_agent_execution_duration_seconds_sum"
+        AGENT_EXECUTION_DURATION.labels("faq")
+        count_before = sample_value(count_name)
+        sum_before = sample_value(sum_name)
+
+        observe_agent_execution("faq", 0.25)
+
+        self.assertEqual(sample_value(count_name) - count_before, 1)
+        self.assertAlmostEqual(sample_value(sum_name) - sum_before, 0.25)
 
     def test_chat_routing_bounds_route_source_labels(self) -> None:
         observe_chat_routing(

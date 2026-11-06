@@ -5,6 +5,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from decimal import Decimal
+from time import perf_counter
 from typing import Annotated
 from uuid import uuid4
 
@@ -51,6 +52,7 @@ from app.agents.prompts import (
 )
 from app.agents.tools import build_memory_tools
 from app.core.config import settings
+from app.core.metrics import observe_agent_execution
 from app.debug_ui.trace import trace_event
 from app.decision.models import DecisionInput
 from app.decision.service import DecisionService
@@ -2147,7 +2149,19 @@ def _build_prompt_agent(
             mcp_provider,
         )
 
-    return agent
+    return _measure_agent_execution(name, agent)
+
+
+def _measure_agent_execution(name: str, node):
+    """Observe each agent node's full execution time, including tools."""
+    async def measured(state: AgentState) -> dict:
+        started_at = perf_counter()
+        try:
+            return await node(state)
+        finally:
+            observe_agent_execution(name, perf_counter() - started_at)
+
+    return measured
 
 
 def _build_agents(
@@ -2156,7 +2170,7 @@ def _build_agents(
 ) -> dict:
     specialist_tools = specialist_tools or {}
     return {
-        "default": default_agent,
+        "default": _measure_agent_execution("default", default_agent),
         **{
             name: _build_prompt_agent(
                 name,

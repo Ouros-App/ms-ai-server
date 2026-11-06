@@ -21,6 +21,12 @@ CHAT_AGENTS = Counter(
     "Quantidade de agentes registrados nas respostas do chat.",
     ("agent",),
 )
+
+AGENT_EXECUTION_DURATION = Histogram(
+    "ai_server_agent_execution_duration_seconds",
+    "Tempo de execucao de cada agente do chat em segundos.",
+    ("agent",),
+)
 CHAT_TOOLS = Counter(
     "ai_server_chat_tool_usage",
     "Quantidade de tools usadas pelo chat.",
@@ -213,6 +219,11 @@ def observe_http_request(
 ) -> None:
     HTTP_REQUESTS.labels(method, route, str(status)).inc()
     HTTP_REQUEST_DURATION.labels(method, route).observe(duration_seconds)
+
+
+def observe_agent_execution(agent: str, duration_seconds: float) -> None:
+    """Record the execution duration for one agent node."""
+    AGENT_EXECUTION_DURATION.labels(agent).observe(duration_seconds)
 
 
 def observe_chat_result(outcome: str, agents: list[str], tools: list[str]) -> None:
