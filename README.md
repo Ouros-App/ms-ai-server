@@ -12,7 +12,7 @@
 </div>
 <!-- REPO-METADATA:END -->
 
-API FastAPI de orquestração de agentes de IA com LangGraph. O serviço usa MongoDB para persistir o estado das conversas e as memórias dos usuários, e pode chamar provedores Groq e NVIDIA NIM.
+API FastAPI de orquestração de agentes de IA com LangGraph. O serviço usa MongoDB para persistir o estado das conversas e as memórias dos usuários, e usa GPT-6 Luna via OpenAI como provedor principal, com Groq e NVIDIA NIM como fallback.
 
 ## Status e escopo
 
@@ -36,7 +36,7 @@ As chaves de IA são opcionais para iniciar a aplicação. Todos os endpoints au
 - `app/agents/graph.py`: define o fluxo de roteamento, execução estruturada e síntese.
 - `app/agents/mcp.py`: encaminha o JWT validado do usuário ao MCP e aplica a allowlist.
 - `app/agents/prompts.py`: regras comuns, contrato JSON, rota e prompts especializados.
-- `app/agents/model.py`: configura os perfis rápido e potente do Groq e NVIDIA NIM.
+- `app/agents/model.py`: configura GPT-6 Luna, Groq e NVIDIA NIM com fallback por perfil.
 - `app/agents/guardrails.py`: valida entradas e revisa respostas.
 - `app/repositories/`: checkpointer, memórias e posse das threads.
 - `app/services/`: execução do chat e leitura do histórico.
@@ -72,13 +72,13 @@ flowchart TD
     Specialists --> MCP[Servidor MCP]
     MCP --> Domain[APIs e telemetria]
     Router --> Jev[Decisor Jev opcional]
-    Router --> Providers[Groq e NVIDIA NIM]
+    Router --> Providers[OpenAI, Groq e NVIDIA NIM]
     Specialists --> Providers
     Default --> Providers
     Default --> Output[Revisao e sanitizacao]
 ```
 
-**Fronteiras de responsabilidade:** o mobile chama `POST /v1/chat` usando JWT Keycloak; o Debug Console autentica em `POST /debug/api/login` e usa `POST /debug/api/chat` com sessão por cookie. Ambos chegam ao serviço de chat, que valida entrada e propriedade da thread antes de executar o grafo. `ThreadOwnershipStore` controla a posse da conversa, enquanto o histórico de mensagens é lido por `get_thread_history()` no checkpointer MongoDB. O grafo orquestra as etapas; os especialistas acessam tools restritas e o `default` sintetiza a resposta sem MCP. Groq e NVIDIA NIM fornecem modelos com fallback por perfil.
+**Fronteiras de responsabilidade:** o mobile chama `POST /v1/chat` usando JWT Keycloak; o Debug Console autentica em `POST /debug/api/login` e usa `POST /debug/api/chat` com sessão por cookie. Ambos chegam ao serviço de chat, que valida entrada e propriedade da thread antes de executar o grafo. `ThreadOwnershipStore` controla a posse da conversa, enquanto o histórico de mensagens é lido por `get_thread_history()` no checkpointer MongoDB. O grafo orquestra as etapas; os especialistas acessam tools restritas e o `default` sintetiza a resposta sem MCP. GPT-6 Luna é o provedor principal; Groq e NVIDIA NIM são fallbacks.
 
 ### Topologia real do LangGraph
 
@@ -127,7 +127,7 @@ Para cumprir um eventual requisito específico de **LLM-as-a-Judge**, será nece
 - Docker e Docker Compose para a execução completa com MongoDB.
 - Python 3.12 para execução fora do container.
 - Configure `AUTH_JWT_ISSUER`, `AUTH_JWT_AUDIENCE` e `AUTH_JWKS_URL` do Keycloak e use um JWT de usuário nos endpoints autenticados.
-- Chaves `GROQ_API_KEY` e/ou `NVIDIA_API_KEY` quando a resposta por IA for necessária.
+- Configure `OPENAI_API_KEY` para usar GPT-6 Luna; Groq e/ou NVIDIA NIM são provedores de fallback.
 
 ## Instalação e configuração
 
@@ -141,13 +141,14 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 | `MONGODB_URI` | URI do MongoDB para execução fora do Compose. |
 | `MONGODB_URI_DOCKER` | URI usada pelo serviço no Compose. |
 | `MONGODB_DATABASE` | Banco usado pelo serviço, com padrão `mongodb-ai-prod`; use `mongodb-ai-qa` no ambiente de QA. |
-| `GROQ_API_KEY` / `GROQ_FAST_MODEL` / `GROQ_MODEL` | Provedor Groq e perfis rápido/potente. |
-| `NVIDIA_API_KEY` / `NVIDIA_NIM_FAST_MODEL` / `NVIDIA_NIM_MODEL` / `NVIDIA_NIM_BASE_URL` | Provedor NVIDIA NIM e perfis rápido/potente. |
-| `LLM_TEMPERATURE` / `LLM_TIMEOUT_SECONDS` | Parâmetros das chamadas ao modelo. |
+| `OPENAI_API_KEY` | Chave OpenAI carregada do Infisical; o serviço usa `gpt-6-luna`, `reasoning_effort=none` e limite geral de 1.024 tokens de saída, elevado a 32.768 somente para importações quando OpenAI é usada; fallback para Groq e NVIDIA NIM. |
+| `GROQ_API_KEY` / `GROQ_FAST_MODEL` / `GROQ_MODEL` | Provedor Groq nos perfis rápido/potente; segundo na ordem de fallback. |
+| `NVIDIA_API_KEY` / `NVIDIA_NIM_FAST_MODEL` / `NVIDIA_NIM_MODEL` / `NVIDIA_NIM_BASE_URL` | Provedor NVIDIA NIM e último fallback por perfil. |
+| `LLM_TEMPERATURE` / `LLM_TIMEOUT_SECONDS` | Parâmetros das chamadas aos provedores. |
 | `JEV_ENABLED` / `JEV_SHADOW_MODE` | Ativam a decisão Jev. Com `JEV_ENABLED=true` e `JEV_SHADOW_MODE=false` (padrão), Jev escolhe a rota de todas as mensagens normais, inclusive saudações e perguntas de identidade. Use `JEV_SHADOW_MODE=true` somente para comparar decisões mantendo o roteador atual. Bloqueios de guardrail e rotas explicitamente definidas continuam fora do roteamento Jev. |
 | `JEV_API_KEY` | Chave TypeSafe System One; configure no Infisical nos ambientes de deploy. |
 | `JEV_BASE_URL` / `JEV_MODEL` | Endpoint e modelo Jev (`https://api.typesafe.ai` e `jev-latest` por padrão). |
-| `JEV_TIMEOUT_MS` / `JEV_MIN_CONFIDENCE` / `JEV_MAX_CALLS_PER_REQUEST` | Limite de latência, confiança mínima e chamadas permitidas por mensagem. |
+| `JEV_TIMEOUT_MS` / `JEV_MIN_CONFIDENCE` / `JEV_MAX_CALLS_PER_REQUEST` | Limite de latência, confiança mínima e chamadas por mensagem; `JEV_MAX_CALLS_PER_REQUEST` tem padrão 2 no código e não exige secret no Infisical. |
 | `JEV_INPUT_COST_PER_MILLION_USD` / `JEV_OUTPUT_COST_PER_MILLION_USD` | Parâmetros ajustáveis para contabilizar custo estimado por tokens. |
 | `MCP_TOOL_TIMEOUT_SECONDS` | Limite por chamada de tool, evitando que uma dependência consuma todo o tempo da requisição. |
 | `AUTH_JWT_ISSUER` / `AUTH_JWT_AUDIENCE` / `AUTH_JWKS_URL` | Contrato oficial do Keycloak; valida assinatura RS256, issuer, audience e expiração. `database_id` é o ID do banco legado e `sub` permanece a identidade do Keycloak. |
@@ -159,14 +160,10 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 
 Não versione o arquivo `.env` nem os tokens. Quando o Infisical está totalmente configurado, os secrets carregados do cofre são aplicados antes da criação de `Settings` e prevalecem sobre valores locais com a mesma chave. Sem nenhuma das quatro variáveis de bootstrap, o serviço pode rodar em modo local. Configuração parcial ou ambiente inválido interrompe o startup para evitar fallback silencioso.
 
-Em deploy, `INFISICAL_TOKEN` é o único bootstrap secreto que precisa existir fora do cofre. Os secrets de aplicação esperados no Infisical incluem `MONGODB_URI` quando contiver credenciais, `GROQ_API_KEY` e `NVIDIA_API_KEY`. A autenticação de usuário não depende mais de shared secrets locais.
+Em deploy, `INFISICAL_TOKEN` é o único bootstrap secreto que precisa existir fora do cofre. Os secrets de aplicação esperados no Infisical incluem `MONGODB_URI` quando contiver credenciais e as chaves `OPENAI_API_KEY`, `GROQ_API_KEY` e `NVIDIA_API_KEY`. A autenticação de usuário não depende mais de shared secrets locais.
 Como a configuração do Infisical é carregada no startup, reinicie o serviço após alterar secrets ou permissões do usuário MongoDB.
 
-O roteador, guardrails, FAQ, suporte, fallback e o sintetizador default usam os perfis rápidos
-`GROQ_FAST_MODEL` e `NVIDIA_NIM_FAST_MODEL`. Ranking e sustentabilidade usam os
-perfis potentes `GROQ_MODEL` e `NVIDIA_NIM_MODEL`. Visualização usa o mesmo perfil
-potente para selecionar gráficos e interpretar o contexto. Se o
-Groq falhar, o NVIDIA NIM é usado como fallback do mesmo perfil.
+Todos os perfis usam GPT-6 Luna como modelo principal, com `reasoning_effort=none`, `max_completion_tokens=1024` e sem retries automáticos. Para importações, a chamada OpenAI usa limite específico de 32.768 tokens; Groq e NVIDIA NIM não recebem esse limite e seguem os limites do provedor. Se OpenAI falhar, o serviço tenta Groq e depois NVIDIA NIM no perfil correspondente. Sem `OPENAI_API_KEY`, o primeiro provedor configurado assume o papel de principal.
 
 O fluxo é `router → especialistas → fan-in → default`. O roteador pode selecionar
 até quatro especialistas independentes, que rodam em paralelo no LangGraph. Cada
@@ -312,11 +309,49 @@ curl "http://localhost:8000/v1/chat/conversa-1/history?limit=20" \
 ## Observabilidade
 
 O endpoint `GET /metrics` expõe métricas Prometheus de requisições HTTP, latência,
-status, resultados do chat, agentes, tools utilizadas, origem da decisão de rota
-(`deterministic`, `pending`, `jev`, `model`, etc.), decisões/fallbacks Jev,
-tokens/custo estimado, concordância com o roteador e tarefas que terminaram o turno
-aguardando informação. Os labels de origem são limitados a um conjunto fechado para
-evitar cardinalidade acidental. Ele exige um Bearer Token M2M do cliente de métricas, com `azp` igual a `METRICS_KEYCLOAK_AUTHORIZED_PARTY` (por padrão, `ouros-prometheus`). Configure o Prometheus para obter esse token via Client Credentials e use o
+status, resultados do chat, agentes, tools utilizadas, origem da decisão de rota,
+tokens por provedor/perfil (`ai_server_llm_tokens_total`), chamadas LLM por resultado
+(`ai_server_llm_requests_total`), fallbacks (`ai_server_llm_fallbacks_total`) e custo
+estimado do GPT-6 Luna (`ai_server_llm_cost_usd_total`) com tarifas públicas padrão.
+O custo de Groq/NVIDIA não é estimado porque suas tarifas não estão configuradas.
+Também expõe decisões/fallbacks Jev, concordância com o roteador e tarefas pendentes.
+
+Com `JEV_ENABLED=true`, turnos de chat concluídos são classificados em segundo
+plano como `resolved`, `unresolved`, `uncertain` (confiança abaixo de
+`JEV_MIN_CONFIDENCE`) ou `unavailable`. Jev recebe apenas pergunta e resposta
+anonimizadas. A classificação usa uma chamada adicional quando o limite de
+chamadas por requisição permite.
+
+`midas_jev_task_outcomes_total` conta turnos classificados pelo Jev, não tarefas
+confirmadas pelo usuário; retries podem ser contados novamente.
+`midas_jev_estimated_user_benefit_brl_total` é uma hipótese, não benefício
+medido: cada turno classificado como resolvido assume 5 minutos poupados a
+R$20/hora, conforme cenário do guia.
+
+Agregue o mesmo mês-calendário (`America/Sao_Paulo`). Fórmulas conceituais; a
+API de telemetria deve aplicá-las à janela mensal escolhida:
+
+```text
+resoluções = aumento mensal de midas_jev_task_outcomes_total{outcome="resolved"}
+benefício (BRL) = aumento mensal de midas_jev_estimated_user_benefit_brl_total
+custo conhecido (USD) =
+  soma do aumento mensal de ai_server_llm_cost_usd_total
+  + aumento mensal de midas_jev_cost_usd_total
+custo conhecido (BRL) = custo conhecido (USD) * média mensal USD/BRL do Banco Central
+custo por resolução (USD) = custo conhecido (USD) / resoluções
+ROI econômico estimado (%) =
+  100 * (benefício (BRL) - custo conhecido (BRL)) / custo conhecido (BRL)
+```
+
+Esses custos cobrem apenas OpenAI e Jev precificados; não incluem fallback sem
+tarifa, tools, infraestrutura, manutenção ou desenvolvimento. O resultado é
+valor econômico estimado para usuários/ecossistema, não ROI financeiro do Ouros.
+Retorne N/D sem resoluções, custo conhecido ou taxa BCB. A integração do serviço
+de telemetria deve manter essa estimativa separada de benefício e ROI realizados.
+
+`ai_server_agent_execution_duration_seconds` registra o tempo completo de execução dos agentes, incluindo o nó `router` (e chamadas a modelos e tools dos especialistas), não o tempo de fila ou espera entre nós.
+Os labels de agentes, provedores e perfis têm valores controlados para evitar cardinalidade
+acidental. O endpoint exige um Bearer Token M2M do cliente de métricas, com `azp` igual a `METRICS_KEYCLOAK_AUTHORIZED_PARTY` (por padrão, `ouros-prometheus`). Configure o Prometheus para obter esse token via Client Credentials e use o
 Prometheus como datasource no Grafana:
 
 ```yaml

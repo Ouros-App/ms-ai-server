@@ -1,3 +1,4 @@
+from langchain_core.callbacks import BaseCallbackHandler
 from prometheus_client import Counter, Histogram
 
 HTTP_REQUESTS = Counter(
@@ -18,6 +19,12 @@ CHAT_REQUESTS = Counter(
 CHAT_AGENTS = Counter(
     "ai_server_chat_agent_usage",
     "Quantidade de agentes registrados nas respostas do chat.",
+    ("agent",),
+)
+
+AGENT_EXECUTION_DURATION = Histogram(
+    "ai_server_agent_execution_duration_seconds",
+    "Tempo de execucao de cada agente do chat em segundos.",
     ("agent",),
 )
 CHAT_TOOLS = Counter(
@@ -67,6 +74,37 @@ JEV_ROUTER_AGREEMENT = Counter(
     "Shadow-mode Jev route agreement with the active Midas route.",
     ("agreement",),
 )
+JEV_TASK_OUTCOMES = Counter(
+    "midas_jev_task_outcomes",
+    "Jev-classified outcomes; estimated resolutions are not user-confirmed.",
+    ("outcome",),
+)
+JEV_ESTIMATED_USER_BENEFIT_BRL = Counter(
+    "midas_jev_estimated_user_benefit_brl",
+    "Hypothetical user value at 5 minutes saved and R$20/hour per resolution.",
+)
+
+LLM_REQUESTS = Counter(
+    "ai_server_llm_requests",
+    "Total LangChain model calls by provider, profile, and outcome.",
+    ("provider", "profile", "outcome"),
+)
+LLM_TOKENS = Counter(
+    "ai_server_llm_tokens",
+    "Input and output tokens reported by LangChain model responses.",
+    ("provider", "profile", "direction"),
+)
+LLM_COST_USD = Counter(
+    "ai_server_llm_cost_usd",
+    "Estimated OpenAI model cost from reported token usage and published rates.",
+    ("provider", "profile"),
+)
+LLM_FALLBACKS = Counter(
+    "ai_server_llm_fallbacks",
+    "Successful uses of a non-primary language-model provider.",
+    ("provider", "profile"),
+)
+
 
 _ALLOWED_ROUTE_SOURCES = {
     "cancelled",
@@ -88,6 +126,101 @@ def _safe_route_source(source: object) -> str:
     return source if isinstance(source, str) and source in _ALLOWED_ROUTE_SOURCES else "unknown"
 
 
+def _usage_metadata(response) -> dict | None:
+    """Read message usage, falling back to provider-reported token totals."""
+    for generations in response.generations:
+        for generation in generations:
+            usage = getattr(getattr(generation, "message", None), "usage_metadata", None)
+            if isinstance(usage, dict) and usage:
+                return usage
+    usage = (response.llm_output or {}).get("token_usage")
+    return usage if isinstance(usage, dict) else None
+
+
+def _token_counts(usage: dict) -> tuple[int, int] | None:
+    """Return non-negative integer input and output token counts."""
+    input_tokens = usage.get("input_tokens", usage.get("prompt_tokens"))
+    output_tokens = usage.get("output_tokens", usage.get("completion_tokens"))
+    if (
+        type(input_tokens) is not int
+        or input_tokens < 0
+        or type(output_tokens) is not int
+        or output_tokens < 0
+    ):
+        return None
+    return input_tokens, output_tokens
+
+
+class LLMUsageCallback(BaseCallbackHandler):
+    """Record bounded token, request, fallback, and OpenAI cost metrics."""
+
+    def __init__(
+        self,
+        *,
+        provider: str,
+        profile: str,
+        is_fallback: bool,
+        input_cost_per_million_usd: float | None = None,
+        output_cost_per_million_usd: float | None = None,
+        cached_input_cost_per_million_usd: float | None = None,
+    ) -> None:
+        self.provider = provider
+        self.profile = profile
+        self.is_fallback = is_fallback
+        self.input_cost_per_million_usd = input_cost_per_million_usd
+        self.output_cost_per_million_usd = output_cost_per_million_usd
+        self.cached_input_cost_per_million_usd = cached_input_cost_per_million_usd
+
+    def on_llm_end(self, response, **kwargs) -> None:
+        """Record completed calls, valid token usage, fallbacks, and cost."""
+        LLM_REQUESTS.labels(self.provider, self.profile, "success").inc()
+        if self.is_fallback:
+            LLM_FALLBACKS.labels(self.provider, self.profile).inc()
+
+        usage = _usage_metadata(response)
+        if not usage:
+            return
+        token_counts = _token_counts(usage)
+        if token_counts is None:
+            return
+        input_tokens, output_tokens = token_counts
+        LLM_TOKENS.labels(self.provider, self.profile, "input").inc(input_tokens)
+        LLM_TOKENS.labels(self.provider, self.profile, "output").inc(output_tokens)
+        self._record_openai_cost(usage, input_tokens, output_tokens)
+
+    def _record_openai_cost(
+        self,
+        usage: dict,
+        input_tokens: int,
+        output_tokens: int,
+    ) -> None:
+        """Estimate cost from configured rates and reported cache token details."""
+        if self.input_cost_per_million_usd is None or self.output_cost_per_million_usd is None:
+            return
+        input_details = usage.get("input_token_details") or {}
+        cached_input_tokens = min(
+            input_tokens,
+            input_details.get("cache_read", input_details.get("cached_tokens", 0)) or 0,
+        )
+        cache_write_tokens = min(
+            input_tokens - cached_input_tokens,
+            input_details.get("cache_creation", 0) or 0,
+        )
+        uncached_input_tokens = input_tokens - cached_input_tokens - cache_write_tokens
+        cached_rate = self.cached_input_cost_per_million_usd or self.input_cost_per_million_usd
+        cost = (
+            uncached_input_tokens * self.input_cost_per_million_usd
+            + cached_input_tokens * cached_rate
+            + cache_write_tokens * self.input_cost_per_million_usd * 1.25
+            + output_tokens * self.output_cost_per_million_usd
+        ) / 1_000_000
+        if cost:
+            LLM_COST_USD.labels(self.provider, self.profile).inc(cost)
+
+    def on_llm_error(self, error, **kwargs) -> None:
+        LLM_REQUESTS.labels(self.provider, self.profile, "error").inc()
+
+
 def observe_http_request(
     method: str,
     route: str,
@@ -96,6 +229,11 @@ def observe_http_request(
 ) -> None:
     HTTP_REQUESTS.labels(method, route, str(status)).inc()
     HTTP_REQUEST_DURATION.labels(method, route).observe(duration_seconds)
+
+
+def observe_agent_execution(agent: str, duration_seconds: float) -> None:
+    """Record the execution duration for one agent node."""
+    AGENT_EXECUTION_DURATION.labels(agent).observe(duration_seconds)
 
 
 def observe_chat_result(outcome: str, agents: list[str], tools: list[str]) -> None:
@@ -141,6 +279,29 @@ def observe_jev_request(
         JEV_COST_USD.inc(cost_usd)
     if fallback_reason:
         JEV_FALLBACKS.labels(fallback_reason).inc()
+
+
+def observe_jev_outcome(
+    outcome: str,
+    status: str,
+    duration_seconds: float,
+    *,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cost_usd: float = 0.0,
+) -> None:
+    """Record an outcome classification and its explicitly estimated value."""
+    JEV_REQUESTS.labels(status, "outcome").inc()
+    JEV_REQUEST_DURATION.labels("outcome").observe(duration_seconds)
+    if input_tokens:
+        JEV_INPUT_TOKENS.inc(input_tokens)
+    if output_tokens:
+        JEV_OUTPUT_TOKENS.inc(output_tokens)
+    if cost_usd > 0:
+        JEV_COST_USD.inc(cost_usd)
+    JEV_TASK_OUTCOMES.labels(outcome).inc()
+    if outcome == "resolved":
+        JEV_ESTIMATED_USER_BENEFIT_BRL.inc(5 / 60 * 20)
 
 
 def observe_jev_router_agreement(agreement: bool) -> None:

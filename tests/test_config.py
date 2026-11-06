@@ -28,6 +28,7 @@ class ConfigTest(unittest.TestCase):
 
         self.assertEqual(config.app_port, 8000)
         self.assertEqual(config.mongodb_database, "mongodb-ai-prod")
+        self.assertEqual(config.jev_max_calls_per_request, 2)
         self.assertEqual(config.auth_jwt_issuer, "https://ouros-keycloak.discloud.app/realms/ouros")
         self.assertEqual(config.auth_jwt_audience, "ms-ai-server")
         self.assertIsNone(config.auth_jwks_url)
