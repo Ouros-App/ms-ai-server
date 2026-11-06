@@ -148,7 +148,7 @@ Copie `.env.example` para `.env` e preencha os valores necessários. O arquivo d
 | `JEV_ENABLED` / `JEV_SHADOW_MODE` | Ativam a decisão Jev. Com `JEV_ENABLED=true` e `JEV_SHADOW_MODE=false` (padrão), Jev escolhe a rota de todas as mensagens normais, inclusive saudações e perguntas de identidade. Use `JEV_SHADOW_MODE=true` somente para comparar decisões mantendo o roteador atual. Bloqueios de guardrail e rotas explicitamente definidas continuam fora do roteamento Jev. |
 | `JEV_API_KEY` | Chave TypeSafe System One; configure no Infisical nos ambientes de deploy. |
 | `JEV_BASE_URL` / `JEV_MODEL` | Endpoint e modelo Jev (`https://api.typesafe.ai` e `jev-latest` por padrão). |
-| `JEV_TIMEOUT_MS` / `JEV_MIN_CONFIDENCE` / `JEV_MAX_CALLS_PER_REQUEST` | Limite de latência, confiança mínima e chamadas permitidas por mensagem. |
+| `JEV_TIMEOUT_MS` / `JEV_MIN_CONFIDENCE` / `JEV_MAX_CALLS_PER_REQUEST` | Limite de latência, confiança mínima e chamadas por mensagem; `JEV_MAX_CALLS_PER_REQUEST` tem padrão 2 no código e não exige secret no Infisical. |
 | `JEV_INPUT_COST_PER_MILLION_USD` / `JEV_OUTPUT_COST_PER_MILLION_USD` | Parâmetros ajustáveis para contabilizar custo estimado por tokens. |
 | `MCP_TOOL_TIMEOUT_SECONDS` | Limite por chamada de tool, evitando que uma dependência consuma todo o tempo da requisição. |
 | `AUTH_JWT_ISSUER` / `AUTH_JWT_AUDIENCE` / `AUTH_JWKS_URL` | Contrato oficial do Keycloak; valida assinatura RS256, issuer, audience e expiração. `database_id` é o ID do banco legado e `sub` permanece a identidade do Keycloak. |
